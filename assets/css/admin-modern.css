@@ -1,0 +1,1039 @@
+/**
+ * WP Ultimate Diagnostics Toolkit - Modern UI Design System
+ * Improved UI/UX with modern aesthetics and better functionality
+ */
+
+/* ============================================
+   DESIGN TOKENS - CSS Variables
+   ============================================ */
+:root {
+	/* Primary Colors */
+	--wudt-primary: #2271b1;
+	--wudt-primary-dark: #1a5a8c;
+	--wudt-primary-light: #4a9fd8;
+	--wudt-primary-50: #f0f7fc;
+	
+	/* Semantic Colors */
+	--wudt-success: #00a32a;
+	--wudt-success-light: #edfaef;
+	--wudt-warning: #dba617;
+	--wudt-warning-light: #fcf9e8;
+	--wudt-error: #d63638;
+	--wudt-error-light: #fcf0f1;
+	--wudt-info: #2271b1;
+	--wudt-info-light: #f0f7fc;
+	
+	/* Neutral Colors */
+	--wudt-gray-50: #f6f7f7;
+	--wudt-gray-100: #f0f0f1;
+	--wudt-gray-200: #dcdcde;
+	--wudt-gray-300: #c3c4c7;
+	--wudt-gray-400: #a7aaad;
+	--wudt-gray-500: #8c8f94;
+	--wudt-gray-600: #646970;
+	--wudt-gray-700: #4a4b4e;
+	--wudt-gray-800: #2c2d2f;
+	--wudt-gray-900: #1d1d1f;
+	
+	/* Spacing */
+	--wudt-space-1: 4px;
+	--wudt-space-2: 8px;
+	--wudt-space-3: 12px;
+	--wudt-space-4: 16px;
+	--wudt-space-5: 20px;
+	--wudt-space-6: 24px;
+	--wudt-space-8: 32px;
+	--wudt-space-10: 40px;
+	
+	/* Border Radius */
+	--wudt-radius-sm: 4px;
+	--wudt-radius-md: 8px;
+	--wudt-radius-lg: 12px;
+	--wudt-radius-xl: 16px;
+	--wudt-radius-full: 9999px;
+	
+	/* Shadows */
+	--wudt-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+	--wudt-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+	--wudt-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	--wudt-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	
+	/* Transitions */
+	--wudt-transition-fast: 150ms ease;
+	--wudt-transition-base: 250ms ease;
+	--wudt-transition-slow: 350ms ease;
+	
+	/* Typography */
+	--wudt-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	--wudt-font-mono: Consolas, Monaco, "Courier New", monospace;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+.wudt-wrap {
+	max-width: 1400px;
+	font-family: var(--wudt-font-sans);
+	color: var(--wudt-gray-800);
+}
+
+.wudt-wrap h1 {
+	font-size: 1.75rem;
+	font-weight: 600;
+	color: var(--wudt-gray-900);
+	margin-bottom: var(--wudt-space-4);
+}
+
+.wudt-wrap h2 {
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: var(--wudt-gray-800);
+	margin: 0 0 var(--wudt-space-3);
+}
+
+.wudt-wrap h3 {
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--wudt-gray-700);
+	margin: 0 0 var(--wudt-space-2);
+}
+
+/* ============================================
+   CARDS - Modern Design
+   ============================================ */
+.wudt-card {
+	background: #fff;
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-lg);
+	padding: var(--wudt-space-4);
+	box-shadow: var(--wudt-shadow-sm);
+	transition: box-shadow var(--wudt-transition-base);
+}
+
+.wudt-card:hover {
+	box-shadow: var(--wudt-shadow-md);
+}
+
+.wudt-card--highlight {
+	border-left: 4px solid var(--wudt-primary);
+}
+
+.wudt-card--success {
+	border-left: 4px solid var(--wudt-success);
+	background: var(--wudt-success-light);
+}
+
+.wudt-card--warning {
+	border-left: 4px solid var(--wudt-warning);
+	background: var(--wudt-warning-light);
+}
+
+.wudt-card--error {
+	border-left: 4px solid var(--wudt-error);
+	background: var(--wudt-error-light);
+}
+
+/* ============================================
+   GRID SYSTEM
+   ============================================ */
+.wudt-grid {
+	display: grid;
+	gap: var(--wudt-space-4);
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.wudt-col-3 { grid-column: span 3; }
+.wudt-col-4 { grid-column: span 4; }
+.wudt-col-6 { grid-column: span 6; }
+.wudt-col-8 { grid-column: span 8; }
+.wudt-col-9 { grid-column: span 9; }
+.wudt-col-12 { grid-column: span 12; }
+
+@media (max-width: 1200px) {
+	.wudt-col-3,
+	.wudt-col-4 { grid-column: span 6; }
+}
+
+@media (max-width: 782px) {
+	.wudt-col-3,
+	.wudt-col-4,
+	.wudt-col-6,
+	.wudt-col-8,
+	.wudt-col-9 { grid-column: span 12; }
+}
+
+/* ============================================
+   TABS - Modern Pills
+   ============================================ */
+.wudt-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--wudt-space-2);
+	padding: var(--wudt-space-3);
+	background: var(--wudt-gray-50);
+	border-radius: var(--wudt-radius-xl);
+	margin-bottom: var(--wudt-space-4);
+	position: sticky;
+	top: 32px;
+	z-index: 100;
+}
+
+.wudt-tab {
+	border: none;
+	background: #fff;
+	padding: var(--wudt-space-2) var(--wudt-space-4);
+	border-radius: var(--wudt-radius-full);
+	cursor: pointer;
+	font-weight: 500;
+	font-size: 0.875rem;
+	color: var(--wudt-gray-600);
+	transition: all var(--wudt-transition-fast);
+	box-shadow: var(--wudt-shadow-sm);
+}
+
+.wudt-tab:hover {
+	background: var(--wudt-primary-50);
+	color: var(--wudt-primary);
+}
+
+.wudt-tab.is-active {
+	background: var(--wudt-primary);
+	color: #fff;
+	box-shadow: var(--wudt-shadow-md);
+}
+
+.wudt-tab .wudt-badge-inline {
+	margin-left: var(--wudt-space-2);
+	background: rgba(255,255,255,0.2);
+	padding: 2px 6px;
+	border-radius: var(--wudt-radius-full);
+	font-size: 0.75rem;
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+.wudt-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--wudt-space-2);
+	padding: var(--wudt-space-2) var(--wudt-space-4);
+	border-radius: var(--wudt-radius-md);
+	font-weight: 500;
+	font-size: 0.875rem;
+	cursor: pointer;
+	transition: all var(--wudt-transition-fast);
+	border: 1px solid transparent;
+	text-decoration: none;
+}
+
+.wudt-btn--primary {
+	background: var(--wudt-primary);
+	color: #fff;
+	border-color: var(--wudt-primary);
+}
+
+.wudt-btn--primary:hover {
+	background: var(--wudt-primary-dark);
+	border-color: var(--wudt-primary-dark);
+}
+
+.wudt-btn--secondary {
+	background: #fff;
+	color: var(--wudt-gray-700);
+	border-color: var(--wudt-gray-300);
+}
+
+.wudt-btn--secondary:hover {
+	background: var(--wudt-gray-50);
+	border-color: var(--wudt-gray-400);
+}
+
+.wudt-btn--ghost {
+	background: transparent;
+	color: var(--wudt-gray-600);
+}
+
+.wudt-btn--ghost:hover {
+	background: var(--wudt-gray-100);
+}
+
+.wudt-btn--danger {
+	background: var(--wudt-error);
+	color: #fff;
+	border-color: var(--wudt-error);
+}
+
+.wudt-btn--danger:hover {
+	background: #b32d2e;
+}
+
+.wudt-btn--sm {
+	padding: var(--wudt-space-1) var(--wudt-space-3);
+	font-size: 0.75rem;
+}
+
+.wudt-btn--lg {
+	padding: var(--wudt-space-3) var(--wudt-space-6);
+	font-size: 1rem;
+}
+
+.wudt-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* ============================================
+   BADGES
+   ============================================ */
+.wudt-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--wudt-space-1);
+	padding: var(--wudt-space-1) var(--wudt-space-2);
+	border-radius: var(--wudt-radius-full);
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+.wudt-badge--primary {
+	background: var(--wudt-primary-50);
+	color: var(--wudt-primary-dark);
+}
+
+.wudt-badge--success {
+	background: var(--wudt-success-light);
+	color: var(--wudt-success);
+}
+
+.wudt-badge--warning {
+	background: var(--wudt-warning-light);
+	color: var(--wudt-warning);
+}
+
+.wudt-badge--error {
+	background: var(--wudt-error-light);
+	color: var(--wudt-error);
+}
+
+.wudt-badge--neutral {
+	background: var(--wudt-gray-100);
+	color: var(--wudt-gray-600);
+}
+
+/* Status indicators */
+.wudt-status-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	animation: pulse 2s infinite;
+}
+
+.wudt-status-dot--success { background: var(--wudt-success); }
+.wudt-status-dot--warning { background: var(--wudt-warning); }
+.wudt-status-dot--error { background: var(--wudt-error); }
+.wudt-status-dot--info { background: var(--wudt-info); }
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.5; }
+}
+
+/* ============================================
+   PROGRESS BARS
+   ============================================ */
+.wudt-progress {
+	height: 8px;
+	background: var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-full);
+	overflow: hidden;
+	position: relative;
+}
+
+.wudt-progress__bar {
+	height: 100%;
+	background: linear-gradient(90deg, var(--wudt-primary), var(--wudt-primary-light));
+	border-radius: var(--wudt-radius-full);
+	transition: width var(--wudt-transition-slow);
+	position: relative;
+}
+
+.wudt-progress__bar::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		rgba(255,255,255,0.3),
+		transparent
+	);
+	animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+	0% { transform: translateX(-100%); }
+	100% { transform: translateX(100%); }
+}
+
+.wudt-progress--sm { height: 4px; }
+.wudt-progress--lg { height: 12px; }
+
+/* Circular progress */
+.wudt-progress-circle {
+	position: relative;
+	width: 60px;
+	height: 60px;
+}
+
+.wudt-progress-circle svg {
+	transform: rotate(-90deg);
+}
+
+.wudt-progress-circle__bg {
+	fill: none;
+	stroke: var(--wudt-gray-200);
+	stroke-width: 4;
+}
+
+.wudt-progress-circle__fill {
+	fill: none;
+	stroke: var(--wudt-primary);
+	stroke-width: 4;
+	stroke-linecap: round;
+	transition: stroke-dashoffset var(--wudt-transition-slow);
+}
+
+.wudt-progress-circle__text {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	font-size: 0.875rem;
+	font-weight: 600;
+}
+
+/* ============================================
+   SKELETON LOADING
+   ============================================ */
+.wudt-skeleton {
+	background: linear-gradient(
+		90deg,
+		var(--wudt-gray-100) 25%,
+		var(--wudt-gray-200) 50%,
+		var(--wudt-gray-100) 75%
+	);
+	background-size: 200% 100%;
+	animation: skeleton-loading 1.5s infinite;
+	border-radius: var(--wudt-radius-md);
+}
+
+@keyframes skeleton-loading {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}
+
+.wudt-skeleton--text {
+	height: 1em;
+	margin-bottom: var(--wudt-space-2);
+}
+
+.wudt-skeleton--title {
+	height: 1.5em;
+	width: 60%;
+	margin-bottom: var(--wudt-space-3);
+}
+
+.wudt-skeleton--avatar {
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+}
+
+.wudt-skeleton--card {
+	height: 120px;
+}
+
+/* ============================================
+   TOAST NOTIFICATIONS
+   ============================================ */
+.wudt-toast-container {
+	position: fixed;
+	top: 50px;
+	right: 20px;
+	z-index: 100000;
+	display: flex;
+	flex-direction: column;
+	gap: var(--wudt-space-3);
+	max-width: 400px;
+}
+
+.wudt-toast {
+	background: #fff;
+	border-radius: var(--wudt-radius-lg);
+	padding: var(--wudt-space-4);
+	box-shadow: var(--wudt-shadow-xl);
+	display: flex;
+	align-items: flex-start;
+	gap: var(--wudt-space-3);
+	animation: toast-in 0.3s ease;
+	border-left: 4px solid var(--wudt-gray-400);
+}
+
+.wudt-toast--success { border-left-color: var(--wudt-success); }
+.wudt-toast--warning { border-left-color: var(--wudt-warning); }
+.wudt-toast--error { border-left-color: var(--wudt-error); }
+.wudt-toast--info { border-left-color: var(--wudt-info); }
+
+@keyframes toast-in {
+	from {
+		opacity: 0;
+		transform: translateX(100%);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+.wudt-toast__icon {
+	font-size: 1.25rem;
+	flex-shrink: 0;
+}
+
+.wudt-toast__content {
+	flex: 1;
+	min-width: 0;
+}
+
+.wudt-toast__title {
+	font-weight: 600;
+	margin-bottom: var(--wudt-space-1);
+}
+
+.wudt-toast__message {
+	font-size: 0.875rem;
+	color: var(--wudt-gray-600);
+}
+
+.wudt-toast__close {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 1.25rem;
+	color: var(--wudt-gray-400);
+	padding: 0;
+	transition: color var(--wudt-transition-fast);
+}
+
+.wudt-toast__close:hover {
+	color: var(--wudt-gray-600);
+}
+
+/* ============================================
+   TOOLTIPS
+   ============================================ */
+.wudt-tooltip {
+	position: relative;
+}
+
+.wudt-tooltip::before {
+	content: attr(data-tooltip);
+	position: absolute;
+	bottom: 100%;
+	left: 50%;
+	transform: translateX(-50%) translateY(-8px);
+	background: var(--wudt-gray-800);
+	color: #fff;
+	padding: var(--wudt-space-2) var(--wudt-space-3);
+	border-radius: var(--wudt-radius-md);
+	font-size: 0.75rem;
+	white-space: nowrap;
+	opacity: 0;
+	visibility: hidden;
+	transition: all var(--wudt-transition-fast);
+	z-index: 1000;
+}
+
+.wudt-tooltip::after {
+	content: '';
+	position: absolute;
+	bottom: 100%;
+	left: 50%;
+	transform: translateX(-50%) translateY(-4px);
+	border: 6px solid transparent;
+	border-top-color: var(--wudt-gray-800);
+	opacity: 0;
+	visibility: hidden;
+	transition: all var(--wudt-transition-fast);
+}
+
+.wudt-tooltip:hover::before,
+.wudt-tooltip:hover::after {
+	opacity: 1;
+	visibility: visible;
+	transform: translateX(-50%) translateY(-4px);
+}
+
+/* ============================================
+   MODALS
+   ============================================ */
+.wudt-modal-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.5);
+	backdrop-filter: blur(4px);
+	z-index: 100010;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.wudt-modal {
+	background: #fff;
+	border-radius: var(--wudt-radius-xl);
+	max-width: 600px;
+	width: 90%;
+	max-height: 90vh;
+	overflow: hidden;
+	box-shadow: var(--wudt-shadow-xl);
+	animation: modal-in 0.3s ease;
+}
+
+@keyframes modal-in {
+	from {
+		opacity: 0;
+		transform: scale(0.95) translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+.wudt-modal__header {
+	padding: var(--wudt-space-4) var(--wudt-space-5);
+	border-bottom: 1px solid var(--wudt-gray-200);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.wudt-modal__title {
+	font-size: 1.125rem;
+	font-weight: 600;
+	margin: 0;
+}
+
+.wudt-modal__close {
+	background: none;
+	border: none;
+	font-size: 1.5rem;
+	cursor: pointer;
+	color: var(--wudt-gray-400);
+	transition: color var(--wudt-transition-fast);
+}
+
+.wudt-modal__close:hover {
+	color: var(--wudt-gray-600);
+}
+
+.wudt-modal__body {
+	padding: var(--wudt-space-5);
+	overflow-y: auto;
+	max-height: 60vh;
+}
+
+.wudt-modal__footer {
+	padding: var(--wudt-space-4) var(--wudt-space-5);
+	border-top: 1px solid var(--wudt-gray-200);
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--wudt-space-3);
+}
+
+/* ============================================
+   FORMS
+   ============================================ */
+.wudt-form-group {
+	margin-bottom: var(--wudt-space-4);
+}
+
+.wudt-label {
+	display: block;
+	font-weight: 500;
+	font-size: 0.875rem;
+	color: var(--wudt-gray-700);
+	margin-bottom: var(--wudt-space-2);
+}
+
+.wudt-input,
+.wudt-select,
+.wudt-textarea {
+	width: 100%;
+	padding: var(--wudt-space-2) var(--wudt-space-3);
+	border: 1px solid var(--wudt-gray-300);
+	border-radius: var(--wudt-radius-md);
+	font-size: 0.875rem;
+	transition: all var(--wudt-transition-fast);
+	background: #fff;
+}
+
+.wudt-input:focus,
+.wudt-select:focus,
+.wudt-textarea:focus {
+	outline: none;
+	border-color: var(--wudt-primary);
+	box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.1);
+}
+
+.wudt-input::placeholder,
+.wudt-textarea::placeholder {
+	color: var(--wudt-gray-400);
+}
+
+.wudt-input--error {
+	border-color: var(--wudt-error);
+}
+
+.wudt-input--error:focus {
+	box-shadow: 0 0 0 3px rgba(214, 54, 56, 0.1);
+}
+
+.wudt-input-hint {
+	font-size: 0.75rem;
+	color: var(--wudt-gray-500);
+	margin-top: var(--wudt-space-1);
+}
+
+.wudt-input-error {
+	font-size: 0.75rem;
+	color: var(--wudt-error);
+	margin-top: var(--wudt-space-1);
+}
+
+/* Checkbox/Radio styling */
+.wudt-checkbox,
+.wudt-radio {
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-2);
+	cursor: pointer;
+	font-size: 0.875rem;
+}
+
+.wudt-checkbox input,
+.wudt-radio input {
+	width: 18px;
+	height: 18px;
+	accent-color: var(--wudt-primary);
+}
+
+/* ============================================
+   TABLES
+   ============================================ */
+.wudt-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	font-size: 0.875rem;
+}
+
+.wudt-table th {
+	background: var(--wudt-gray-50);
+	padding: var(--wudt-space-3);
+	text-align: left;
+	font-weight: 600;
+	color: var(--wudt-gray-700);
+	border-bottom: 1px solid var(--wudt-gray-200);
+}
+
+.wudt-table td {
+	padding: var(--wudt-space-3);
+	border-bottom: 1px solid var(--wudt-gray-100);
+	vertical-align: top;
+}
+
+.wudt-table tr:hover td {
+	background: var(--wudt-gray-50);
+}
+
+.wudt-table tr.is-selected td {
+	background: var(--wudt-primary-50);
+}
+
+/* ============================================
+   EMPTY STATES
+   ============================================ */
+.wudt-empty {
+	text-align: center;
+	padding: var(--wudt-space-10) var(--wudt-space-6);
+}
+
+.wudt-empty__icon {
+	font-size: 3rem;
+	margin-bottom: var(--wudt-space-4);
+	opacity: 0.5;
+}
+
+.wudt-empty__title {
+	font-size: 1.125rem;
+	font-weight: 600;
+	color: var(--wudt-gray-700);
+	margin-bottom: var(--wudt-space-2);
+}
+
+.wudt-empty__message {
+	color: var(--wudt-gray-500);
+	max-width: 400px;
+	margin: 0 auto var(--wudt-space-4);
+}
+
+/* ============================================
+   STAT CARDS (Dashboard)
+   ============================================ */
+.wudt-stat-card {
+	background: #fff;
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-lg);
+	padding: var(--wudt-space-4);
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-4);
+	transition: all var(--wudt-transition-base);
+}
+
+.wudt-stat-card:hover {
+	box-shadow: var(--wudt-shadow-md);
+	transform: translateY(-2px);
+}
+
+.wudt-stat-card__icon {
+	width: 48px;
+	height: 48px;
+	border-radius: var(--wudt-radius-lg);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.5rem;
+	background: var(--wudt-primary-50);
+}
+
+.wudt-stat-card__content {
+	flex: 1;
+}
+
+.wudt-stat-card__value {
+	font-size: 1.5rem;
+	font-weight: 700;
+	color: var(--wudt-gray-900);
+}
+
+.wudt-stat-card__label {
+	font-size: 0.875rem;
+	color: var(--wudt-gray-500);
+}
+
+.wudt-stat-card__change {
+	font-size: 0.75rem;
+	font-weight: 600;
+	padding: var(--wudt-space-1) var(--wudt-space-2);
+	border-radius: var(--wudt-radius-full);
+}
+
+.wudt-stat-card__change--up {
+	background: var(--wudt-success-light);
+	color: var(--wudt-success);
+}
+
+.wudt-stat-card__change--down {
+	background: var(--wudt-error-light);
+	color: var(--wudt-error);
+}
+
+/* ============================================
+   ACCORDION
+   ============================================ */
+.wudt-accordion {
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-lg);
+	overflow: hidden;
+}
+
+.wudt-accordion__item {
+	border-bottom: 1px solid var(--wudt-gray-200);
+}
+
+.wudt-accordion__item:last-child {
+	border-bottom: none;
+}
+
+.wudt-accordion__header {
+	width: 100%;
+	padding: var(--wudt-space-3) var(--wudt-space-4);
+	background: #fff;
+	border: none;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	cursor: pointer;
+	font-weight: 500;
+	transition: background var(--wudt-transition-fast);
+}
+
+.wudt-accordion__header:hover {
+	background: var(--wudt-gray-50);
+}
+
+.wudt-accordion__icon {
+	transition: transform var(--wudt-transition-fast);
+}
+
+.wudt-accordion__item.is-open .wudt-accordion__icon {
+	transform: rotate(180deg);
+}
+
+.wudt-accordion__content {
+	max-height: 0;
+	overflow: hidden;
+	transition: max-height var(--wudt-transition-slow);
+}
+
+.wudt-accordion__item.is-open .wudt-accordion__content {
+	max-height: 1000px;
+}
+
+.wudt-accordion__body {
+	padding: var(--wudt-space-4);
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+.wudt-dark {
+	--wudt-gray-50: #1f2328;
+	--wudt-gray-100: #262b32;
+	--wudt-gray-200: #30363d;
+	--wudt-gray-300: #444c56;
+	--wudt-gray-400: #586069;
+	--wudt-gray-500: #768390;
+	--wudt-gray-600: #8b949e;
+	--wudt-gray-700: #b1bac4;
+	--wudt-gray-800: #c9d1d9;
+	--wudt-gray-900: #f0f6fc;
+}
+
+.wudt-dark .wudt-card,
+.wudt-dark .wudt-toast,
+.wudt-dark .wudt-modal {
+	background: var(--wudt-gray-100);
+	color: var(--wudt-gray-800);
+}
+
+.wudt-dark .wudt-input,
+.wudt-dark .wudt-select,
+.wudt-dark .wudt-textarea {
+	background: var(--wudt-gray-50);
+	border-color: var(--wudt-gray-300);
+	color: var(--wudt-gray-800);
+}
+
+.wudt-dark .wudt-tab {
+	background: var(--wudt-gray-200);
+	color: var(--wudt-gray-700);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.wudt-flex { display: flex; }
+.wudt-flex-col { flex-direction: column; }
+.wudt-items-center { align-items: center; }
+.wudt-justify-between { justify-content: space-between; }
+.wudt-gap-2 { gap: var(--wudt-space-2); }
+.wudt-gap-3 { gap: var(--wudt-space-3); }
+.wudt-gap-4 { gap: var(--wudt-space-4); }
+
+.wudt-m-0 { margin: 0; }
+.wudt-mt-2 { margin-top: var(--wudt-space-2); }
+.wudt-mt-4 { margin-top: var(--wudt-space-4); }
+.wudt-mb-2 { margin-bottom: var(--wudt-space-2); }
+.wudt-mb-4 { margin-bottom: var(--wudt-space-4); }
+
+.wudt-p-4 { padding: var(--wudt-space-4); }
+.wudt-px-4 { padding-left: var(--wudt-space-4); padding-right: var(--wudt-space-4); }
+.wudt-py-2 { padding-top: var(--wudt-space-2); padding-bottom: var(--wudt-space-2); }
+
+.wudt-text-sm { font-size: 0.875rem; }
+.wudt-text-xs { font-size: 0.75rem; }
+.wudt-font-medium { font-weight: 500; }
+.wudt-font-semibold { font-weight: 600; }
+
+.wudt-text-gray-500 { color: var(--wudt-gray-500); }
+.wudt-text-gray-600 { color: var(--wudt-gray-600); }
+
+.wudt-hidden { display: none !important; }
+.wudt-invisible { visibility: hidden; }
+.wudt-opacity-0 { opacity: 0; }
+
+/* Screen reader only */
+.wudt-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Focus visible */
+.wudt-focus-ring:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.3);
+}
+
+/* Animations */
+@keyframes spin {
+	to { transform: rotate(360deg); }
+}
+
+.wudt-animate-spin {
+	animation: spin 1s linear infinite;
+}
+
+@keyframes fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.wudt-animate-fade-in {
+	animation: fade-in 0.2s ease;
+}
+
+@keyframes slide-up {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.wudt-animate-slide-up {
+	animation: slide-up 0.3s ease;
+}

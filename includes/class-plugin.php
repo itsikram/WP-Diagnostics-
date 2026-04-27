@@ -12,6 +12,9 @@ use WUDT\Admin\Debug_Page;
 use WUDT\Admin\Pro_Admin_Page;
 use WUDT\Admin\Backup_Page;
 use WUDT\Admin\AI_Assistant_Page;
+use WUDT\Admin\Progress_Page;
+use WUDT\Admin\Modern_Admin_Page;
+use WUDT\Admin\Search_Page;
 use WUDT\Includes\Failsafe_Manager;
 use WUDT\Includes\Operation_Logger;
 use WUDT\Modules\Conflict_Detector_Module;
@@ -35,6 +38,8 @@ use WUDT\Modules\Malware\Enterprise_Malware_Module;
 use WUDT\Modules\Recovery\Crash_Recovery_Module;
 use WUDT\Modules\State\State_Module;
 use WUDT\Modules\AIAssistant\AI_Controller;
+use WUDT\Modules\ProgressMonitor\Progress_Monitor_Module;
+use WUDT\Modules\SearchTool\Search_Controller;
 
 if (! defined('ABSPATH')) {
 	exit;
@@ -87,6 +92,8 @@ class Plugin {
 				Security_Module::class,
 				Advanced_Diagnostics_Module::class,
 				External_Requests_Module::class,
+				Progress_Monitor_Module::class,
+				Search_Controller::class,
 			),
 			$emergency
 		);
@@ -108,6 +115,12 @@ class Plugin {
 		$backup_page->register_hooks();
 		$ai_page = new AI_Assistant_Page();
 		$ai_page->register_hooks();
+		$progress_page = new Progress_Page();
+		$progress_page->register_hooks();
+		$modern_admin = new Modern_Admin_Page($this->modules);
+		$modern_admin->register_hooks();
+		$search_page = new Search_Page();
+		$search_page->register_hooks();
 	}
 
 	/**

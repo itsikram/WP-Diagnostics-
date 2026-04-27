@@ -1,10 +1,15 @@
+/**
+ * WP Ultimate Diagnostics Toolkit - Admin JavaScript
+ * Enhanced with modern UI utilities
+ */
+
 (function ($) {
 	'use strict';
 
 	const state = {
 		data: window.wudtAdmin?.data || { tabs: [] },
 		activeTab: 'system_info',
-		darkMode: false,
+		darkMode: localStorage.getItem('wudt-dark-mode') === 'true',
 	};
 
 	function escHtml(str) {
@@ -54,6 +59,10 @@
 
 	function setStatus(message) {
 		$('#wudt-status').text(message);
+		// Also show toast if WUDTUI is available
+		if (window.WUDTUI && message) {
+			window.WUDTUI.Toast.info(message, { duration: 2000 });
+		}
 	}
 
 	function renderTab(key, data) {
@@ -86,21 +95,71 @@
 
 	function bindEvents() {
 		$('.wudt-tab').on('click', function () { state.activeTab = $(this).data('key'); render(); });
-		$('#wudt-dark-mode').on('click', function () { state.darkMode = !state.darkMode; render(); });
+		$('#wudt-dark-mode').on('click', function () {
+		state.darkMode = !state.darkMode;
+		localStorage.setItem('wudt-dark-mode', state.darkMode);
+		render();
+		if (window.WUDTUI) {
+			window.WUDTUI.Toast.info(state.darkMode ? 'Dark mode enabled' : 'Light mode enabled', { duration: 2000 });
+		}
+	});
 		$('#wudt-refresh').on('click', function () {
-			setStatus('Refreshing...');
-			post('wudt_refresh_dashboard').done((res) => { if (res.success) { state.data = res.data; render(); setStatus('Refreshed'); } });
+		const $btn = $(this);
+		$btn.prop('disabled', true).text('Refreshing...');
+		setStatus('Refreshing data...');
+		post('wudt_refresh_dashboard').done((res) => {
+			if (res.success) {
+				state.data = res.data;
+				render();
+				setStatus('Data refreshed successfully');
+				if (window.WUDTUI) {
+					window.WUDTUI.Toast.success('Dashboard refreshed successfully');
+				}
+			} else {
+				if (window.WUDTUI) {
+					window.WUDTUI.Toast.error('Failed to refresh dashboard');
+				}
+			}
+		}).always(() => {
+			$btn.prop('disabled', false).text('Refresh');
 		});
+	});
 		$('#wudt-export-json').on('click', function () {
 			post('wudt_export_report').done((res) => { if (res.success) window.open(res.data.file, '_blank'); });
 		});
 		$('#wudt-export-text').on('click', function () {
-			navigator.clipboard.writeText(JSON.stringify(state.data, null, 2));
+		navigator.clipboard.writeText(JSON.stringify(state.data, null, 2)).then(() => {
+			if (window.WUDTUI) {
+				window.WUDTUI.Toast.success('Report copied to clipboard');
+			} else {
+				setStatus('Copied to clipboard');
+			}
 		});
+	});
 		$('#wudt-email-report').on('click', function () {
+		if (window.WUDTUI) {
+			window.WUDTUI.Modal.open({
+				title: 'Email Report',
+				content: '<p>Enter email address to send the report:</p><input type="email" id="wudt-email-input" class="wudt-input" placeholder="email@example.com">',
+				confirmText: 'Send',
+				onConfirm: function() {
+					const email = $('#wudt-email-input').val();
+					if (email) {
+						post('wudt_email_report', { email }).done((res) => {
+							if (res.success) {
+								window.WUDTUI.Toast.success('Report sent successfully');
+							} else {
+								window.WUDTUI.Toast.error('Failed to send report');
+							}
+						});
+					}
+				}
+			});
+		} else {
 			const email = prompt('Send report to email:');
 			if (email) post('wudt_email_report', { email }).done((res) => alert((res.data && res.data.message) || 'Done'));
-		});
+		}
+	});
 		$('#wudt-clear-logs').on('click', function () { post('wudt_clear_error_logs').done(() => post('wudt_refresh_dashboard').done((res) => { state.data = res.data; render(); })); });
 		$('#wudt-toggle-test-mode').on('click', function () {
 			const current = (state.data.tabs.find((t) => t.key === 'conflict_detector')?.data?.test_mode_enabled) ? '0' : '1';
@@ -117,6 +176,11 @@
 				setStatus('REST test complete');
 			});
 		});
+	}
+
+	// Apply dark mode on init
+	if (state.darkMode) {
+		$('#wudt-admin-app').addClass('wudt-dark');
 	}
 
 	$(render);

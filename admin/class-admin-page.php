@@ -52,8 +52,10 @@ class Admin_Page {
 			return;
 		}
 
-		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION);
-		wp_enqueue_script('wudt-admin', WUDT_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WUDT_VERSION, true);
+		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
+		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
+		wp_enqueue_script('wudt-ui-utils', WUDT_PLUGIN_URL . 'assets/js/ui-utils.js', array('jquery'), WUDT_VERSION, true);
+		wp_enqueue_script('wudt-admin', WUDT_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'wudt-ui-utils'), WUDT_VERSION, true);
 		wp_localize_script(
 			'wudt-admin',
 			'wudtAdmin',

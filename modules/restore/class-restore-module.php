@@ -39,21 +39,68 @@ class Restore_Module extends Module_Base {
 	public function ajax_preview(): void {
 		Security_Guard::assert_ajax_admin();
 		$path = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
-		$safe = Security_Guard::normalize_inside_wp($path);
-		$info = $this->read_archive_metadata($safe);
-		wp_send_json_success($info);
+		
+		if (empty($path)) {
+			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+		}
+		
+		try {
+			$safe = Security_Guard::normalize_inside_wp($path);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 400);
+			return;
+		}
+		
+		if (! file_exists($safe)) {
+			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
+			return;
+		}
+		
+		if (! is_readable($safe)) {
+			wp_send_json_error(array('message' => __('Backup file is not readable.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			return;
+		}
+		
+		try {
+			$info = $this->read_archive_metadata($safe);
+			wp_send_json_success($info);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 500);
+		}
 	}
 
 	public function ajax_restore(): void {
 		Security_Guard::assert_ajax_admin();
 		$path        = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
+		
+		if (empty($path)) {
+			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+		}
+		
 		$options     = isset($_POST['restore_options']) ? (array) json_decode((string) wp_unslash($_POST['restore_options']), true) : array();
 		$safe_mode   = isset($_POST['safe_mode']) && '1' === (string) wp_unslash($_POST['safe_mode']);
 		$media_base  = isset($_POST['media_base']) ? sanitize_text_field((string) wp_unslash($_POST['media_base'])) : '';
-		$archive     = Security_Guard::normalize_inside_wp($path);
-		$selected    = $this->normalize_restore_options($options);
-		$restored    = $this->restore_package($archive, $selected, $safe_mode, $media_base);
-		wp_send_json_success($restored);
+		
+		try {
+			$archive = Security_Guard::normalize_inside_wp($path);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 400);
+			return;
+		}
+		
+		if (! file_exists($archive)) {
+			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
+			return;
+		}
+		
+		$selected = $this->normalize_restore_options($options);
+		
+		try {
+			$restored = $this->restore_package($archive, $selected, $safe_mode, $media_base);
+			wp_send_json_success($restored);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 500);
+		}
 	}
 
 	/**
@@ -108,9 +155,32 @@ class Restore_Module extends Module_Base {
 	private function read_archive_metadata(string $archive): array {
 		$list  = array();
 		$zip   = new \ZipArchive();
+		
+		// Check if file is actually a zip file
+		$finfo = finfo_open(FILEINFO_MIME_TYPE);
+		$mime_type = finfo_file($finfo, $archive);
+		finfo_close($finfo);
+		
+		$valid_zip_types = array('application/zip', 'application/x-zip-compressed', 'application/octet-stream');
+		if (! in_array($mime_type, $valid_zip_types, true) && ! str_ends_with(strtolower($archive), '.zip')) {
+			throw new \RuntimeException(__('File is not a valid ZIP archive.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
 		$opened = $zip->open($archive);
 		if (true !== $opened) {
-			throw new \RuntimeException('Unable to open archive.');
+			$error_messages = array(
+				\ZipArchive::ER_EXISTS => __('File already exists.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_NOENT  => __('File not found.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
+			);
+			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : __('Unable to open archive (Error code: ', 'wp-ultimate-diagnostics-toolkit') . $opened . ')';
+			throw new \RuntimeException($error_msg);
 		}
 		for ($i = 0; $i < $zip->numFiles; $i++) {
 			$stat = $zip->statIndex($i);
@@ -131,8 +201,21 @@ class Restore_Module extends Module_Base {
 
 	private function extract_archive(string $archive, string $destination): void {
 		$zip = new \ZipArchive();
-		if (true !== $zip->open($archive)) {
-			throw new \RuntimeException('Could not open backup archive.');
+		$opened = $zip->open($archive);
+		if (true !== $opened) {
+			$error_messages = array(
+				\ZipArchive::ER_EXISTS => __('File already exists.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_NOENT  => __('File not found.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
+			);
+			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : __('Could not open backup archive (Error code: ', 'wp-ultimate-diagnostics-toolkit') . $opened . ')';
+			throw new \RuntimeException($error_msg);
 		}
 		for ($i = 0; $i < $zip->numFiles; $i++) {
 			$entry_name = (string) $zip->getNameIndex($i);
