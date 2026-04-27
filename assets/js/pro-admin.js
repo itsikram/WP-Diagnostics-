@@ -41,7 +41,9 @@
 			structure: [],
 			queryHistory: [],
 			lastQueryResult: null,
-			safeMode: true
+			safeMode: true,
+			loading: false,
+			loadingMessage: ''
 		},
 		editor: {
 			visible: false,
@@ -126,29 +128,130 @@
 		bind();
 	}
 
+	function renderDashboard() {
+		var sys = tabData('system_info') || {};
+		var sec = tabData('security') || {};
+		var perf = tabData('performance') || {};
+		
+		// Calculate active plugins count
+		var plugins = sys.plugins || [];
+		var activePlugins = plugins.filter(function(p) { return p.active; }).length;
+		var totalPlugins = plugins.length;
+		
+		// Security status
+		var issues = sec.issues || [];
+		var hasIssues = issues.length > 0;
+		
+		// Performance samples
+		var samples = perf.latest_samples || [];
+		var avgLoadTime = samples.length > 0 
+			? Math.round(samples.reduce(function(sum, s) { return sum + (s.load_time_ms || 0); }, 0) / samples.length)
+			: 0;
+		var avgMemory = samples.length > 0
+			? Math.round(samples.reduce(function(sum, s) { return sum + (s.memory_mb || 0); }, 0) / samples.length * 100) / 100
+			: 0;
+		
+		return '<div class="wudt-dashboard">'
+			// System Overview Section
+			+ '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">📊 System Overview</h3>'
+			+ '<div class="wudt-dashboard-grid">'
+			// WordPress Card
+			+ '<div class="wudt-dashboard-card wudt-card-wp">'
+			+ '<div class="wudt-dashboard-icon">📝</div>'
+			+ '<div class="wudt-dashboard-label">WordPress</div>'
+			+ '<div class="wudt-dashboard-value">' + esc(sys.wordpress_version || 'Unknown') + '</div>'
+			+ '</div>'
+			// PHP Card
+			+ '<div class="wudt-dashboard-card wudt-card-php">'
+			+ '<div class="wudt-dashboard-icon">🐘</div>'
+			+ '<div class="wudt-dashboard-label">PHP Version</div>'
+			+ '<div class="wudt-dashboard-value">' + esc(sys.php_version || 'Unknown') + '</div>'
+			+ '</div>'
+			// MySQL Card
+			+ '<div class="wudt-dashboard-card wudt-card-db">'
+			+ '<div class="wudt-dashboard-icon">🗄️</div>'
+			+ '<div class="wudt-dashboard-label">MySQL</div>'
+			+ '<div class="wudt-dashboard-value">' + esc(sys.mysql_version || 'Unknown') + '</div>'
+			+ '</div>'
+			// Theme Card
+			+ '<div class="wudt-dashboard-card wudt-card-theme">'
+			+ '<div class="wudt-dashboard-icon">🎨</div>'
+			+ '<div class="wudt-dashboard-label">Theme</div>'
+			+ '<div class="wudt-dashboard-value" title="' + esc((sys.active_theme || {}).name || 'Unknown') + '">' 
+			+ esc(((sys.active_theme || {}).name || 'Unknown').substring(0, 15)) + '</div>'
+			+ '</div>'
+			// Plugins Card
+			+ '<div class="wudt-dashboard-card wudt-card-plugins">'
+			+ '<div class="wudt-dashboard-icon">🔌</div>'
+			+ '<div class="wudt-dashboard-label">Plugins</div>'
+			+ '<div class="wudt-dashboard-value">' + activePlugins + '/' + totalPlugins + '</div>'
+			+ '</div>'
+			// Server Card
+			+ '<div class="wudt-dashboard-card wudt-card-server">'
+			+ '<div class="wudt-dashboard-icon">🖥️</div>'
+			+ '<div class="wudt-dashboard-label">Server</div>'
+			+ '<div class="wudt-dashboard-value" title="' + esc(sys.server_software || 'Unknown') + '">' 
+			+ esc((sys.server_software || 'Unknown').split('/')[0]) + '</div>'
+			+ '</div>'
+			+ '</div>'
+			+ '</div>'
+			// Quick Status Section
+			+ '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">⚡ Quick Status</h3>'
+			+ '<div class="wudt-dashboard-grid">'
+			// Security Card
+			+ '<div class="wudt-dashboard-card ' + (hasIssues ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
+			+ '<div class="wudt-dashboard-icon">' + (hasIssues ? '⚠️' : '🔒') + '</div>'
+			+ '<div class="wudt-dashboard-label">Security</div>'
+			+ '<div class="wudt-dashboard-value">' + (hasIssues ? issues.length + ' Issues' : 'Secure') + '</div>'
+			+ (hasIssues ? '<div class="wudt-dashboard-sub">' + esc(issues[0]) + '</div>' : '')
+			+ '</div>'
+			// Performance Card
+			+ '<div class="wudt-dashboard-card wudt-card-perf">'
+			+ '<div class="wudt-dashboard-icon">⚡</div>'
+			+ '<div class="wudt-dashboard-label">Avg Load Time</div>'
+			+ '<div class="wudt-dashboard-value">' + avgLoadTime + 'ms</div>'
+			+ '</div>'
+			// Memory Card
+			+ '<div class="wudt-dashboard-card wudt-card-mem">'
+			+ '<div class="wudt-dashboard-icon">🧠</div>'
+			+ '<div class="wudt-dashboard-label">Avg Memory</div>'
+			+ '<div class="wudt-dashboard-value">' + avgMemory + ' MB</div>'
+			+ '</div>'
+			// Samples Card
+			+ '<div class="wudt-dashboard-card wudt-card-samples">'
+			+ '<div class="wudt-dashboard-icon">📈</div>'
+			+ '<div class="wudt-dashboard-label">Samples</div>'
+			+ '<div class="wudt-dashboard-value">' + samples.length + '</div>'
+			+ '</div>'
+			+ '</div>'
+			+ '</div>'
+			// Issues List (if any)
+			+ (hasIssues ? '<div class="wudt-dashboard-section"><div class="wudt-dashboard-issues">' 
+				+ '<h4>⚠️ Security Issues</h4><ul>' 
+				+ issues.map(function(i) { return '<li>' + esc(i) + '</li>'; }).join('')
+				+ '</ul></div></div>' 
+				: '')
+			+ '</div>';
+	}
+
 	function renderPanel() {
 		if (state.tab === 'dashboard') {
-			return '<div class="wudt-grid">'
-				+ '<div class="wudt-col-6"><div class="wudt-card"><h3>System Overview</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('system_info'), null, 2)) + '</pre></div></div>'
-				+ '<div class="wudt-col-6"><div class="wudt-card"><h3>Quick Status</h3><pre class="wudt-pre">' + esc(JSON.stringify({ security: tabData('security'), performance: tabData('performance') }, null, 2)) + '</pre></div></div>'
-				+ '</div>';
+			return renderDashboard();
 		}
 		if (state.tab === 'logs') {
 			return '<div class="wudt-card"><h3>Operations Logs</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('logs'), null, 2)) + '</pre></div>';
 		}
-		if (state.tab === 'performance') {
-			return '<div class="wudt-card"><h3>Performance Insights</h3><pre class="wudt-pre">' + esc(JSON.stringify({ performance: tabData('performance'), advanced: tabData('advanced_tools'), requests: tabData('external_requests') }, null, 2)) + '</pre></div>';
-		}
-		if (state.tab === 'security') {
-			return '<div class="wudt-card"><h3>Security Checks</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('security'), null, 2)) + '</pre></div>';
-		}
+		if (state.tab === 'performance') { return renderPerformance(); }
+		if (state.tab === 'security') { return renderSecurity(); }
 		if (state.tab === 'backup_suite') { return renderBackupSuite(); }
 		if (state.tab === 'restore_suite') { return renderRestoreSuite(); }
 		if (state.tab === 'ai_assistant') { return renderAIAssistant(); }
 		if (state.tab === 'file_manager') { return renderFileManager(); }
 		if (state.tab === 'database_manager') { return renderDbManager(); }
 		if (state.tab === 'malware_enterprise') { return renderMalwareEnterprise(); }
-		if (state.tab === 'recovery') { return '<div class="wudt-card"><h3>Crash Recovery</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('recovery'), null, 2)) + '</pre></div>'; }
+		if (state.tab === 'recovery') { return renderRecovery(); }
 		return '<p>No data.</p>';
 	}
 
@@ -187,7 +290,8 @@
 
 	function formatSize(bytes) {
 		var value = parseFloat(bytes || 0);
-		if (value <= 0) { return ''; }
+		if (value < 0) { value = 0; }
+		if (value === 0) { return '0 B'; }
 		var units = ['B', 'KB', 'MB', 'GB'];
 		var idx = 0;
 		while (value >= 1024 && idx < units.length - 1) {
@@ -430,16 +534,14 @@
 			var stats = d.table_stats || [];
 			for (var i = 0; i < stats.length; i++) {
 				state.db.tables.push({
-					name: stats[i].Name || '',
-					rows: stats[i].Rows || 0,
-					size: (parseInt(stats[i].Data_length || 0, 10) + parseInt(stats[i].Index_length || 0, 10)),
-					updated: stats[i].Update_time || ''
+					name: stats[i].table_name,
+					rows: stats[i].table_rows,
+					size: stats[i].data_length + (stats[i].index_length || 0)
 				});
 			}
-			state.db.safeMode = !!d.safe_mode;
-			if (!state.db.selectedTable && state.db.tables.length) {
-				state.db.selectedTable = state.db.tables[0].name;
-			}
+		}
+		if (!state.db.selectedTable && state.db.tables.length) {
+			state.db.selectedTable = state.db.tables[0].name;
 		}
 		var tabs = ['browse', 'structure', 'sql', 'search', 'insert', 'export', 'operations'];
 		var tabsHtml = '';
@@ -456,19 +558,28 @@
 				+ '<em>' + esc(formatSize(table.size)) + '</em>'
 				+ '</div>';
 		}
+		
+		// Loading overlay HTML
+		var loadingOverlay = state.db.loading 
+			? '<div class="wudt-db-loading-overlay"><div class="wudt-db-loading-spinner"></div><span class="wudt-db-loading-text">' + esc(state.db.loadingMessage || 'Loading...') + '</span></div>' 
+			: '';
+		
 		return ''
 			+ '<div class="wudt-db-shell">'
 			+ '<aside class="wudt-db-sidebar">'
-			+ '<div class="wudt-db-sidebar-head"><strong>Database Tables</strong><button class="button button-small" id="wudt-db-refresh">Refresh</button></div>'
+			+ '<div class="wudt-db-sidebar-head"><strong>Database Tables</strong><button class="button button-small" id="wudt-db-refresh" ' + (state.db.loading ? 'disabled' : '') + '>Refresh</button></div>'
 			+ '<div class="wudt-db-tree">' + tree + '</div>'
 			+ '</aside>'
 			+ '<section class="wudt-db-main">'
 			+ '<div class="wudt-db-topbar">'
 			+ '<div><strong>' + esc(state.db.selectedTable || 'No table selected') + '</strong></div>'
-			+ '<label class="wudt-badge"><input type="checkbox" id="wudt-db-safe-mode" ' + (state.db.safeMode ? 'checked' : '') + '> Safe Mode</label>'
+			+ '<label class="wudt-badge"><input type="checkbox" id="wudt-db-safe-mode" ' + (state.db.safeMode ? 'checked' : '') + ' ' + (state.db.loading ? 'disabled' : '') + '> Safe Mode</label>'
 			+ '</div>'
 			+ '<div class="wudt-db-tabs">' + tabsHtml + '</div>'
-			+ '<div class="wudt-db-body">' + renderDbTabBody() + '</div>'
+			+ '<div class="wudt-db-body wudt-db-body-' + state.db.tab + '">'
+			+ renderDbTabBody()
+			+ loadingOverlay
+			+ '</div>'
 			+ '</section>'
 			+ '</div>';
 	}
@@ -603,27 +714,120 @@
 
 	function renderBackupSuite() {
 		var d = tabData('backup_suite');
+		var backups = d.backups || [];
+		
+		// Build backup cards grid
+		var cardsHtml = '<div class="wudt-backup-grid">';
+		if (backups.length === 0) {
+			cardsHtml += '<div class="wudt-backup-empty"><p>No backups found. Create your first backup below.</p></div>';
+		} else {
+			for (var i = 0; i < backups.length; i++) {
+				var b = backups[i];
+				var name = b.name || 'backup.zip';
+				var size = formatSize(b.size || 0);
+				var path = b.file || b.path || '';
+				var url = b.url || '';
+				
+				// Use formatted time from backup data or parse from b.time
+				var timeStr = b.time_formatted || '';
+				if (!timeStr && b.time) {
+					try {
+						var date = new Date(b.time);
+						timeStr = date.getHours().toString().padStart(2, '0') + ':' + 
+						          date.getMinutes().toString().padStart(2, '0') + ' ' +
+						          date.getDate().toString().padStart(2, '0') + '-' + 
+						          (date.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+						          date.getFullYear().toString().substr(2, 2);
+					} catch(e) {}
+				}
+				
+				cardsHtml += '<div class="wudt-backup-card" data-path="' + esc(path) + '">'
+					+ '<div class="wudt-backup-card-header">'
+					+ '<span class="wudt-backup-icon">📦</span>'
+					+ '<span class="wudt-backup-size">' + esc(size) + '</span>'
+					+ '</div>'
+					+ '<div class="wudt-backup-card-body">'
+					+ '<h4 class="wudt-backup-name">' + esc(name) + '</h4>'
+					+ '<p class="wudt-backup-date">' + (timeStr ? '🕐 ' + esc(timeStr) : '') + '</p>'
+					+ '</div>'
+					+ '<div class="wudt-backup-card-footer">'
+					+ '<a href="' + esc(url) + '" class="button button-small" download title="Download">⬇️</a>'
+					+ '<button class="button button-small wudt-backup-copy-path" data-path="' + esc(path) + '" title="Copy path for Restore">📋</button>'
+					+ '<button class="button button-small wudt-backup-delete button-link-delete" data-path="' + esc(path) + '" data-name="' + esc(name) + '" title="Delete backup">🗑️</button>'
+					+ '</div>'
+					+ '</div>';
+			}
+		}
+		cardsHtml += '</div>';
+		
+		// Progress bar HTML
+		var progressHtml = '<div id="wudt-backup-progress" class="wudt-backup-progress" style="display:none;">'
+			+ '<div class="wudt-progress-header">'
+			+ '<span class="wudt-progress-status">Preparing...</span>'
+			+ '<span class="wudt-progress-percent">0%</span>'
+			+ '</div>'
+			+ '<div class="wudt-progress-bar-container">'
+			+ '<div class="wudt-progress-bar" style="width:0%"></div>'
+			+ '</div>'
+			+ '</div>';
+		
 		return ''
-			+ '<div class="wudt-card"><h3>Advanced Backup</h3>'
+			+ '<div class="wudt-card"><h3>Available Backups (' + backups.length + ')</h3>'
+			+ cardsHtml
+			+ '</div>'
+			+ '<div class="wudt-card"><h3>Create New Backup</h3>'
+			+ progressHtml
 			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="core" checked> WordPress Core Files</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="plugins" checked> Plugin Files</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="themes" checked> Theme Files</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="uploads" checked> Uploads Directory</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="database" checked> Database</label></p>'
 			+ '<div class="wudt-toolbar"><label><input type="checkbox" id="wudt-backup-gzip"> GZIP Compression</label>'
+			+ '<label><input type="checkbox" id="wudt-backup-autodownload" checked> Auto Download after complete</label>'
 			+ '<input id="wudt-backup-password" class="wudt-input" placeholder="Optional archive password">'
 			+ '<button class="button button-primary" id="wudt-backup-create">Create Backup</button>'
 			+ '<button class="button" id="wudt-backup-refresh">Refresh List</button></div>'
-			+ '<pre class="wudt-pre" id="wudt-backup-result">' + esc(JSON.stringify(d.backups || [], null, 2)) + '</pre>'
+			+ '<pre class="wudt-pre" id="wudt-backup-result" style="display:none;"></pre>'
 			+ '</div>';
 	}
 
 	function renderRestoreSuite() {
+		var d = tabData('backup_suite');
+		var backups = d.backups || [];
+		
+		// Build backup list HTML
+		var backupListHtml = '<div class="wudt-restore-backups-list">';
+		if (backups.length === 0) {
+			backupListHtml += '<p class="wudt-fm-empty">No backups found. Create a backup first or click Refresh to load.</p>';
+		} else {
+			backupListHtml += '<table class="wudt-fm-table"><thead><tr><th>Select</th><th>Backup</th><th>Size</th><th>Path</th></tr></thead><tbody>';
+			for (var i = 0; i < backups.length; i++) {
+				var b = backups[i];
+				var size = formatSize(b.size || 0);
+				var name = b.name || 'backup.zip';
+				var path = b.path || '';
+				backupListHtml += '<tr class="wudt-restore-backup-row" data-path="' + esc(path) + '">'
+					+ '<td><input type="radio" name="wudt-restore-select" class="wudt-restore-select" value="' + esc(path) + '"></td>'
+					+ '<td><strong>' + esc(name) + '</strong></td>'
+					+ '<td>' + esc(size) + '</td>'
+					+ '<td class="wudt-restore-path-cell">' + esc(path) + '</td>'
+					+ '</tr>';
+			}
+			backupListHtml += '</tbody></table>';
+		}
+		backupListHtml += '</div>';
+		
 		return ''
+			+ '<div class="wudt-card"><h3>Available Backups</h3>'
+			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-refresh">Refresh List</button></div>'
+			+ backupListHtml
+			+ '</div>'
 			+ '<div class="wudt-card"><h3>Restore Engine</h3>'
-			+ '<input id="wudt-restore-path" class="wudt-input" placeholder="Backup archive absolute path">'
-			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-preview">Preview</button>'
-			+ '<label><input type="checkbox" id="wudt-restore-safe" checked> Safe restore mode</label></div>'
+			+ '<label class="wudt-label">Selected Backup Path:</label>'
+			+ '<input id="wudt-restore-path" class="wudt-input" placeholder="Select a backup from the list above or enter absolute path">'
+			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-preview">Preview Contents</button>'
+			+ '<label><input type="checkbox" id="wudt-restore-safe" checked> Safe restore mode (auto-backup first)</label></div>'
+			+ '<h4>Components to Restore:</h4>'
 			+ '<p><label><input type="checkbox" class="wudt-restore-component" value="core"> Core</label> '
 			+ '<label><input type="checkbox" class="wudt-restore-component" value="plugins" checked> Plugins</label> '
 			+ '<label><input type="checkbox" class="wudt-restore-component" value="themes" checked> Themes</label> '
@@ -695,19 +899,416 @@
 	}
 
 	function renderMalwareEnterprise() {
-		var d = tabData('malware_enterprise');
+		var d = tabData('malware_enterprise') || {};
 		var summary = d.summary || {};
-		return ''
-			+ '<div class="wudt-grid">'
-			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Threats Detected</h3><strong>' + esc(summary.threats || 0) + '</strong></div></div>'
-			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Files Scanned</h3><strong>' + esc(summary.files_scanned || 0) + '</strong></div></div>'
-			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Risk Level</h3><strong>' + esc(summary.risk_level || 'Low') + '</strong></div></div>'
-			+ '<div class="wudt-col-12"><div class="wudt-card"><div class="wudt-toolbar">'
-			+ '<button class="button button-primary" id="wudt-mw-start-scan">Start Scan</button>'
-			+ '<button class="button" id="wudt-mw-refresh">Refresh Status</button>'
-			+ '<button class="button" id="wudt-mw-schedule">Schedule Auto Scan</button>'
-			+ '</div><div class="wudt-progress"><div class="wudt-progress-bar"></div></div>'
-			+ '<pre class="wudt-pre" id="wudt-malware-result">' + esc(JSON.stringify(d.results || [], null, 2)) + '</pre></div></div></div>';
+		var results = d.results || [];
+		var schedule = d.schedule || {};
+		var threats = summary.threats || 0;
+		var filesScanned = summary.files_scanned || 0;
+		var riskLevel = summary.risk_level || 'Low';
+		
+		// Determine risk color
+		var riskClass = 'wudt-card-ok';
+		var riskIcon = '✅';
+		if (riskLevel === 'High') {
+			riskClass = 'wudt-card-warning';
+			riskIcon = '🔴';
+		} else if (riskLevel === 'Medium') {
+			riskClass = 'wudt-card-warning';
+			riskIcon = '🟡';
+		} else if (threats > 0) {
+			riskClass = 'wudt-card-warning';
+			riskIcon = '⚠️';
+		}
+		
+		var html = '<div class="wudt-dashboard">';
+		
+		// Malware Status Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">🛡️ Malware Scanner</h3>'
+			+ '<div class="wudt-dashboard-grid">';
+		
+		// Threats Detected
+		html += '<div class="wudt-dashboard-card ' + (threats > 0 ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
+			+ '<div class="wudt-dashboard-icon">' + (threats > 0 ? '⚠️' : '✅') + '</div>'
+			+ '<div class="wudt-dashboard-label">Threats Detected</div>'
+			+ '<div class="wudt-dashboard-value">' + threats + '</div>'
+			+ '</div>';
+		
+		// Files Scanned
+		html += '<div class="wudt-dashboard-card">'
+			+ '<div class="wudt-dashboard-icon">📁</div>'
+			+ '<div class="wudt-dashboard-label">Files Scanned</div>'
+			+ '<div class="wudt-dashboard-value">' + filesScanned + '</div>'
+			+ '</div>';
+		
+		// Risk Level
+		html += '<div class="wudt-dashboard-card ' + riskClass + '">'
+			+ '<div class="wudt-dashboard-icon">' + riskIcon + '</div>'
+			+ '<div class="wudt-dashboard-label">Risk Level</div>'
+			+ '<div class="wudt-dashboard-value">' + esc(riskLevel) + '</div>'
+			+ '</div>';
+		
+		// Schedule Status
+		var isScheduled = schedule && schedule.enabled;
+		html += '<div class="wudt-dashboard-card ' + (isScheduled ? 'wudt-card-ok' : '') + '">'
+			+ '<div class="wudt-dashboard-icon">📅</div>'
+			+ '<div class="wudt-dashboard-label">Auto Scan</div>'
+			+ '<div class="wudt-dashboard-value">' + (isScheduled ? 'Enabled' : 'Disabled') + '</div>'
+			+ (isScheduled ? '<div class="wudt-dashboard-sub">' + esc(schedule.frequency || '') + '</div>' : '')
+			+ '</div>';
+		
+		html += '</div></div>';
+		
+		// Action Buttons Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<div class="wudt-toolbar" style="margin-bottom:20px;">'
+			+ '<button class="button button-primary" id="wudt-mw-start-scan">🚀 Start Scan</button>'
+			+ '<button class="button" id="wudt-mw-refresh">🔄 Refresh</button>'
+			+ '<button class="button" id="wudt-mw-schedule">📅 Schedule</button>'
+			+ '</div>'
+			+ '<div id="wudt-mw-progress-container" style="display:none;margin-bottom:20px;">'
+			+ '<div class="wudt-progress" style="height:20px;background:#f0f0f1;border-radius:4px;overflow:hidden;">'
+			+ '<div class="wudt-progress-bar" style="height:100%;width:0%;background:#2271b1;transition:width 0.3s;"></div>'
+			+ '</div>'
+			+ '<div id="wudt-mw-progress-text" style="margin-top:5px;font-size:12px;color:#646970;">Initializing...</div>'
+			+ '</div>'
+			+ '</div>';
+		
+		// Scan Results Section
+		if (results.length > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">⚠️ Scan Results</h3>'
+				+ '<div class="wudt-dashboard-issues">'
+				+ '<table class="wudt-fm-table"><thead><tr><th>File</th><th>Threat</th><th>Severity</th><th>Detected</th></tr></thead><tbody>';
+			
+			for (var i = 0; i < results.length && i < 20; i++) {
+				var r = results[i];
+				var severityClass = '';
+				if (r.severity === 'high') severityClass = 'style="color:#d63638;font-weight:600;"';
+				else if (r.severity === 'medium') severityClass = 'style="color:#dba617;font-weight:600;"';
+				else severityClass = 'style="color:#2271b1;"';
+				
+				html += '<tr>'
+					+ '<td title="' + esc(r.file || '') + '">' + esc((r.file || '-').substring(0, 50)) + '</td>'
+					+ '<td>' + esc(r.threat || '-') + '</td>'
+					+ '<td ' + severityClass + '>' + esc((r.severity || '-').toUpperCase()) + '</td>'
+					+ '<td>' + esc(r.detected_at || '') + '</td>'
+					+ '</tr>';
+			}
+			
+			if (results.length > 20) {
+				html += '<tr><td colspan="4" style="text-align:center;font-style:italic;color:#646970;">... and ' + (results.length - 20) + ' more results</td></tr>';
+			}
+			
+			html += '</tbody></table></div></div>';
+		} else if (filesScanned > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<div class="wudt-dashboard-issues" style="text-align:center;padding:40px;">'
+				+ '<div style="font-size:48px;margin-bottom:16px;">✅</div>'
+				+ '<h4>No Threats Detected</h4>'
+				+ '<p>Your site appears clean. Last scan checked ' + filesScanned + ' files.</p>'
+				+ '</div></div>';
+		} else {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<div class="wudt-dashboard-issues" style="text-align:center;padding:40px;">'
+				+ '<div style="font-size:48px;margin-bottom:16px;">🔍</div>'
+				+ '<h4>No Scan Data</h4>'
+				+ '<p>Run your first malware scan to check for threats.</p>'
+				+ '</div></div>';
+		}
+		
+		html += '</div>';
+		return html;
+	}
+
+	function renderPerformance() {
+		var d = tabData('performance') || {};
+		var samples = d.latest_samples || [];
+		var largeAutoloaded = d.large_autoloaded || [];
+		var optimizations = d.optimizations || [];
+		
+		// Calculate averages
+		var avgLoadTime = 0, avgMemory = 0, avgQueries = 0;
+		if (samples.length > 0) {
+			avgLoadTime = Math.round(samples.reduce(function(s, x) { return s + (x.load_time_ms || 0); }, 0) / samples.length);
+			avgMemory = Math.round(samples.reduce(function(s, x) { return s + (x.memory_mb || 0); }, 0) / samples.length * 100) / 100;
+			avgQueries = Math.round(samples.reduce(function(s, x) { return s + (x.queries || 0); }, 0) / samples.length);
+		}
+		
+		// Get latest sample
+		var latest = samples.length > 0 ? samples[samples.length - 1] : null;
+		
+		var html = '<div class="wudt-dashboard">';
+		
+		// Performance Metrics Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">⚡ Performance Metrics</h3>'
+			+ '<div class="wudt-dashboard-grid">';
+		
+		// Average Load Time
+		html += '<div class="wudt-dashboard-card wudt-card-perf">'
+			+ '<div class="wudt-dashboard-icon">⏱️</div>'
+			+ '<div class="wudt-dashboard-label">Avg Load Time</div>'
+			+ '<div class="wudt-dashboard-value">' + avgLoadTime + 'ms</div>'
+			+ '</div>';
+		
+		// Average Memory
+		html += '<div class="wudt-dashboard-card wudt-card-mem">'
+			+ '<div class="wudt-dashboard-icon">🧠</div>'
+			+ '<div class="wudt-dashboard-label">Avg Memory</div>'
+			+ '<div class="wudt-dashboard-value">' + avgMemory + ' MB</div>'
+			+ '</div>';
+		
+		// Average Queries
+		html += '<div class="wudt-dashboard-card wudt-card-db">'
+			+ '<div class="wudt-dashboard-icon">🗄️</div>'
+			+ '<div class="wudt-dashboard-label">Avg Queries</div>'
+			+ '<div class="wudt-dashboard-value">' + avgQueries + '</div>'
+			+ '</div>';
+		
+		// Total Samples
+		html += '<div class="wudt-dashboard-card wudt-card-samples">'
+			+ '<div class="wudt-dashboard-icon">📊</div>'
+			+ '<div class="wudt-dashboard-label">Total Samples</div>'
+			+ '<div class="wudt-dashboard-value">' + samples.length + '</div>'
+			+ '</div>';
+		
+		html += '</div></div>';
+		
+		// Latest Request Section
+		if (latest) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">🔄 Latest Request</h3>'
+				+ '<div class="wudt-dashboard-grid">';
+			
+			html += '<div class="wudt-dashboard-card">'
+				+ '<div class="wudt-dashboard-icon">🔗</div>'
+				+ '<div class="wudt-dashboard-label">URL</div>'
+				+ '<div class="wudt-dashboard-value" title="' + esc(latest.url || '') + '">' + esc((latest.url || '-').substring(0, 30)) + '</div>'
+				+ '</div>';
+			
+			html += '<div class="wudt-dashboard-card wudt-card-perf">'
+				+ '<div class="wudt-dashboard-icon">⚡</div>'
+				+ '<div class="wudt-dashboard-label">Load Time</div>'
+				+ '<div class="wudt-dashboard-value">' + Math.round(latest.load_time_ms || 0) + 'ms</div>'
+				+ '</div>';
+			
+			html += '<div class="wudt-dashboard-card wudt-card-mem">'
+				+ '<div class="wudt-dashboard-icon">💾</div>'
+				+ '<div class="wudt-dashboard-label">Memory</div>'
+				+ '<div class="wudt-dashboard-value">' + (latest.memory_mb || 0) + ' MB</div>'
+				+ '</div>';
+			
+			html += '<div class="wudt-dashboard-card wudt-card-db">'
+				+ '<div class="wudt-dashboard-icon">📋</div>'
+				+ '<div class="wudt-dashboard-label">Queries</div>'
+				+ '<div class="wudt-dashboard-value">' + (latest.queries || 0) + '</div>'
+				+ '</div>';
+			
+			html += '</div></div>';
+		}
+		
+		// Large Autoloaded Options Section
+		if (largeAutoloaded.length > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">⚠️ Large Autoloaded Options</h3>'
+				+ '<div class="wudt-dashboard-issues">'
+				+ '<table class="wudt-fm-table"><thead><tr><th>Option Name</th><th>Size</th></tr></thead><tbody>';
+			
+			for (var i = 0; i < largeAutoloaded.length && i < 10; i++) {
+				var opt = largeAutoloaded[i];
+				html += '<tr>'
+					+ '<td>' + esc(opt.option_name || '') + '</td>'
+					+ '<td>' + formatSize(opt.size || 0) + '</td>'
+					+ '</tr>';
+			}
+			
+			html += '</tbody></table></div></div>';
+		}
+		
+		// Recommendations Section
+		if (optimizations.length > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">💡 Recommendations</h3>'
+				+ '<div class="wudt-dashboard-issues"><ul>';
+			
+			for (var j = 0; j < optimizations.length; j++) {
+				html += '<li>' + esc(optimizations[j]) + '</li>';
+			}
+			
+			html += '</ul></div></div>';
+		}
+		
+		// Recent Samples Table
+		if (samples.length > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">📈 Recent Samples (Last 10)</h3>'
+				+ '<div class="wudt-dashboard-issues">'
+				+ '<table class="wudt-fm-table"><thead><tr><th>Time</th><th>URL</th><th>Load</th><th>Memory</th><th>Queries</th></tr></thead><tbody>';
+			
+			var recentSamples = samples.slice(-10).reverse();
+			for (var k = 0; k < recentSamples.length; k++) {
+				var s = recentSamples[k];
+				html += '<tr>'
+					+ '<td>' + esc((s.time || '').substring(0, 16)) + '</td>'
+					+ '<td title="' + esc(s.url || '') + '">' + esc((s.url || '-').substring(0, 40)) + '</td>'
+					+ '<td>' + Math.round(s.load_time_ms || 0) + 'ms</td>'
+					+ '<td>' + (s.memory_mb || 0) + ' MB</td>'
+					+ '<td>' + (s.queries || 0) + '</td>'
+					+ '</tr>';
+			}
+			
+			html += '</tbody></table></div></div>';
+		}
+		
+		html += '</div>';
+		return html;
+	}
+
+	function renderSecurity() {
+		var d = tabData('security') || {};
+		var issues = d.issues || [];
+		var wpDebug = d.wp_debug || false;
+		var fileIntegrity = d.file_integrity || 'N/A';
+		var hasIssues = issues.length > 0;
+		
+		var html = '<div class="wudt-dashboard">';
+		
+		// Security Status Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">🔒 Security Status</h3>'
+			+ '<div class="wudt-dashboard-grid">';
+		
+		// Overall Status
+		html += '<div class="wudt-dashboard-card ' + (hasIssues ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
+			+ '<div class="wudt-dashboard-icon">' + (hasIssues ? '⚠️' : '✅') + '</div>'
+			+ '<div class="wudt-dashboard-label">Overall Status</div>'
+			+ '<div class="wudt-dashboard-value">' + (hasIssues ? issues.length + ' Issues' : 'Secure') + '</div>'
+			+ '</div>';
+		
+		// WP_DEBUG Status
+		html += '<div class="wudt-dashboard-card ' + (wpDebug ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
+			+ '<div class="wudt-dashboard-icon">🐛</div>'
+			+ '<div class="wudt-dashboard-label">WP_DEBUG</div>'
+			+ '<div class="wudt-dashboard-value">' + (wpDebug ? 'Enabled' : 'Disabled') + '</div>'
+			+ (wpDebug ? '<div class="wudt-dashboard-sub">Disable in production</div>' : '')
+			+ '</div>';
+		
+		// wp-config.php Permissions
+		html += '<div class="wudt-dashboard-card">'
+			+ '<div class="wudt-dashboard-icon">🔐</div>'
+			+ '<div class="wudt-dashboard-label">wp-config.php</div>'
+			+ '<div class="wudt-dashboard-value">' + esc(String(fileIntegrity)) + '</div>'
+			+ '</div>';
+		
+		html += '</div></div>';
+		
+		// Issues List Section
+		if (hasIssues) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">⚠️ Security Issues</h3>'
+				+ '<div class="wudt-dashboard-issues">'
+				+ '<ul>';
+			
+			for (var i = 0; i < issues.length; i++) {
+				html += '<li>' + esc(issues[i]) + '</li>';
+			}
+			
+			html += '</ul></div></div>';
+		}
+		
+		// Security Tips Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">💡 Security Tips</h3>'
+			+ '<div class="wudt-dashboard-issues">'
+			+ '<ul>'
+			+ '<li>Keep WordPress core, themes, and plugins updated</li>'
+			+ '<li>Use strong passwords and two-factor authentication</li>'
+			+ '<li>Limit login attempts to prevent brute force attacks</li>'
+			+ '<li>Regularly backup your website</li>'
+			+ '<li>Remove unused themes and plugins</li>'
+			+ '</ul></div></div>';
+		
+		html += '</div>';
+		return html;
+	}
+
+	function renderRecovery() {
+		var d = tabData('recovery') || {};
+		var events = d.events || [];
+		var recentEvents = events.slice(-10).reverse();
+		
+		var html = '<div class="wudt-dashboard">';
+		
+		// Recovery Status Section
+		html += '<div class="wudt-dashboard-section">'
+			+ '<h3 class="wudt-dashboard-title">🛡️ Crash Recovery</h3>'
+			+ '<div class="wudt-dashboard-grid">';
+		
+		// Total Events
+		html += '<div class="wudt-dashboard-card">'
+			+ '<div class="wudt-dashboard-icon">📊</div>'
+			+ '<div class="wudt-dashboard-label">Total Events</div>'
+			+ '<div class="wudt-dashboard-value">' + events.length + '</div>'
+			+ '</div>';
+		
+		// Recent Crashes
+		var recentCrashes = events.filter(function(e) { return e.type === 'disabled'; }).length;
+		html += '<div class="wudt-dashboard-card ' + (recentCrashes > 0 ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
+			+ '<div class="wudt-dashboard-icon">⚠️</div>'
+			+ '<div class="wudt-dashboard-label">Plugins Disabled</div>'
+			+ '<div class="wudt-dashboard-value">' + recentCrashes + '</div>'
+			+ '</div>';
+		
+		// Detection Count
+		var detections = events.filter(function(e) { return e.type === 'detected'; }).length;
+		html += '<div class="wudt-dashboard-card">'
+			+ '<div class="wudt-dashboard-icon">🔍</div>'
+			+ '<div class="wudt-dashboard-label">Potential Crashes</div>'
+			+ '<div class="wudt-dashboard-value">' + detections + '</div>'
+			+ '</div>';
+		
+		// Status
+		html += '<div class="wudt-dashboard-card wudt-card-ok">'
+			+ '<div class="wudt-dashboard-icon">✅</div>'
+			+ '<div class="wudt-dashboard-label">Recovery Status</div>'
+			+ '<div class="wudt-dashboard-value">Active</div>'
+			+ '</div>';
+		
+		html += '</div></div>';
+		
+		// Recent Events Section
+		if (recentEvents.length > 0) {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<h3 class="wudt-dashboard-title">📝 Recent Events (Last 10)</h3>'
+				+ '<div class="wudt-dashboard-issues">'
+				+ '<table class="wudt-fm-table"><thead><tr><th>Time</th><th>Type</th><th>Plugin</th><th>Confidence</th><th>Error</th></tr></thead><tbody>';
+			
+			for (var i = 0; i < recentEvents.length; i++) {
+				var e = recentEvents[i];
+				var typeClass = e.type === 'disabled' ? 'style="color:#d63638;font-weight:600;"' : '';
+				html += '<tr>'
+					+ '<td>' + esc((e.time || '').substring(0, 16)) + '</td>'
+					+ '<td ' + typeClass + '>' + esc((e.type || '').toUpperCase()) + '</td>'
+					+ '<td>' + esc(e.plugin || '-') + '</td>'
+					+ '<td>' + (e.confidence || 0) + '%</td>'
+					+ '<td title="' + esc(e.error || '') + '">' + esc((e.error || '-').substring(0, 50)) + '</td>'
+					+ '</tr>';
+			}
+			
+			html += '</tbody></table></div></div>';
+		} else {
+			html += '<div class="wudt-dashboard-section">'
+				+ '<div class="wudt-dashboard-issues" style="text-align:center;padding:40px;">'
+				+ '<div style="font-size:48px;margin-bottom:16px;">✅</div>'
+				+ '<h4>No Recovery Events</h4>'
+				+ '<p>Your site has not experienced any crash events. The crash recovery system is monitoring for fatal errors.</p>'
+				+ '</div></div>';
+		}
+		
+		html += '</div>';
+		return html;
 	}
 
 	function bind() {
@@ -796,20 +1397,174 @@
 			});
 		});
 		$('#wudt-backup-create').on('click', function () {
+			var $btn = $(this);
+			
+			// Prevent duplicate clicks
+			if ($btn.prop('disabled')) { return; }
+			
 			var components = [];
 			$('.wudt-backup-component:checked').each(function () { components.push($(this).val()); });
+			
+			var $progress = $('#wudt-backup-progress');
+			var $bar = $progress.find('.wudt-progress-bar');
+			var $status = $progress.find('.wudt-progress-status');
+			var $percent = $progress.find('.wudt-progress-percent');
+			
+			$btn.prop('disabled', true).text('Creating Backup...');
+			$progress.show();
+			$bar.css('width', '5%');
+			$percent.text('5%');
+			$status.text('Starting backup...');
+			
+			var progressInterval = null;
+			
+			// Wait 3 seconds before first poll to allow backup process to start
+			setTimeout(function() {
+			progressInterval = setInterval(function () {
+				post('wudt_backup_progress').done(function (r) {
+					if (r && r.success && r.data) {
+						var p = r.data;
+						$bar.css('width', p.percent + '%');
+						$percent.text(p.percent + '%');
+						$status.text(p.message || p.status);
+						
+						if (p.status === 'complete') {
+							clearInterval(progressInterval);
+							$btn.prop('disabled', false).text('Create Backup');
+							$progress.fadeOut(1000);
+							
+							// Auto-refresh backup list
+							post('wudt_backup_list').done(function (r2) {
+								if (r2 && r2.success && r2.data && r2.data.backups) {
+									// Update the backup_suite tab data
+									var tabs = (state.data && state.data.tabs) ? state.data.tabs : [];
+									for (var i = 0; i < tabs.length; i++) {
+										if (tabs[i].key === 'backup_suite') {
+											tabs[i].data = tabs[i].data || {};
+											tabs[i].data.backups = r2.data.backups;
+											break;
+										}
+									}
+									render();
+									// Show success message and handle auto-download
+									var newBackup = p.backup || p;
+									if (newBackup && newBackup.file) {
+										var size = formatSize(newBackup.size || 0);
+										var autoDownload = $('#wudt-backup-autodownload').is(':checked');
+										
+										if (autoDownload && newBackup.url) {
+											// Trigger automatic download using window.location for better compatibility
+											var downloadUrl = newBackup.url + '?download=1';
+											var iframe = document.createElement('iframe');
+											iframe.style.display = 'none';
+											iframe.src = downloadUrl;
+											document.body.appendChild(iframe);
+											setTimeout(function() {
+												document.body.removeChild(iframe);
+											}, 5000);
+											
+											alert('Backup created successfully!\n\nSize: ' + size + '\n\nDownload started automatically.');
+										} else {
+											alert('Backup created successfully!\n\nSize: ' + size);
+										}
+									}
+								}
+							});
+						}
+					}
+				});
+			}, 10000);
+			}, 3000); // 3 second initial delay
+			
+			// Start the backup
 			post('wudt_backup_create', {
 				components: JSON.stringify(components),
 				gzip: $('#wudt-backup-gzip').is(':checked') ? '1' : '0',
 				password: $('#wudt-backup-password').val()
 			}).done(function (r) {
 				$('#wudt-backup-result').text(JSON.stringify(r, null, 2));
+			}).fail(function () {
+				if (progressInterval) { clearInterval(progressInterval); }
+				$btn.prop('disabled', false).text('Create Backup');
+				$progress.hide();
+				alert('Backup creation failed. Please try again.');
 			});
 		});
 		$('#wudt-backup-refresh').on('click', function () {
 			post('wudt_backup_list').done(function (r) {
 				$('#wudt-backup-result').text(JSON.stringify(r, null, 2));
 			});
+		});
+		// Backup Suite - Copy path to clipboard
+		$(document).on('click', '.wudt-backup-copy-path', function () {
+			var path = $(this).data('path');
+			if (path && navigator.clipboard) {
+				navigator.clipboard.writeText(path).then(function () {
+					alert('Backup path copied to clipboard!\n\nUse this in the Restore Suite tab.');
+				});
+			}
+		});
+		// Backup Suite - Delete backup with confirmation
+		$(document).on('click', '.wudt-backup-delete', function () {
+			var path = $(this).data('path');
+			var name = $(this).data('name');
+			if (!path) return;
+			
+			if (confirm('Are you sure you want to delete this backup?\n\n' + name + '\n\nThis action cannot be undone.')) {
+				var $card = $(this).closest('.wudt-backup-card');
+				$card.css('opacity', '0.5');
+				
+				post('wudt_backup_delete', { backup_path: path }).done(function (r) {
+					if (r && r.success) {
+						$card.fadeOut(300, function () { 
+							$(this).remove();
+							// Update count after removal
+							var count = $('.wudt-backup-card').length;
+							$('h3:contains("Available Backups")').text('Available Backups (' + count + ')');
+						});
+					} else {
+						$card.css('opacity', '1');
+						alert('Failed to delete backup: ' + (r && r.data && r.data.message ? r.data.message : 'Unknown error'));
+					}
+				}).fail(function () {
+					$card.css('opacity', '1');
+					alert('Failed to delete backup. Please try again.');
+				});
+			}
+		});
+		// Restore Suite - Refresh backup list
+		$(document).on('click', '#wudt-restore-refresh', function () {
+			status('Loading backups...');
+			post('wudt_backup_list').done(function (r) {
+				if (r && r.success && r.data && r.data.backups) {
+					// Update the backup_suite tab data
+					var tabs = (state.data && state.data.tabs) ? state.data.tabs : [];
+					for (var i = 0; i < tabs.length; i++) {
+						if (tabs[i].key === 'backup_suite') {
+							tabs[i].data = tabs[i].data || {};
+							tabs[i].data.backups = r.data.backups;
+							break;
+						}
+					}
+				}
+				render();
+				status('Backups loaded');
+			}).fail(function () {
+				status('Failed to load backups');
+			});
+		});
+		// Restore Suite - Select backup on row click
+		$(document).on('click', '.wudt-restore-backup-row', function () {
+			var path = $(this).data('path');
+			$('#wudt-restore-path').val(path);
+			$(this).find('.wudt-restore-select').prop('checked', true);
+			$(this).addClass('is-selected').siblings().removeClass('is-selected');
+		});
+		// Restore Suite - Select backup on radio change
+		$(document).on('change', '.wudt-restore-select', function () {
+			var path = $(this).val();
+			$('#wudt-restore-path').val(path);
+			$(this).closest('tr').addClass('is-selected').siblings().removeClass('is-selected');
 		});
 		$('#wudt-restore-preview').on('click', function () {
 			post('wudt_restore_preview', { backup_path: $('#wudt-restore-path').val() }).done(function (r) {
@@ -931,9 +1686,16 @@
 		});
 		$('#wudt-db-sql-run').on('click', function () {
 			var query = $('#wudt-db-sql-editor').val();
+			state.db.loading = true;
+			state.db.loadingMessage = 'Running query...';
+			render();
 			post('diagnostics_db_query', { query: query }).done(function (r) {
 				state.db.lastQueryResult = r;
 				if (r && r.success && r.data && r.data.history) { state.db.queryHistory = r.data.history; }
+				state.db.loading = false;
+				render();
+			}).fail(function () {
+				state.db.loading = false;
 				render();
 			});
 		});
@@ -950,28 +1712,52 @@
 			$('.wudt-db-insert-input').each(function () {
 				payload[String($(this).data('col'))] = $(this).val();
 			});
+			state.db.loading = true;
+			state.db.loadingMessage = 'Inserting row...';
+			render();
 			post('diagnostics_db_insert', { table: state.db.selectedTable, data: JSON.stringify(payload) }).done(function (r) {
 				state.db.lastQueryResult = r;
+				state.db.loading = false;
+				render();
 				alert(r && r.success ? 'Row inserted' : 'Insert failed');
 				loadDbBrowse();
+			}).fail(function () {
+				state.db.loading = false;
+				render();
 			});
 		});
 		$('#wudt-db-export-run').on('click', function () {
+			state.db.loading = true;
+			state.db.loadingMessage = 'Exporting data...';
+			render();
 			post('diagnostics_db_export', {
 				table: state.db.selectedTable,
 				format: $('#wudt-db-export-format').val(),
 				compression: $('#wudt-db-export-compress').val()
 			}).done(function (r) {
+				state.db.loading = false;
+				render();
 				if (r && r.success) { window.open(r.data.url, '_blank'); }
+			}).fail(function () {
+				state.db.loading = false;
+				render();
 			});
 		});
 		$(document).on('click', '[data-db-op]', function () {
 			var op = String($(this).data('db-op'));
 			var confirmRequired = (op === 'empty' || op === 'drop') ? confirm('Confirm ' + op + ' operation?') : true;
 			if (!confirmRequired) { return; }
+			state.db.loading = true;
+			state.db.loadingMessage = 'Running ' + op + '...';
+			render();
 			post('diagnostics_db_operations', { table: state.db.selectedTable, operation: op, confirm: '1' }).done(function (r) {
 				$('#wudt-db-op-result').text(JSON.stringify(r, null, 2));
+				state.db.loading = false;
+				render();
 				loadDbTables();
+			}).fail(function () {
+				state.db.loading = false;
+				render();
 			});
 		});
 		$(document).on('click', '.wudt-db-row-delete', function () {
@@ -982,9 +1768,17 @@
 			if (!pk || typeof row[pk] === 'undefined') { alert('Primary key required to delete row.'); return; }
 			if (!confirm('Delete selected row?')) { return; }
 			var where = {}; where[pk] = row[pk];
+			state.db.loading = true;
+			state.db.loadingMessage = 'Deleting row...';
+			render();
 			post('diagnostics_db_delete', { table: state.db.selectedTable, where: JSON.stringify(where) }).done(function (r) {
 				state.db.lastQueryResult = r;
+				state.db.loading = false;
+				render();
 				loadDbBrowse();
+			}).fail(function () {
+				state.db.loading = false;
+				render();
 			});
 		});
 		$(document).on('click', '.wudt-db-row-copy', function () {
@@ -993,7 +1787,17 @@
 			if (!row || Object.keys(row).length === 0) { alert('Row not found.'); return; }
 			var pk = state.db.primaryKey;
 			if (pk && typeof row[pk] !== 'undefined') { delete row[pk]; }
-			post('diagnostics_db_insert', { table: state.db.selectedTable, data: JSON.stringify(row) }).done(function () { loadDbBrowse(); });
+			state.db.loading = true;
+			state.db.loadingMessage = 'Copying row...';
+			render();
+			post('diagnostics_db_insert', { table: state.db.selectedTable, data: JSON.stringify(row) }).done(function () {
+				state.db.loading = false;
+				render();
+				loadDbBrowse();
+			}).fail(function () {
+				state.db.loading = false;
+				render();
+			});
 		});
 		$(document).on('click', '.wudt-db-row-edit', function () {
 			var idx = parseInt($(this).attr('data-row-index'), 10);
@@ -1007,7 +1811,17 @@
 			var pk = state.db.primaryKey;
 			if (!pk || typeof row[pk] === 'undefined') { alert('Primary key required to update row.'); return; }
 			var where = {}; where[pk] = row[pk];
-			post('diagnostics_db_update', { table: state.db.selectedTable, data: JSON.stringify(updated), where: JSON.stringify(where) }).done(function () { loadDbBrowse(); });
+			state.db.loading = true;
+			state.db.loadingMessage = 'Updating row...';
+			render();
+			post('diagnostics_db_update', { table: state.db.selectedTable, data: JSON.stringify(updated), where: JSON.stringify(where) }).done(function () {
+				state.db.loading = false;
+				render();
+				loadDbBrowse();
+			}).fail(function () {
+				state.db.loading = false;
+				render();
+			});
 		});
 		$('#wudt-mw-start-scan').on('click', function () {
 			post('wudt_mw_scan_start').done(function (r) {
@@ -1335,6 +2149,9 @@
 	}
 
 	function loadDbTables(alsoLoadCurrent) {
+		state.db.loading = true;
+		state.db.loadingMessage = 'Loading tables...';
+		render();
 		post('diagnostics_db_tables').done(function (r) {
 			if (!r || !r.success) { return; }
 			state.db.tables = r.data.tables || [];
@@ -1343,16 +2160,23 @@
 			if (!state.db.selectedTable && state.db.tables.length) {
 				state.db.selectedTable = state.db.tables[0].name;
 			}
+			state.db.loading = false;
 			render();
 			if (alsoLoadCurrent && state.db.selectedTable) {
 				loadDbStructure();
 				loadDbBrowse();
 			}
+		}).fail(function () {
+			state.db.loading = false;
+			render();
 		});
 	}
 
 	function loadDbBrowse(done) {
 		if (!state.db.selectedTable) { return; }
+		state.db.loading = true;
+		state.db.loadingMessage = 'Loading data...';
+		render();
 		post('diagnostics_db_browse', {
 			table: state.db.selectedTable,
 			page: state.db.page,
@@ -1369,16 +2193,27 @@
 			if (state.db.perPage > 0) {
 				$('#wudt-db-browse-per-page').val(String(state.db.perPage));
 			}
+			state.db.loading = false;
 			render();
 			if (typeof done === 'function') { done(); }
+		}).fail(function () {
+			state.db.loading = false;
+			render();
 		});
 	}
 
 	function loadDbStructure() {
 		if (!state.db.selectedTable) { return; }
+		state.db.loading = true;
+		state.db.loadingMessage = 'Loading structure...';
+		render();
 		post('diagnostics_db_structure', { table: state.db.selectedTable }).done(function (r) {
 			if (!r || !r.success) { return; }
 			state.db.structure = r.data.structure || [];
+			state.db.loading = false;
+			render();
+		}).fail(function () {
+			state.db.loading = false;
 			render();
 		});
 	}

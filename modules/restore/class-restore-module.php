@@ -156,14 +156,35 @@ class Restore_Module extends Module_Base {
 		$list  = array();
 		$zip   = new \ZipArchive();
 		
-		// Check if file is actually a zip file
-		$finfo = finfo_open(FILEINFO_MIME_TYPE);
-		$mime_type = finfo_file($finfo, $archive);
-		finfo_close($finfo);
+		// Basic file validation
+		if (! file_exists($archive)) {
+			throw new \RuntimeException(__('Backup file does not exist: ', 'wp-ultimate-diagnostics-toolkit') . $archive);
+		}
 		
-		$valid_zip_types = array('application/zip', 'application/x-zip-compressed', 'application/octet-stream');
-		if (! in_array($mime_type, $valid_zip_types, true) && ! str_ends_with(strtolower($archive), '.zip')) {
-			throw new \RuntimeException(__('File is not a valid ZIP archive.', 'wp-ultimate-diagnostics-toolkit'));
+		$file_size = filesize($archive);
+		if ($file_size === false || $file_size === 0) {
+			throw new \RuntimeException(__('Backup file is empty or cannot be read.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Check if file is actually a zip file (extension check first - more reliable on Windows)
+		$lowercase_path = strtolower($archive);
+		$has_zip_ext = str_ends_with($lowercase_path, '.zip') || str_ends_with($lowercase_path, '.zip.gz');
+		
+		// MIME type check as secondary validation (may not work on all Windows setups)
+		$mime_valid = false;
+		if (function_exists('finfo_open')) {
+			$finfo = @finfo_open(FILEINFO_MIME_TYPE);
+			if ($finfo) {
+				$mime_type = @finfo_file($finfo, $archive);
+				finfo_close($finfo);
+				$valid_zip_types = array('application/zip', 'application/x-zip-compressed', 'application/octet-stream');
+				$mime_valid = in_array($mime_type, $valid_zip_types, true);
+			}
+		}
+		
+		// If no zip extension and MIME check failed/invalid, reject it
+		if (! $has_zip_ext && ! $mime_valid) {
+			throw new \RuntimeException(__('File is not a valid ZIP archive. Must have .zip extension.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		
 		$opened = $zip->open($archive);
@@ -179,8 +200,26 @@ class Restore_Module extends Module_Base {
 				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
 				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
 			);
-			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : __('Unable to open archive (Error code: ', 'wp-ultimate-diagnostics-toolkit') . $opened . ')';
-			throw new \RuntimeException($error_msg);
+			
+			// Log detailed error for debugging
+			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : 'Unknown error code: ' . $opened;
+			error_log(sprintf(
+				'[WUDT Restore] Failed to open archive: %s | Error: %s (code: %d) | MIME: %s | Size: %d | Readable: %s | PHP: %s',
+				$archive,
+				$error_msg,
+				$opened,
+				$mime_type ?? 'unknown',
+				filesize($archive) ?: 0,
+				is_readable($archive) ? 'yes' : 'no',
+				phpversion()
+			));
+			
+			// Provide user-friendly error with code
+			$display_msg = isset($error_messages[$opened]) 
+				? $error_messages[$opened] 
+				: sprintf(__('Unable to open archive. Error code: %d. Please check the file exists and is a valid ZIP.', 'wp-ultimate-diagnostics-toolkit'), $opened);
+			
+			throw new \RuntimeException($display_msg);
 		}
 		for ($i = 0; $i < $zip->numFiles; $i++) {
 			$stat = $zip->statIndex($i);
@@ -214,8 +253,14 @@ class Restore_Module extends Module_Base {
 				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
 				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
 			);
-			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : __('Could not open backup archive (Error code: ', 'wp-ultimate-diagnostics-toolkit') . $opened . ')';
-			throw new \RuntimeException($error_msg);
+			
+			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : 'Unknown error code: ' . $opened;
+			error_log(sprintf('[WUDT Restore] Extract failed: %s | Error: %s (code: %d)', $archive, $error_msg, $opened));
+			
+			$display_msg = isset($error_messages[$opened]) 
+				? $error_messages[$opened] 
+				: sprintf(__('Could not open backup archive. Error code: %d', 'wp-ultimate-diagnostics-toolkit'), $opened);
+			throw new \RuntimeException($display_msg);
 		}
 		for ($i = 0; $i < $zip->numFiles; $i++) {
 			$entry_name = (string) $zip->getNameIndex($i);
