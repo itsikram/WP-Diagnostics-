@@ -63,6 +63,7 @@ safe_require('modules/restore/class-restore-module.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
 safe_require('modules/recovery/class-crash-recovery-module.php');
 safe_require('modules/state/class-state-module.php');
+safe_require('admin/class-settings-page.php');
 safe_require('modules/ai-assistant/class-context-builder.php');
 safe_require('modules/ai-assistant/class-response-parser.php');
 safe_require('modules/ai-assistant/class-ai-service.php');

@@ -9,6 +9,7 @@ namespace WUDT;
 
 use WUDT\Admin\Admin_Page;
 use WUDT\Admin\Debug_Page;
+use WUDT\Admin\Settings_Page;
 use WUDT\Admin\Pro_Admin_Page;
 use WUDT\Admin\Backup_Page;
 use WUDT\Admin\AI_Assistant_Page;
@@ -111,6 +112,8 @@ class Plugin {
 		$pro_page->register_hooks();
 		$debug_page = new Debug_Page();
 		$debug_page->register_hooks();
+		$settings_page = new Settings_Page();
+		$settings_page->register_hooks();
 		$backup_page = new Backup_Page();
 		$backup_page->register_hooks();
 		$ai_page = new AI_Assistant_Page();

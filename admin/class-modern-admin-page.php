@@ -94,7 +94,10 @@ class Modern_Admin_Page {
 		?>
 		<div class="wrap wudt-wrap wudt-modern">
 			<div class="wudt-header-bar">
-				<h1><?php echo esc_html__('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+				<div class="wudt-header-logo">
+					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-logo-img">
+					<h1><?php echo esc_html__('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+				</div>
 				<div class="wudt-header-actions">
 					<button type="button" class="wudt-btn wudt-btn--secondary" id="wudt-dark-mode-toggle">
 						<span class="dashicons dashicons-visibility"></span>
@@ -110,6 +113,11 @@ class Modern_Admin_Page {
 			<!-- Dashboard Stats -->
 			<div class="wudt-stats-grid" id="wudt-stats-grid">
 				<?php $this->render_stat_cards(); ?>
+			</div>
+
+			<!-- Cover Banner -->
+			<div class="wudt-cover-banner">
+				<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Cover" class="wudt-cover-img">
 			</div>
 
 			<!-- Module Navigation -->

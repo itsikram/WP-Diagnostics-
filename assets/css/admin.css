@@ -294,6 +294,29 @@
 .wudt-fm-shell.is-dark .wudt-fm-menu { background: #1f2328; border-color: #343a40; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button { color: #e6edf3; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button:hover { background: #2b3642; }
+
+/* File Manager Loading State */
+.wudt-fm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; color: #6b7280; }
+.wudt-fm-loading-spinner { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; animation: wudtFmSpin 0.8s linear infinite; margin-bottom: 12px; }
+@keyframes wudtFmSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.wudt-fm-shell.is-dark .wudt-fm-loading { color: #9ca3af; }
+.wudt-fm-shell.is-dark .wudt-fm-loading-spinner { border-color: #374151; border-top-color: #60a5fa; }
+
+/* Compress Button */
+#wudt-fm-compress-selected { background: #2271b1; border-color: #2271b1; color: #fff; font-weight: 600; }
+#wudt-fm-compress-selected:hover { background: #135e96; border-color: #135e96; }
+.wudt-fm-shell.is-dark #wudt-fm-compress-selected { background: #58a4f0; border-color: #58a4f0; color: #1f2328; }
+.wudt-fm-shell.is-dark #wudt-fm-compress-selected:hover { background: #79b8ff; border-color: #79b8ff; }
+
+/* Pro Admin Page Header with Logo */
+.wudt-pro-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
+.wudt-pro-logo { width: 56px; height: 56px; object-fit: contain; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.wudt-pro-title h1 { margin: 0 0 6px 0; font-size: 1.5rem; font-weight: 600; }
+.wudt-pro-title p { margin: 0; color: #6b7280; font-size: 0.9rem; }
+.wudt-pro-wrap.is-dark .wudt-pro-header { border-bottom-color: #374151; }
+.wudt-pro-wrap.is-dark .wudt-pro-title h1 { color: #f3f4f6; }
+.wudt-pro-wrap.is-dark .wudt-pro-title p { color: #9ca3af; }
+
 @keyframes wudtFadeIn {
 	from { opacity: 0; transform: translateY(4px); }
 	to { opacity: 1; transform: translateY(0); }
@@ -952,4 +975,51 @@
 	.wudt-dashboard-grid {
 		grid-template-columns: repeat(2, 1fr);
 	}
+}
+
+/* Toggle Switch Styles for Settings Page */
+.wudt-toggle-switch {
+	position: relative;
+	display: inline-block;
+	width: 50px;
+	height: 26px;
+	vertical-align: middle;
+	margin-right: 10px;
+}
+.wudt-toggle-switch input {
+	opacity: 0;
+	width: 0;
+	height: 0;
+}
+.wudt-toggle-switch .slider {
+	position: absolute;
+	cursor: pointer;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background-color: #ccc;
+	transition: .4s;
+	border-radius: 26px;
+}
+.wudt-toggle-switch .slider:before {
+	position: absolute;
+	content: "";
+	height: 20px;
+	width: 20px;
+	left: 3px;
+	bottom: 3px;
+	background-color: white;
+	transition: .4s;
+	border-radius: 50%;
+}
+.wudt-toggle-switch input:checked + .slider {
+	background-color: #2271b1;
+}
+.wudt-toggle-switch input:checked + .slider:before {
+	transform: translateX(24px);
+}
+.wudt-toggle-label {
+	font-weight: 500;
+	vertical-align: middle;
 }

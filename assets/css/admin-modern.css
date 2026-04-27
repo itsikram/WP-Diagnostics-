@@ -1037,3 +1037,52 @@
 .wudt-animate-slide-up {
 	animation: slide-up 0.3s ease;
 }
+
+/* ============================================
+   PLUGIN LOGO & COVER BANNER
+   ============================================ */
+.wudt-header-logo {
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-4);
+}
+
+.wudt-logo-img {
+	width: 48px;
+	height: 48px;
+	object-fit: contain;
+	border-radius: var(--wudt-radius-md);
+	box-shadow: var(--wudt-shadow-sm);
+}
+
+.wudt-header-logo h1 {
+	margin: 0;
+	font-size: 1.5rem;
+	font-weight: 600;
+	color: var(--wudt-gray-900);
+}
+
+.wudt-cover-banner {
+	margin: var(--wudt-space-6) 0;
+	border-radius: var(--wudt-radius-lg);
+	overflow: hidden;
+	box-shadow: var(--wudt-shadow-md);
+	background: linear-gradient(135deg, var(--wudt-primary-50) 0%, var(--wudt-gray-50) 100%);
+}
+
+.wudt-cover-img {
+	display: block;
+	width: 100%;
+	max-height: 300px;
+	object-fit: cover;
+	object-position: center;
+}
+
+/* Dark mode support for logo and cover */
+.wudt-wrap.wudt-modern.is-dark .wudt-cover-banner {
+	background: linear-gradient(135deg, var(--wudt-gray-800) 0%, var(--wudt-gray-900) 100%);
+}
+
+.wudt-wrap.wudt-modern.is-dark .wudt-header-logo h1 {
+	color: var(--wudt-gray-100);
+}

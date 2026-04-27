@@ -424,7 +424,11 @@ class Backup_Module extends Module_Base {
 			return array();
 		}
 		$items = array();
+		$seen  = array(); // Track base names to avoid duplicates
 		$it    = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
+		
+		// First pass: collect all files
+		$all_files = array();
 		foreach ($it as $file) {
 			if (! $file->isFile()) {
 				continue;
@@ -443,6 +447,29 @@ class Backup_Module extends Module_Base {
 			if (! preg_match('/^.+-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-[a-zA-Z0-9]{6}\.zip(\.gz)?$/', $name)) {
 				continue;
 			}
+			
+			$all_files[] = array('name' => $name, 'path' => $path, 'file' => $file);
+		}
+		
+		// Sort by modification time (newest first)
+		usort($all_files, function ($a, $b) {
+			return $b['file']->getMTime() - $a['file']->getMTime();
+		});
+		
+		// Second pass: prefer .zip.gz over .zip for same backup
+		foreach ($all_files as $f) {
+			$name = $f['name'];
+			$path = $f['path'];
+			$file = $f['file'];
+			
+			// Get base name (without .gz extension if present)
+			$base_name = preg_replace('/\.gz$/', '', $name);
+			
+			// If we already saw this base name, skip (prefer .zip.gz which comes first alphabetically)
+			if (isset($seen[$base_name])) {
+				continue;
+			}
+			$seen[$base_name] = true;
 			
 			$mtime = (int) $file->getMTime();
 			

@@ -7,11 +7,45 @@ declare(strict_types=1);
 
 namespace WUDT\Modules\AIAssistant;
 
+use WUDT\Admin\Settings_Page;
+
 if (! defined('ABSPATH')) {
 	exit;
 }
 
 class AI_Service {
+	/**
+	 * Map settings model values to actual API model names.
+	 */
+	private function get_model_mapping(): array {
+		return array(
+			'gemini' => 'gemini-2.0-flash',
+			'gpt4' => 'gpt-4o',
+			'gpt35' => 'gpt-3.5-turbo',
+			'sonnet' => 'claude-3-sonnet',
+			'opus' => 'claude-3-opus',
+			'haiku' => 'claude-3-haiku',
+		);
+	}
+
+	/**
+	 * Get API endpoint based on selected model.
+	 */
+	private function get_api_endpoint(string $model_setting): string {
+		switch ($model_setting) {
+			case 'gemini':
+				return 'https://generativelanguage.googleapis.com/v1beta/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
+			case 'sonnet':
+			case 'opus':
+			case 'haiku':
+				return 'https://api.anthropic.com/v1/messages';
+			case 'gpt4':
+			case 'gpt35':
+			default:
+				return 'https://api.openai.com/v1/chat/completions';
+		}
+	}
+
 	/**
 	 * @param array<string,mixed> $context
 	 * @param array<int,array<string,string>> $history
@@ -21,14 +55,17 @@ class AI_Service {
 		$api_key = $this->api_key();
 		if ('' === $api_key) {
 			return array(
-				'content' => "AI API key is not configured. Add `WUDT_AI_API_KEY` in wp-config.php or set option `wudt_ai_api_key`.\n\nFallback diagnosis:\n- Review recent PHP errors\n- Disable recently changed plugin/theme\n- Enable WP_DEBUG_LOG and inspect logs",
+				'content' => "AI API key is not configured. Please go to WP Diagnostics → Settings and configure your API key.\n\nFallback diagnosis:\n- Review recent PHP errors\n- Disable recently changed plugin/theme\n- Enable WP_DEBUG_LOG and inspect logs",
 				'model'   => 'fallback',
 			);
 		}
 
-		$endpoint = (string) get_option('wudt_ai_endpoint', 'https://api.openai.com/v1/chat/completions');
-		$model    = sanitize_text_field((string) ($options['model'] ?? get_option('wudt_ai_model', 'gpt-4o-mini')));
+		$model_setting = Settings_Page::get_ai_model();
+		$model_mapping = $this->get_model_mapping();
+		$model = sanitize_text_field((string) ($options['model'] ?? ($model_mapping[$model_setting] ?? 'gpt-4o-mini')));
 		$mode     = sanitize_key((string) ($options['mode'] ?? 'ask'));
+		$temperature = Settings_Page::get_temperature();
+		$max_tokens = Settings_Page::get_max_tokens();
 		$system_prompt = 'You are an expert WordPress debugging assistant. Use provided diagnostics context. Keep suggestions safe and practical.';
 		if ('agent' === $mode) {
 			$system_prompt .= ' Agent mode is enabled: propose concrete, executable remediation steps. If a safe action is possible, include a JSON object with keys action and parameters.';
@@ -54,6 +91,32 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
+		$endpoint = $this->get_api_endpoint($model_setting);
+		$request_body = array(
+			'model'       => $model,
+			'messages'    => $messages,
+			'temperature' => $temperature,
+			'max_tokens'  => $max_tokens,
+		);
+
+		// Gemini API uses a different format
+		if ($model_setting === 'gemini') {
+			$endpoint .= '?key=' . $api_key;
+			$request_body = array(
+				'contents' => array(
+					array(
+						'parts' => array(
+							array('text' => $messages[0]['content'] . "\n\n" . $messages[count($messages) - 1]['content']),
+						),
+					),
+				),
+				'generationConfig' => array(
+					'temperature' => $temperature,
+					'maxOutputTokens' => $max_tokens,
+				),
+			);
+		}
+
 		$response = wp_remote_post(
 			$endpoint,
 			array(
@@ -62,13 +125,7 @@ class AI_Service {
 					'Authorization' => 'Bearer ' . $api_key,
 					'Content-Type'  => 'application/json',
 				),
-				'body' => wp_json_encode(
-					array(
-						'model'       => $model,
-						'messages'    => $messages,
-						'temperature' => 0.2,
-					)
-				),
+				'body' => wp_json_encode($request_body),
 			)
 		);
 		if (is_wp_error($response)) {
@@ -89,18 +146,41 @@ class AI_Service {
 	 */
 	public function list_models(): array {
 		$api_key = $this->api_key();
+		$model_setting = Settings_Page::get_ai_model();
+
 		if ('' === $api_key) {
-			return array('gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini');
+			// Return default models based on selected provider
+			switch ($model_setting) {
+				case 'gemini':
+					return array('gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash');
+				case 'sonnet':
+				case 'opus':
+				case 'haiku':
+					return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
+				case 'gpt4':
+				case 'gpt35':
+				default:
+					return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
+			}
 		}
+
+		// Try to fetch models from the selected provider's API
+		$endpoint = 'https://api.openai.com/v1/models';
+		if ($model_setting === 'gemini') {
+			return array('gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash');
+		} elseif (in_array($model_setting, array('sonnet', 'opus', 'haiku'), true)) {
+			return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
+		}
+
 		$response = wp_remote_get(
-			'https://api.openai.com/v1/models',
+			$endpoint,
 			array(
 				'timeout' => 30,
 				'headers' => array('Authorization' => 'Bearer ' . $api_key),
 			)
 		);
 		if (is_wp_error($response)) {
-			return array('gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o4-mini');
+			return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
 		}
 		$data = json_decode((string) wp_remote_retrieve_body($response), true);
 		$models = array();
@@ -114,10 +194,12 @@ class AI_Service {
 	}
 
 	private function api_key(): string {
+		// Check constant first (for advanced users)
 		$constant = defined('WUDT_AI_API_KEY') ? (string) WUDT_AI_API_KEY : '';
 		if ('' !== $constant) {
 			return $constant;
 		}
-		return (string) get_option('wudt_ai_api_key', '');
+		// Use Settings_Page to get the API key
+		return Settings_Page::get_api_key();
 	}
 }

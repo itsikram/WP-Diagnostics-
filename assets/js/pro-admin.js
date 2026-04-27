@@ -17,6 +17,7 @@
 		data: bootData,
 		tab: getInitialTab(),
 		tabLoading: false,
+		fmLoading: false,
 		currentPath: '',
 		history: [],
 		historyIndex: -1,
@@ -367,10 +368,14 @@
 
 	function loadDirectory(path, pushHistory, done) {
 		path = normalizePath(path || '');
+		state.fmLoading = true;
 		status('Loading folder...');
+		render();
 		post('wudt_fm_list', { path: path }).done(function (r) {
+			state.fmLoading = false;
 			if (!r || !r.success) {
 				status('Failed to load folder');
+				render();
 				return;
 			}
 			var resolved = normalizePath(r.data.path || path);
@@ -387,7 +392,9 @@
 			render();
 			if (typeof done === 'function') { done(parsed); }
 		}).fail(function () {
+			state.fmLoading = false;
 			status('Folder load failed');
+			render();
 		});
 	}
 
@@ -472,9 +479,15 @@
 			+ treeNode('themes', normalizePath((d.root || '/') + '/wp-content/themes'), 'themes')
 			+ treeNode('uploads', normalizePath((d.root || '/') + '/wp-content/uploads'), 'uploads');
 
-		var listHtml = state.fileViewMode === 'grid'
-			? '<div class="wudt-fm-grid" id="wudt-fm-items">' + renderFileCards(rows) + '</div>'
-			: '<table class="wudt-fm-table"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody id="wudt-fm-items">' + renderFileRows(rows) + '</tbody></table>';
+		var listHtml = state.fmLoading
+			? '<div class="wudt-fm-loading"><div class="wudt-fm-loading-spinner"></div><p>Loading folder contents...</p></div>'
+			: (state.fileViewMode === 'grid'
+				? '<div class="wudt-fm-grid" id="wudt-fm-items">' + renderFileCards(rows) + '</div>'
+				: '<table class="wudt-fm-table"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody id="wudt-fm-items">' + renderFileRows(rows) + '</tbody></table>');
+
+		var compressBtn = state.selected.length > 0
+			? '<button class="button button-primary" id="wudt-fm-compress-selected" title="Compress ' + state.selected.length + ' selected items">Compress (' + state.selected.length + ')</button>'
+			: '';
 
 		return ''
 			+ '<div class="wudt-fm-shell ' + (state.darkExplorer ? 'is-dark' : '') + '">'
@@ -486,6 +499,7 @@
 			+ '<button class="button" id="wudt-fm-new-folder">New Folder</button>'
 			+ '<button class="button" id="wudt-fm-upload-trigger">Upload File</button>'
 			+ '<button class="button" id="wudt-fm-download">Download</button>'
+			+ compressBtn
 			+ '<button class="button" id="wudt-fm-toggle-view">' + (state.fileViewMode === 'grid' ? 'Details View' : 'Grid View') + '</button>'
 			+ '<button class="button" id="wudt-fm-dark">' + (state.darkExplorer ? 'Light' : 'Dark') + '</button>'
 			+ '<input type="file" id="wudt-fm-upload-file" style="display:none" />'
@@ -768,6 +782,9 @@
 				var nonce = (window.wudtProAdmin && window.wudtProAdmin.nonce) ? window.wudtProAdmin.nonce : '';
 				var downloadUrl = ajaxurl + '?action=wudt_backup_download&file=' + encodeURIComponent(path) + '&nonce=' + encodeURIComponent(nonce);
 				
+				// Determine format badge
+				var formatBadge = name.endsWith('.zip.gz') ? '<span class="wudt-backup-format" title="GZIP compressed">🗜️ GZIP</span>' : '<span class="wudt-backup-format" title="ZIP archive">📦 ZIP</span>';
+				
 				cardsHtml += '<div class="wudt-backup-card" data-path="' + esc(path) + '">'
 					+ '<div class="wudt-backup-card-header">'
 					+ '<span class="wudt-backup-icon">📦</span>'
@@ -775,7 +792,7 @@
 					+ '</div>'
 					+ '<div class="wudt-backup-card-body">'
 					+ '<h4 class="wudt-backup-name">' + esc(name) + '</h4>'
-					+ '<p class="wudt-backup-date">' + (timeStr ? '🕐 ' + esc(timeStr) : '') + '</p>'
+					+ '<p class="wudt-backup-meta">' + formatBadge + ' ' + (timeStr ? '🕐 ' + esc(timeStr) : '') + '</p>'
 					+ '</div>'
 					+ '<div class="wudt-backup-card-footer">'
 					+ '<a href="' + esc(downloadUrl) + '" class="button button-small" title="Download">⬇️</a>'
@@ -1497,19 +1514,19 @@
 			sendAIMessage();
 		});
 		// Enter key to send message (Shift+Enter for new line)
-		$(document).on('keydown', '#wudt-ai-input', function (e) {
+		$(document).off('keydown', '#wudt-ai-input').on('keydown', '#wudt-ai-input', function (e) {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
 				sendAIMessage();
 			}
 		});
 		// Mode toggle buttons (new ChatGPT-style)
-		$(document).on('click', '.wudt-ai-mode-btn', function () {
+		$(document).off('click', '.wudt-ai-mode-btn').on('click', '.wudt-ai-mode-btn', function () {
 			state.ai.mode = String($(this).data('mode') || 'ask');
 			render();
 		});
 		// Suggested prompt clicks
-		$(document).on('click', '.wudt-ai-suggestion', function () {
+		$(document).off('click', '.wudt-ai-suggestion').on('click', '.wudt-ai-suggestion', function () {
 			var prompt = String($(this).data('prompt') || '');
 			if (prompt) {
 				$('#wudt-ai-input').val(prompt);
@@ -1572,7 +1589,7 @@
 				render();
 			});
 		});
-		$(document).on('click', '.wudt-ai-copy', function () {
+		$(document).off('click', '.wudt-ai-copy').on('click', '.wudt-ai-copy', function () {
 			var idx = parseInt($(this).attr('data-copy-index'), 10);
 			var msg = state.ai.history[idx];
 			if (msg) { navigator.clipboard.writeText(msg.content || ''); }
@@ -1687,7 +1704,7 @@
 			});
 		});
 		// Backup Suite - Copy path to clipboard
-		$(document).on('click', '.wudt-backup-copy-path', function () {
+		$(document).off('click', '.wudt-backup-copy-path').on('click', '.wudt-backup-copy-path', function () {
 			var path = $(this).data('path');
 			if (path && navigator.clipboard) {
 				navigator.clipboard.writeText(path).then(function () {
@@ -1696,7 +1713,7 @@
 			}
 		});
 		// Backup Suite - Delete backup with confirmation
-		$(document).on('click', '.wudt-backup-delete', function () {
+		$(document).off('click', '.wudt-backup-delete').on('click', '.wudt-backup-delete', function () {
 			var path = $(this).data('path');
 			var name = $(this).data('name');
 			if (!path) return;
@@ -1724,7 +1741,7 @@
 			}
 		});
 		// Restore Suite - Refresh backup list
-		$(document).on('click', '#wudt-restore-refresh', function () {
+		$(document).off('click', '#wudt-restore-refresh').on('click', '#wudt-restore-refresh', function () {
 			status('Loading backups...');
 			post('wudt_backup_list').done(function (r) {
 				if (r && r.success && r.data && r.data.backups) {
@@ -1745,24 +1762,24 @@
 			});
 		});
 		// Restore Suite - Select backup on row click
-		$(document).on('click', '.wudt-restore-backup-row', function () {
+		$(document).off('click', '.wudt-restore-backup-row').on('click', '.wudt-restore-backup-row', function () {
 			var path = $(this).data('path');
 			$('#wudt-restore-path').val(path);
 			$(this).find('.wudt-restore-select').prop('checked', true);
 			$(this).addClass('is-selected').siblings().removeClass('is-selected');
 		});
 		// Restore Suite - Select backup on radio change
-		$(document).on('change', '.wudt-restore-select', function () {
+		$(document).off('change', '.wudt-restore-select').on('change', '.wudt-restore-select', function () {
 			var path = $(this).val();
 			$('#wudt-restore-path').val(path);
 			$(this).closest('tr').addClass('is-selected').siblings().removeClass('is-selected');
 		});
-		$('#wudt-restore-preview').on('click', function () {
+		$('#wudt-restore-preview').off('click').on('click', function () {
 			post('wudt_restore_preview', { backup_path: $('#wudt-restore-path').val() }).done(function (r) {
 				$('#wudt-restore-result').text(JSON.stringify(r, null, 2));
 			});
 		});
-		$('#wudt-restore-run').on('click', function () {
+		$('#wudt-restore-run').off('click').on('click', function () {
 			var components = [];
 			$('.wudt-restore-component:checked').each(function () { components.push($(this).val()); });
 			post('wudt_restore_run', {
@@ -2109,6 +2126,24 @@
 				if (r && r.success) { window.open(r.data.url, '_blank'); }
 			});
 		});
+		$(document).off('click.wudtfmcompress').on('click.wudtfmcompress', '#wudt-fm-compress-selected', function () {
+			if (!state.selected.length) { return; }
+			var archiveName = prompt('Enter archive name:', 'archive.zip');
+			if (!archiveName) { return; }
+			status('Creating archive...');
+			post('wudt_fm_compress', { paths: state.selected, name: archiveName }).done(function (r) {
+				if (r && r.success) {
+					status(r.data.message);
+					state.selected = [];
+					loadDirectory(state.currentPath, false);
+				} else {
+					status('Failed to create archive');
+					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
+				}
+			}).fail(function () {
+				status('Failed to create archive');
+			});
+		});
 		$('#wudt-ed-restore').on('click', function () {
 			state.editor.minimized = false;
 			render();
@@ -2397,9 +2432,18 @@
 	}
 
 	function editFile(path) {
+		status('Opening file...');
 		post('wudt_fm_read', { path: path }).done(function (r) {
-			if (!r || !r.success) { return; }
+			if (!r || !r.success) {
+				status('Failed to open file: ' + (r && r.data && r.data.message ? r.data.message : 'Unknown error'));
+				console.error('editFile failed:', r);
+				return;
+			}
 			openEditorWindow(path, String(r.data.content || ''));
+			status('File opened');
+		}).fail(function (xhr, statusText, error) {
+			status('Failed to open file: ' + statusText);
+			console.error('editFile AJAX failed:', statusText, error);
 		});
 	}
 
@@ -2566,6 +2610,11 @@
 			if (item.type !== 'dir') { html += '<button data-act="edit">Edit</button>'; }
 			html += '<button data-act="rename">Rename</button>';
 			html += '<button data-act="delete">Delete</button>';
+			html += '<button data-act="compress">Compress to ZIP</button>';
+			// Show Extract option for ZIP files
+			if (item.type === 'file' && item.name.toLowerCase().endsWith('.zip')) {
+				html += '<button data-act="extract">Extract Here</button>';
+			}
 			html += '<button data-act="download">Download</button>';
 			html += '<button data-act="copy_path">Copy Path</button>';
 			html += '<button data-act="properties">Properties</button>';
@@ -2574,6 +2623,10 @@
 			html += '<button data-act="upload">Upload File</button>';
 			html += '<button data-act="refresh">Refresh</button>';
 			html += '<button data-act="paste">Paste</button>';
+			// Show Compress Selected if files are selected
+			if (state.selected.length > 0) {
+				html += '<button data-act="compress_selected">Compress Selected (' + state.selected.length + ')</button>';
+			}
 		}
 		html += '</div>';
 		menu.html(html).show();
@@ -2583,7 +2636,8 @@
 		var left = Math.min(Math.max(8, x), maxLeft);
 		var top = Math.min(Math.max(8, y), maxTop);
 		menu.css({ left: left + 'px', top: top + 'px' });
-		menu.find('button').on('click', function () {
+		menu.find('button').on('click', function (e) {
+			e.stopPropagation();
 			var act = String($(this).data('act'));
 			menu.hide().empty();
 			handleContextAction(act, item);
@@ -2612,6 +2666,58 @@
 		}
 		if (action === 'download' && item) {
 			post('wudt_fm_download_zip', { path: item.path }).done(function (r) { if (r && r.success) { window.open(r.data.url, '_blank'); } });
+			return;
+		}
+		if (action === 'compress' && item) {
+			var defaultName = item.name + '.zip';
+			var archiveName = prompt('Enter archive name:', defaultName);
+			if (!archiveName) { return; }
+			status('Creating archive...');
+			post('wudt_fm_compress', { paths: [item.path], name: archiveName }).done(function (r) {
+				if (r && r.success) {
+					status(r.data.message);
+					loadDirectory(state.currentPath, false);
+				} else {
+					status('Failed to create archive');
+					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
+				}
+			}).fail(function () {
+				status('Failed to create archive');
+			});
+			return;
+		}
+		if (action === 'compress_selected') {
+			var archiveName = prompt('Enter archive name:', 'archive.zip');
+			if (!archiveName) { return; }
+			status('Creating archive...');
+			post('wudt_fm_compress', { paths: state.selected, name: archiveName }).done(function (r) {
+				if (r && r.success) {
+					status(r.data.message);
+					state.selected = [];
+					loadDirectory(state.currentPath, false);
+				} else {
+					status('Failed to create archive');
+					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
+				}
+			}).fail(function () {
+				status('Failed to create archive');
+			});
+			return;
+		}
+		if (action === 'extract' && item) {
+			if (!confirm('Extract "' + item.name + '" to this folder?')) { return; }
+			status('Extracting archive...');
+			post('wudt_fm_extract', { path: item.path }).done(function (r) {
+				if (r && r.success) {
+					status(r.data.message);
+					loadDirectory(state.currentPath, false);
+				} else {
+					status('Failed to extract archive');
+					alert(r && r.data && r.data.message ? r.data.message : 'Failed to extract archive');
+				}
+			}).fail(function () {
+				status('Failed to extract archive');
+			});
 			return;
 		}
 		if (action === 'copy_path' && item) {

@@ -29,6 +29,8 @@ class File_Manager_Module extends Module_Base {
 		add_action('wp_ajax_wudt_fm_chmod', array($this, 'ajax_chmod'));
 		add_action('wp_ajax_wudt_fm_search', array($this, 'ajax_search'));
 		add_action('wp_ajax_wudt_fm_download_zip', array($this, 'ajax_download_zip'));
+		add_action('wp_ajax_wudt_fm_compress', array($this, 'ajax_compress'));
+		add_action('wp_ajax_wudt_fm_extract', array($this, 'ajax_extract'));
 	}
 
 	public function get_key(): string {
@@ -194,6 +196,120 @@ class File_Manager_Module extends Module_Base {
 		wp_send_json_success(array('url' => str_replace($up['basedir'], $up['baseurl'], $file)));
 	}
 
+	public function ajax_compress(): void {
+		$this->authorize();
+		$paths = isset($_POST['paths']) ? (array) $_POST['paths'] : array();
+		$name  = isset($_POST['name']) ? sanitize_file_name((string) $_POST['name']) : '';
+
+		if (empty($paths)) {
+			wp_send_json_error(array('message' => __('No files selected.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		if (empty($name)) {
+			$name = 'archive-' . gmdate('Ymd-His');
+		}
+		if (!str_ends_with($name, '.zip')) {
+			$name .= '.zip';
+		}
+
+		// Get the directory of the first item for output location
+		$first_path = $this->resolve_path((string) ($paths[0] ?? ''));
+		$base_dir   = dirname($first_path);
+		$output_path = $base_dir . '/' . $name;
+
+		// Ensure we don't overwrite existing file
+		$counter = 1;
+		$original_name = $name;
+		while (file_exists($output_path)) {
+			$name = str_replace('.zip', '-' . $counter . '.zip', $original_name);
+			$output_path = $base_dir . '/' . $name;
+			$counter++;
+		}
+
+		$zip = new ZipArchive();
+		if (true !== $zip->open($output_path, ZipArchive::CREATE | ZipArchive::OVERWRITE)) {
+			wp_send_json_error(array('message' => __('Could not create ZIP archive.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+
+		$total_items = count($paths);
+		$processed   = 0;
+
+		foreach ($paths as $path) {
+			$resolved = $this->resolve_path((string) $path);
+			if (!file_exists($resolved)) {
+				continue;
+			}
+			$this->zip_add_path($zip, $resolved, basename($resolved));
+			$processed++;
+		}
+
+		$zip->close();
+		Operation_Logger::log('file', 'Archive created', array('output' => $output_path, 'items' => $processed));
+		wp_send_json_success(
+			array(
+				'message'  => sprintf(/* translators: %s: Archive name */ __('Archive "%s" created successfully.', 'wp-ultimate-diagnostics-toolkit'), $name),
+				'name'     => $name,
+				'path'     => $output_path,
+				'items'    => $processed,
+			)
+		);
+	}
+
+	public function ajax_extract(): void {
+		$this->authorize();
+		$path    = $this->resolve_path((string) ($_POST['path'] ?? ''));
+		$dest    = isset($_POST['destination']) ? (string) $_POST['destination'] : '';
+
+		if (!is_file($path) || !is_readable($path)) {
+			wp_send_json_error(array('message' => __('Archive file not readable.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Validate it's a ZIP file
+		$ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+		if ($ext !== 'zip') {
+			wp_send_json_error(array('message' => __('Only ZIP archives are supported.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Determine extract destination
+		if (empty($dest)) {
+			$dest = dirname($path) . '/' . basename($path, '.zip');
+		} else {
+			$dest = $this->resolve_path($dest);
+		}
+
+		// Create destination directory if it doesn't exist
+		if (!is_dir($dest)) {
+			wp_mkdir_p($dest);
+		}
+
+		$zip = new ZipArchive();
+		if (true !== $zip->open($path)) {
+			wp_send_json_error(array('message' => __('Could not open ZIP archive.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+
+		$num_files = $zip->numFiles;
+		if (true !== $zip->extractTo($dest)) {
+			$zip->close();
+			wp_send_json_error(array('message' => __('Failed to extract archive.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+		$zip->close();
+
+		Operation_Logger::log('file', 'Archive extracted', array('archive' => $path, 'destination' => $dest, 'files' => $num_files));
+		wp_send_json_success(
+			array(
+				'message' => sprintf(/* translators: %1$d: Number of files, %2$s: Destination path */ __('Extracted %1$d files to "%2$s".', 'wp-ultimate-diagnostics-toolkit'), $num_files, $dest),
+				'files'   => $num_files,
+				'dest'    => $dest,
+			)
+		);
+	}
+
 	/**
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -228,7 +344,7 @@ class File_Manager_Module extends Module_Base {
 		if ('' === $path) {
 			return ABSPATH;
 		}
-		
+
 		// Try realpath first, fallback to normalizing the input path
 		$real_path = realpath($path);
 		if (false === $real_path) {
@@ -237,20 +353,21 @@ class File_Manager_Module extends Module_Base {
 		} else {
 			$full = wp_normalize_path($real_path);
 		}
-		
+
 		$abs_path = wp_normalize_path(ABSPATH);
-		
-		// Ensure both paths end with trailing slash for proper comparison
-		$full = trailingslashit($full);
-		$abs_path = trailingslashit($abs_path);
-		
+
+		// For security check, ensure both paths end with trailing slash for proper comparison
+		$full_for_check = trailingslashit($full);
+		$abs_for_check = trailingslashit($abs_path);
+
 		// On Windows, make case-insensitive comparison
-		$full_lower = strtolower($full);
-		$abs_lower = strtolower($abs_path);
-		
+		$full_lower = strtolower($full_for_check);
+		$abs_lower = strtolower($abs_for_check);
+
 		if (0 !== strpos($full_lower, $abs_lower)) {
 			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
 		}
+		// Return the original resolved path without forced trailing slash (files shouldn't have trailing slashes)
 		return $full;
 	}
 

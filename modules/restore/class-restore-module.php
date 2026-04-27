@@ -116,7 +116,14 @@ class Restore_Module extends Module_Base {
 			$backup->create_backup_package(array('database', 'plugins', 'themes'), false, '');
 		}
 
-		$this->extract_archive($archive, $temp);
+		// Handle GZIP compressed archives (.zip.gz)
+		$zip_file = $archive;
+		if (str_ends_with(strtolower($archive), '.zip.gz')) {
+			$zip_file = $temp . 'archive.zip';
+			$this->decompress_gzip($archive, $zip_file);
+		}
+
+		$this->extract_archive($zip_file, $temp);
 		$config = $this->read_json($temp . 'config.json');
 		$done   = array();
 
@@ -155,6 +162,7 @@ class Restore_Module extends Module_Base {
 	private function read_archive_metadata(string $archive): array {
 		$list  = array();
 		$zip   = new \ZipArchive();
+		$temp_zip = null; // Will hold temp file path for GZIP decompression
 		
 		// Basic file validation
 		if (! file_exists($archive)) {
@@ -172,12 +180,13 @@ class Restore_Module extends Module_Base {
 		
 		// MIME type check as secondary validation (may not work on all Windows setups)
 		$mime_valid = false;
+		$mime_type = null;
 		if (function_exists('finfo_open')) {
 			$finfo = @finfo_open(FILEINFO_MIME_TYPE);
 			if ($finfo) {
 				$mime_type = @finfo_file($finfo, $archive);
 				finfo_close($finfo);
-				$valid_zip_types = array('application/zip', 'application/x-zip-compressed', 'application/octet-stream');
+				$valid_zip_types = array('application/zip', 'application/x-zip-compressed', 'application/octet-stream', 'application/gzip');
 				$mime_valid = in_array($mime_type, $valid_zip_types, true);
 			}
 		}
@@ -187,7 +196,19 @@ class Restore_Module extends Module_Base {
 			throw new \RuntimeException(__('File is not a valid ZIP archive. Must have .zip extension.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		
-		$opened = $zip->open($archive);
+		// Handle GZIP compressed archives for preview
+		$zip_file = $archive;
+		if (str_ends_with($lowercase_path, '.zip.gz')) {
+			$temp_zip = wp_normalize_path(WP_CONTENT_DIR . '/uploads/wudt-preview-' . wp_generate_password(10, false, false) . '.zip');
+			try {
+				$this->decompress_gzip($archive, $temp_zip);
+				$zip_file = $temp_zip;
+			} catch (\RuntimeException $e) {
+				throw new \RuntimeException(__('Could not decompress GZIP archive: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage());
+			}
+		}
+		
+		$opened = $zip->open($zip_file);
 		if (true !== $opened) {
 			$error_messages = array(
 				\ZipArchive::ER_EXISTS => __('File already exists.', 'wp-ultimate-diagnostics-toolkit'),
@@ -228,6 +249,12 @@ class Restore_Module extends Module_Base {
 			}
 		}
 		$zip->close();
+		
+		// Clean up temp file if we decompressed GZIP
+		if ($temp_zip && file_exists($temp_zip)) {
+			unlink($temp_zip);
+		}
+		
 		return array(
 			'archive' => $archive,
 			'files'   => array_slice($list, 0, 200),
@@ -362,5 +389,47 @@ class Restore_Module extends Module_Base {
 			$item->isDir() ? rmdir((string) $item->getPathname()) : unlink((string) $item->getPathname());
 		}
 		rmdir($path);
+	}
+
+	/**
+	 * Decompress GZIP file to output file.
+	 *
+	 * @throws \RuntimeException If decompression fails.
+	 */
+	private function decompress_gzip(string $input, string $output): void {
+		$source = @gzopen($input, 'rb');
+		if (! is_resource($source)) {
+			throw new \RuntimeException(__('Could not open GZIP archive for reading: ', 'wp-ultimate-diagnostics-toolkit') . $input);
+		}
+
+		$dest = @fopen($output, 'wb');
+		if (! is_resource($dest)) {
+			gzclose($source);
+			throw new \RuntimeException(__('Could not create output file: ', 'wp-ultimate-diagnostics-toolkit') . $output);
+		}
+
+		while (! gzeof($source)) {
+			$data = gzread($source, 8192);
+			if (false === $data) {
+				gzclose($source);
+				fclose($dest);
+				unlink($output);
+				throw new \RuntimeException(__('Error reading GZIP data from: ', 'wp-ultimate-diagnostics-toolkit') . $input);
+			}
+			if (fwrite($dest, $data) === false) {
+				gzclose($source);
+				fclose($dest);
+				unlink($output);
+				throw new \RuntimeException(__('Error writing decompressed data to: ', 'wp-ultimate-diagnostics-toolkit') . $output);
+			}
+		}
+
+		gzclose($source);
+		fclose($dest);
+
+		// Verify the output file was created
+		if (! file_exists($output) || filesize($output) === 0) {
+			throw new \RuntimeException(__('GZIP decompression failed - output file is empty or missing.', 'wp-ultimate-diagnostics-toolkit'));
+		}
 	}
 }
