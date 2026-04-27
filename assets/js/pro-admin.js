@@ -6,7 +6,7 @@
 	// Get initial tab from URL hash or default to dashboard
 	function getInitialTab() {
 		var hash = window.location.hash.replace('#', '');
-		var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
+		var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
 		if (hash && validTabs.indexOf(hash) !== -1) {
 			return hash;
 		}
@@ -120,7 +120,7 @@
 	}
 
 	function render() {
-		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
+		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
 		var tabsHtml = '';
 		for (var i = 0; i < tabs.length; i++) {
 			var t = tabs[i];
@@ -276,6 +276,7 @@
 		if (state.tab === 'database_manager') { return renderDbManager(); }
 		if (state.tab === 'malware_enterprise') { return renderMalwareEnterprise(); }
 		if (state.tab === 'recovery') { return renderRecovery(); }
+		if (state.tab === 'smtp') { return renderSMTP(); }
 		return '<p>No data.</p>';
 	}
 
@@ -887,7 +888,7 @@
 		var mode = state.ai.mode || 'ask';
 		var model = state.ai.model || '';
 		var models = state.ai.models || [];
-		var modelOptions = '<option value="">Default (GPT-4o-mini)</option>';
+		var modelOptions = '<option value="">Default Model</option>';
 		for (var mo = 0; mo < models.length; mo++) {
 			var mName = String(models[mo] || '');
 			modelOptions += '<option value="' + esc(mName) + '" ' + (model === mName ? 'selected' : '') + '>' + esc(mName) + '</option>';
@@ -905,20 +906,32 @@
 		var iconUser = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
 		var iconBot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>';
 		var iconWarning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+		var iconHistory = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+		var iconSettings = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m4.22-10.22l4.24-4.24M6.34 6.34L2.1 2.1m17.8 17.8l-4.24-4.24M6.34 17.66l-4.24 4.24M23 12h-6m-6 0H1m20.07-4.93l-4.24 4.24M6.34 6.34l-4.24-4.24"/></svg>';
+		var iconFile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+		var iconDatabase = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>';
 
-		// Sidebar threads
+		// Sidebar threads with more items
 		var threads = '<div class="wudt-ai-thread-list">'
 			+ '<div class="wudt-ai-thread-item is-active">' + iconMessage + ' Current Session</div>'
+			+ '<div class="wudt-ai-thread-item">' + iconHistory + ' Previous Chat</div>'
+			+ '</div>';
+
+		// Quick actions in sidebar
+		var quickActions = '<div class="wudt-ai-quick-actions" style="margin-top:24px;">'
+			+ '<h3>Quick Actions</h3>'
+			+ '<div class="wudt-ai-thread-item" id="wudt-ai-file-manager-link">' + iconFile + ' File Manager</div>'
+			+ '<div class="wudt-ai-thread-item" id="wudt-ai-database-link">' + iconDatabase + ' Database Manager</div>'
 			+ '</div>';
 
 		// Chat messages
 		var bubble = '';
 		if (messages.length === 0) {
-			// Empty state
+			// Empty state with enhanced welcome
 			bubble = '<div class="wudt-ai-chat-empty">'
 				+ '<div class="wudt-ai-chat-empty-icon">' + iconBot + '</div>'
 				+ '<h4>WP Diagnostics AI Assistant</h4>'
-				+ '<p>Ask me anything about your WordPress site - from debugging errors to optimizing performance, security checks, and more.</p>'
+				+ '<p>Ask me anything about your WordPress site - from debugging errors to optimizing performance, security checks, and more. I can help you fix issues, analyze code, and manage your database.</p>'
 				+ '</div>';
 		} else {
 			for (var i = 0; i < messages.length; i++) {
@@ -926,9 +939,8 @@
 				var isUser = m.role === 'user';
 				var cls = isUser ? 'wudt-ai-msg user' : 'wudt-ai-msg ai';
 				var avatar = isUser ? iconUser : iconBot;
-				var avatarBg = isUser ? 'background:#5436da;' : 'background:#10a37f;';
 				bubble += '<div class="' + cls + '">'
-					+ '<div class="wudt-ai-msg-avatar" style="' + avatarBg + '">' + avatar + '</div>'
+					+ '<div class="wudt-ai-msg-avatar">' + avatar + '</div>'
 					+ '<div class="wudt-ai-msg-content">' + renderMarkdownLite(m.content || '') + ''
 					+ (isUser ? '' : '<div class="wudt-ai-msg-actions"><button class="wudt-ai-msg-action wudt-ai-copy" data-copy-index="' + i + '">' + iconCopy + ' Copy</button></div>')
 					+ '</div>'
@@ -938,19 +950,21 @@
 
 		if (state.ai.typing) {
 			bubble += '<div class="wudt-ai-msg ai">'
-				+ '<div class="wudt-ai-msg-avatar" style="background:#10a37f;">' + iconBot + '</div>'
+				+ '<div class="wudt-ai-msg-avatar">' + iconBot + '</div>'
 				+ '<div class="wudt-ai-msg-content"><div class="wudt-ai-typing"><span></span><span></span><span></span></div></div>'
 				+ '</div>';
 		}
 
-		// Suggested prompts (only when empty)
+		// Suggested prompts (only when empty) - more comprehensive
 		var suggestions = '';
 		if (messages.length === 0) {
 			suggestions = '<div class="wudt-ai-suggestions">'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Why is my site slow?">Why is my site slow?</div>'
-				+ '<div class="wudt-suggestion" data-prompt="Check for security issues">Check for security issues</div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Debug PHP errors">Debug PHP errors</div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Optimize database">Optimize database</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Why is my site slow?">🐌 Why is my site slow?</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Check for security issues">🔒 Check for security issues</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Debug PHP errors">🐛 Debug PHP errors</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Optimize database">⚡ Optimize database</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Check plugin conflicts">🔌 Check plugin conflicts</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Analyze error logs">📊 Analyze error logs</div>'
 				+ '</div>';
 		}
 
@@ -970,7 +984,8 @@
 			+ '<div class="wudt-ai-new-chat" id="wudt-ai-clear-chat">' + iconPlus + ' New Chat</div>'
 			+ '<h3>Recent Conversations</h3>'
 			+ threads
-			+ '<div class="wudt-ai-sidebar-footer">AI Assistant v1.0</div>'
+			+ quickActions
+			+ '<div class="wudt-ai-sidebar-footer">AI Assistant v2.0 • Gemini Ready</div>'
 			+ '</aside>'
 			// Main area
 			+ '<section class="wudt-ai-main">'
@@ -981,12 +996,12 @@
 			+ '</div>'
 			+ '<div class="wudt-ai-model-selector">'
 			+ '<select id="wudt-ai-model">' + modelOptions + '</select>'
-			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Or type model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">'
-			+ '<button class="button button-small" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
+			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Custom model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid var(--wudt-gray-300);border-radius:6px;font-size:13px;">'
+			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
 			+ '</div>'
 			+ '</div>'
 			// Mode toggle
-			+ '<div class="wudt-ai-mode-toggle" style="padding:8px 20px;border-bottom:1px solid #e5e7eb;background:#fafafa;">'
+			+ '<div class="wudt-ai-mode-toggle">'
 			+ '<button class="wudt-ai-mode-btn ' + (mode === 'ask' ? 'is-active' : '') + '" data-mode="ask">Ask Mode</button>'
 			+ '<button class="wudt-ai-mode-btn ' + (mode === 'agent' ? 'is-active' : '') + '" data-mode="agent">Agent Mode</button>'
 			+ '</div>'
@@ -1005,17 +1020,13 @@
 			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="system" checked> System Info</label>'
 			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="database" checked> Database</label>'
 			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="file"> File Content</label>'
-			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Chat Transcript</label>'
-			+ '</div>'
-			+ '<div class="wudt-ai-file-upload">'
-			+ '<input type="file" id="wudt-ai-chat-file" accept=".txt,.md,.log,.json" multiple>'
-			+ '<label for="wudt-ai-chat-file" class="wudt-ai-file-upload-btn">' + iconUpload + ' Upload</label>'
+			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Chat History</label>'
 			+ '</div>'
 			+ '</div>'
 			// Input area
 			+ '<div class="wudt-ai-input-area">'
 			+ '<div class="wudt-ai-input-wrapper">'
-			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Message AI Assistant..."></textarea>'
+			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Ask anything about your WordPress site... (Shift+Enter for new line)" rows="1"></textarea>'
 			+ '<button class="wudt-ai-send-btn" id="wudt-ai-send" ' + (state.ai.typing ? 'disabled' : '') + '>' + iconSend + '</button>'
 			+ '</div>'
 			+ '</div>'
@@ -1492,7 +1503,7 @@
 		// Listen for hash changes (browser back/forward buttons)
 		$(window).off('hashchange.wudt').on('hashchange.wudt', function () {
 			var newTab = window.location.hash.replace('#', '');
-			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
+			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
 			if (newTab && validTabs.indexOf(newTab) !== -1 && newTab !== state.tab) {
 				state.tab = newTab;
 				state.tabLoading = true;
@@ -1602,6 +1613,22 @@
 			}).done(function (r) {
 				alert(r && r.success && r.data && r.data.applied ? 'Fix applied.' : 'Could not apply fix automatically.');
 			});
+		});
+		// Sidebar quick action links
+		$(document).off('click', '#wudt-ai-file-manager-link').on('click', '#wudt-ai-file-manager-link', function () {
+			state.tab = 'file_manager';
+			render();
+		});
+		$(document).off('click', '#wudt-ai-database-link').on('click', '#wudt-ai-database-link', function () {
+			state.tab = 'database_manager';
+			render();
+		});
+		// Textarea auto-resize
+		$(document).off('input', '#wudt-ai-input').on('input', '#wudt-ai-input', function () {
+			var $this = $(this);
+			$this.css('height', 'auto');
+			var newHeight = Math.min(Math.max($this[0].scrollHeight, 56), 200);
+			$this.css('height', newHeight + 'px');
 		});
 		$('#wudt-backup-create').on('click', function () {
 			var $btn = $(this);
@@ -2831,6 +2858,149 @@
 		});
 	}
 
+	function renderSMTP() {
+		var d = tabData('smtp') || {};
+		var enabled = d.enabled || false;
+		var host = d.host || '';
+		var port = d.port || 587;
+		var encryption = d.encryption || 'tls';
+		var auth = d.auth !== false;
+		var user = d.user || '';
+		var passSet = d.pass_set || false;
+		var fromEmail = d.from_email || '';
+		var fromName = d.from_name || '';
+		var testResult = d.mail_test || {};
+
+		var html = '<div class="wudt-card">' +
+			'<h3><span class="dashicons dashicons-email"></span> ' + esc('SMTP Configuration') + '</h3>' +
+			'<p>' + esc('Configure SMTP settings to send emails through an external mail server instead of the default WordPress mail function.') + '</p>';
+
+		// Connection test result
+		if (testResult && testResult.message) {
+			html += '<div class="notice ' + (testResult.success ? 'notice-success' : 'notice-error') + ' is-dismissible">' +
+				'<p><strong>' + esc(testResult.success ? 'Connected' : 'Connection Failed') + ':</strong> ' + esc(testResult.message) + '</p>' +
+				'</div>';
+		}
+
+		html += '<form id="wudt-smtp-form">' +
+			// SMTP Enabled Toggle
+			'<table class="form-table">' +
+			'<tr>' +
+			'<th scope="row">' + esc('Enable SMTP') + '</th>' +
+			'<td>' +
+			'<label class="wudt-toggle-switch">' +
+			'<input type="checkbox" name="enabled" value="1" ' + (enabled ? 'checked' : '') + ' id="wudt-smtp-enabled">' +
+			'<span class="slider"></span>' +
+			'</label>' +
+			'<span class="wudt-toggle-label" id="wudt-smtp-status">' + esc(enabled ? 'Enabled' : 'Disabled') + '</span>' +
+			'<p class="description">' + esc('Enable to use SMTP for all WordPress emails.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// SMTP Host
+			'<tr>' +
+			'<th scope="row"><label for="smtp_host">' + esc('SMTP Host') + '</label></th>' +
+			'<td>' +
+			'<input type="text" name="host" id="smtp_host" class="regular-text" value="' + esc(host) + '" placeholder="' + esc('e.g., smtp.gmail.com') + '">' +
+			'<p class="description">' + esc('Your SMTP server hostname.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// SMTP Port
+			'<tr>' +
+			'<th scope="row"><label for="smtp_port">' + esc('SMTP Port') + '</label></th>' +
+			'<td>' +
+			'<input type="number" name="port" id="smtp_port" class="small-text" value="' + esc(port) + '" min="1" max="65535">' +
+			'<p class="description">' + esc('Common ports: 25, 465 (SSL), 587 (TLS)') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// Encryption
+			'<tr>' +
+			'<th scope="row"><label for="smtp_encryption">' + esc('Encryption') + '</label></th>' +
+			'<td>' +
+			'<select name="encryption" id="smtp_encryption">' +
+			'<option value="tls" ' + (encryption === 'tls' ? 'selected' : '') + '>' + esc('TLS (Recommended)') + '</option>' +
+			'<option value="ssl" ' + (encryption === 'ssl' ? 'selected' : '') + '>' + esc('SSL') + '</option>' +
+			'<option value="none" ' + (encryption === 'none' ? 'selected' : '') + '>' + esc('None') + '</option>' +
+			'</select>' +
+			'<p class="description">' + esc('Select the encryption method.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// Authentication
+			'<tr>' +
+			'<th scope="row">' + esc('SMTP Authentication') + '</th>' +
+			'<td>' +
+			'<label class="wudt-toggle-switch">' +
+			'<input type="checkbox" name="auth" value="1" ' + (auth ? 'checked' : '') + ' id="smtp_auth">' +
+			'<span class="slider"></span>' +
+			'</label>' +
+			'<span class="wudt-toggle-label">' + esc(auth ? 'Enabled' : 'Disabled') + '</span>' +
+			'<p class="description">' + esc('Most SMTP servers require authentication.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// Username
+			'<tr>' +
+			'<th scope="row"><label for="smtp_user">' + esc('SMTP Username') + '</label></th>' +
+			'<td>' +
+			'<input type="text" name="user" id="smtp_user" class="regular-text" value="' + esc(user) + '" placeholder="' + esc('your@email.com') + '">' +
+			'</td>' +
+			'</tr>' +
+			// Password
+			'<tr>' +
+			'<th scope="row"><label for="smtp_pass">' + esc('SMTP Password') + '</label></th>' +
+			'<td>' +
+			'<input type="password" name="pass" id="smtp_pass" class="regular-text" ' + (passSet ? 'placeholder="' + esc('Enter to change (hidden)') + '"' : 'placeholder="' + esc('Your SMTP password') + '"') + '>' +
+			'<button type="button" class="button" id="wudt-toggle-smtp-pass" style="margin-left:5px;">' + esc('Show') + '</button>' +
+			'</td>' +
+			'</tr>' +
+			// From Email
+			'<tr>' +
+			'<th scope="row"><label for="smtp_from_email">' + esc('From Email') + '</label></th>' +
+			'<td>' +
+			'<input type="email" name="from_email" id="smtp_from_email" class="regular-text" value="' + esc(fromEmail) + '" placeholder="' + esc(getOption('admin_email')) + '">' +
+			'<p class="description">' + esc('The sender email address. Defaults to admin email if empty.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			// From Name
+			'<tr>' +
+			'<th scope="row"><label for="smtp_from_name">' + esc('From Name') + '</label></th>' +
+			'<td>' +
+			'<input type="text" name="from_name" id="smtp_from_name" class="regular-text" value="' + esc(fromName) + '" placeholder="' + esc(getOption('blogname')) + '">' +
+			'<p class="description">' + esc('The sender name. Defaults to site name if empty.') + '</p>' +
+			'</td>' +
+			'</tr>' +
+			'</table>' +
+			'<p class="submit">' +
+			'<button type="button" class="button button-primary" id="wudt-save-smtp">' + esc('Save Settings') + '</button>' +
+			'</p>' +
+			'</form>' +
+			'</div>';
+
+		// Test Email Section
+		html += '<div class="wudt-card" style="margin-top: 20px;">' +
+			'<h3><span class="dashicons dashicons-email-alt"></span> ' + esc('Send Test Email') + '</h3>' +
+			'<p>' + esc('Send a test email to verify your SMTP configuration.') + '</p>' +
+			'<table class="form-table">' +
+			'<tr>' +
+			'<th scope="row"><label for="smtp_test_to">' + esc('To Email') + '</label></th>' +
+			'<td>' +
+			'<input type="email" id="smtp_test_to" class="regular-text" value="' + esc(getOption('admin_email')) + '">' +
+			'<button type="button" class="button button-secondary" id="wudt-send-test-email" style="margin-left:5px;">' + esc('Send Test') + '</button>' +
+			'</td>' +
+			'</tr>' +
+			'</table>' +
+			'<div id="smtp-test-result" style="margin-top: 10px;"></div>' +
+			'</div>';
+
+		return html;
+	}
+
+	// Helper to get WordPress option (simplified)
+	function getOption(name) {
+		if (window.wudtProAdmin && window.wudtProAdmin.data && window.wudtProAdmin.data.options) {
+			return window.wudtProAdmin.data.options[name] || '';
+		}
+		return '';
+	}
+
 	$(function () {
 		render();
 		// Load initial tab data if not dashboard or if no data exists
@@ -2849,5 +3019,79 @@
 			loadTabData(initialTab);
 		}
 		bootstrapFileManagerState();
+
+		// SMTP Tab Event Handlers
+		$(document).on('click', '#wudt-save-smtp', function () {
+			var $btn = $(this);
+			$btn.prop('disabled', true).text('Saving...');
+			
+			var data = {
+				enabled: $('#wudt-smtp-enabled').is(':checked') ? '1' : '',
+				host: $('#smtp_host').val(),
+				port: $('#smtp_port').val(),
+				encryption: $('#smtp_encryption').val(),
+				auth: $('#smtp_auth').is(':checked') ? '1' : '',
+				user: $('#smtp_user').val(),
+				pass: $('#smtp_pass').val(),
+				from_email: $('#smtp_from_email').val(),
+				from_name: $('#smtp_from_name').val()
+			};
+			
+			post('wudt_save_smtp_settings', data).done(function (r) {
+				if (r && r.success) {
+					alert('Settings saved successfully!');
+					// Reload tab data to show updated test result
+					loadTabData('smtp');
+				} else {
+					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to save settings'));
+				}
+			}).fail(function () {
+				alert('Failed to save settings. Please try again.');
+			}).always(function () {
+				$btn.prop('disabled', false).text('Save Settings');
+			});
+		});
+
+		$(document).on('click', '#wudt-send-test-email', function () {
+			var $btn = $(this);
+			var toEmail = $('#smtp_test_to').val();
+			
+			if (!toEmail || !toEmail.includes('@')) {
+				alert('Please enter a valid email address.');
+				return;
+			}
+			
+			$btn.prop('disabled', true).text('Sending...');
+			$('#smtp-test-result').html('<p>Sending test email...</p>');
+			
+			post('wudt_send_test_email', { to: toEmail }).done(function (r) {
+				if (r && r.success) {
+					$('#smtp-test-result').html('<div class="notice notice-success"><p>' + esc(r.data.message) + '</p></div>');
+				} else {
+					$('#smtp-test-result').html('<div class="notice notice-error"><p>' + esc((r && r.data && r.data.message) ? r.data.message : 'Failed to send test email') + '</p></div>');
+				}
+			}).fail(function () {
+				$('#smtp-test-result').html('<div class="notice notice-error"><p>Failed to send test email. Check your SMTP settings.</p></div>');
+			}).always(function () {
+				$btn.prop('disabled', false).text('Send Test');
+			});
+		});
+
+		$(document).on('click', '#wudt-toggle-smtp-pass', function () {
+			var $input = $('#smtp_pass');
+			var $btn = $(this);
+			if ($input.attr('type') === 'password') {
+				$input.attr('type', 'text');
+				$btn.text('Hide');
+			} else {
+				$input.attr('type', 'password');
+				$btn.text('Show');
+			}
+		});
+
+		$(document).on('change', '#wudt-smtp-enabled', function () {
+			var enabled = $(this).is(':checked');
+			$('#wudt-smtp-status').text(enabled ? 'Enabled' : 'Disabled');
+		});
 	});
 })(jQuery);

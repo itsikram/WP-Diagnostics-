@@ -33,7 +33,8 @@ class AI_Assistant_Page {
 		if ('wp-diagnostics_page_wudt-ai-assistant' !== $hook && 'wudt-ai-assistant' !== $page) {
 			return;
 		}
-		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION);
+		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
+		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
 		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery'), WUDT_VERSION, true);
 		wp_localize_script('wudt-pro-admin', 'wudtProAdmin', array(
 			'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -47,6 +48,6 @@ class AI_Assistant_Page {
 		if (! current_user_can('manage_options')) {
 			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
 		}
-		echo '<div class="wrap wudt-wrap"><h1>' . esc_html__('WP Diagnostics AI Assistant', 'wp-ultimate-diagnostics-toolkit') . '</h1><div id="wudt-pro-admin-app"></div></div>';
+		echo '<div class="wudt-ai-fullscreen"><div id="wudt-pro-admin-app"></div></div>';
 	}
 }

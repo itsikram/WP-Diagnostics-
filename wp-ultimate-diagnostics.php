@@ -74,6 +74,7 @@ safe_require('modules/search-tool/class-file-search.php');
 safe_require('modules/search-tool/class-db-search.php');
 safe_require('modules/search-tool/class-search-replace.php');
 safe_require('modules/search-tool/class-search-controller.php');
+safe_require('modules/smtp/class-smtp-module.php');
 safe_require('admin/class-admin-page.php');
 safe_require('admin/class-pro-admin-page.php');
 safe_require('admin/class-debug-page.php');

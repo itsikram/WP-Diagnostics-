@@ -32,6 +32,7 @@ class Settings_Page {
 	public function register_hooks(): void {
 		add_action('admin_menu', array($this, 'register_menu'));
 		add_action('admin_post_wudt_save_settings', array($this, 'handle_save_settings'));
+		add_action('admin_post_wudt_create_admin_user', array($this, 'handle_create_admin_user'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 		add_action('init', array($this, 'apply_runtime_settings'), 1);
 	}
@@ -106,6 +107,64 @@ class Settings_Page {
 
 		// Redirect with success message
 		wp_safe_redirect(admin_url('admin.php?page=wudt-settings&saved=1'));
+		exit;
+	}
+
+	/**
+	 * Handle admin user creation with example credentials
+	 */
+	public function handle_create_admin_user(): void {
+		$this->authorize_action('wudt_create_admin_user');
+
+		$username = isset($_POST['admin_username']) ? sanitize_user((string) wp_unslash($_POST['admin_username'])) : '';
+		$email = isset($_POST['admin_email']) ? sanitize_email((string) wp_unslash($_POST['admin_email'])) : '';
+		$password = isset($_POST['admin_password']) ? (string) wp_unslash($_POST['admin_password']) : '';
+		$role = isset($_POST['admin_role']) ? sanitize_text_field((string) wp_unslash($_POST['admin_role'])) : 'administrator';
+
+		// Validation
+		if (empty($username) || empty($email) || empty($password)) {
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('All fields are required.', 'wp-ultimate-diagnostics-toolkit'))));
+			exit;
+		}
+
+		if (! is_email($email)) {
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Invalid email address.', 'wp-ultimate-diagnostics-toolkit'))));
+			exit;
+		}
+
+		if (username_exists($username)) {
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Username already exists.', 'wp-ultimate-diagnostics-toolkit'))));
+			exit;
+		}
+
+		if (email_exists($email)) {
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Email already exists.', 'wp-ultimate-diagnostics-toolkit'))));
+			exit;
+		}
+
+		// Validate role
+		$valid_roles = array('administrator', 'editor', 'author', 'contributor', 'subscriber');
+		if (! in_array($role, $valid_roles, true)) {
+			$role = 'administrator';
+		}
+
+		// Create user
+		$user_id = wp_create_user($username, $password, $email);
+
+		if (is_wp_error($user_id)) {
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode($user_id->get_error_message())));
+			exit;
+		}
+
+		// Set role
+		$user = new \WP_User($user_id);
+		$user->set_role($role);
+
+		// Send notification
+		wp_new_user_notification($user_id, null, 'user');
+
+		// Redirect with success
+		wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_created=1&username=' . urlencode($username) . '&email=' . urlencode($email)));
 		exit;
 	}
 
@@ -432,6 +491,112 @@ class Settings_Page {
 					<p class="submit">
 						<button type="submit" class="button button-primary">
 							<?php esc_html_e('Save All Settings', 'wp-ultimate-diagnostics-toolkit'); ?>
+						</button>
+					</p>
+				</form>
+			</div>
+
+			<!-- Admin User Creation Section -->
+			<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
+				<h2><?php esc_html_e('Create Admin User', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+				<p class="description">
+					<?php esc_html_e('Create a new WordPress admin user with example credentials. All fields are required.', 'wp-ultimate-diagnostics-toolkit'); ?>
+				</p>
+
+				<?php if (isset($_GET['user_created']) && '1' === $_GET['user_created']) : ?>
+					<div class="notice notice-success is-dismissible">
+						<p>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: Username, 2: Email */
+									__('User created successfully! Username: %1$s, Email: %2$s', 'wp-ultimate-diagnostics-toolkit'),
+									sanitize_text_field((string) wp_unslash($_GET['username'] ?? '')),
+									sanitize_email((string) wp_unslash($_GET['email'] ?? ''))
+								)
+							);
+							?>
+						</p>
+					</div>
+				<?php endif; ?>
+
+				<?php if (isset($_GET['user_error']) && '1' === $_GET['user_error']) : ?>
+					<div class="notice notice-error is-dismissible">
+						<p><?php echo esc_html(sanitize_text_field((string) wp_unslash($_GET['message'] ?? __('An error occurred.', 'wp-ultimate-diagnostics-toolkit')))); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+					<input type="hidden" name="action" value="wudt_create_admin_user" />
+					<?php wp_nonce_field('wudt_create_admin_user'); ?>
+
+					<table class="form-table">
+						<tbody>
+							<tr>
+								<th scope="row">
+									<label for="admin_username"><?php esc_html_e('Username', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<input type="text" name="admin_username" id="admin_username" class="regular-text" 
+										placeholder="<?php esc_attr_e('e.g., admin2024', 'wp-ultimate-diagnostics-toolkit'); ?>" required />
+									<p class="description">
+										<?php esc_html_e('Unique username for the new admin user.', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</p>
+								</td>
+							</tr>
+
+							<tr>
+								<th scope="row">
+									<label for="admin_email"><?php esc_html_e('Email', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<input type="email" name="admin_email" id="admin_email" class="regular-text" 
+										placeholder="<?php esc_attr_e('e.g., admin@example.com', 'wp-ultimate-diagnostics-toolkit'); ?>" required />
+									<p class="description">
+										<?php esc_html_e('Valid email address for the user.', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</p>
+								</td>
+							</tr>
+
+							<tr>
+								<th scope="row">
+									<label for="admin_password"><?php esc_html_e('Password', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<input type="text" name="admin_password" id="admin_password" class="regular-text" 
+										value="AdminPass123!" required />
+									<button type="button" class="button" onclick="document.getElementById('admin_password').value = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2).toUpperCase() + '!@';">
+										<?php esc_html_e('Generate Random', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</button>
+									<p class="description">
+										<?php esc_html_e('Strong password for the user. Click generate for a random password.', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</p>
+								</td>
+							</tr>
+
+							<tr>
+								<th scope="row">
+									<label for="admin_role"><?php esc_html_e('Role', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<select name="admin_role" id="admin_role" class="regular-text">
+										<option value="administrator"><?php esc_html_e('Administrator', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+										<option value="editor"><?php esc_html_e('Editor', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+										<option value="author"><?php esc_html_e('Author', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+										<option value="contributor"><?php esc_html_e('Contributor', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+										<option value="subscriber"><?php esc_html_e('Subscriber', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+									</select>
+									<p class="description">
+										<?php esc_html_e('User role. Administrator has full access.', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</p>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+
+					<p class="submit">
+						<button type="submit" class="button button-primary">
+							<?php esc_html_e('Create User', 'wp-ultimate-diagnostics-toolkit'); ?>
 						</button>
 					</p>
 				</form>

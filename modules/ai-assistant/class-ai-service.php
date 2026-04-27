@@ -19,7 +19,7 @@ class AI_Service {
 	 */
 	private function get_model_mapping(): array {
 		return array(
-			'gemini' => 'gemini-2.0-flash',
+			'gemini' => 'gemini-1.5-flash',
 			'gpt4' => 'gpt-4o',
 			'gpt35' => 'gpt-3.5-turbo',
 			'sonnet' => 'claude-3-sonnet',
@@ -34,7 +34,7 @@ class AI_Service {
 	private function get_api_endpoint(string $model_setting): string {
 		switch ($model_setting) {
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1beta/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
+				return 'https://generativelanguage.googleapis.com/v1/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
 			case 'sonnet':
 			case 'opus':
 			case 'haiku':
@@ -117,23 +117,47 @@ class AI_Service {
 			);
 		}
 
-		$response = wp_remote_post(
-			$endpoint,
-			array(
-				'timeout' => 60,
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $api_key,
-					'Content-Type'  => 'application/json',
-				),
-				'body' => wp_json_encode($request_body),
-			)
+		$request_args = array(
+			'timeout' => 60,
+			'headers' => array(
+				'Content-Type'  => 'application/json',
+			),
+			'body' => wp_json_encode($request_body),
 		);
+
+		// Gemini uses API key in query param, not Authorization header
+		if ($model_setting !== 'gemini') {
+			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+		}
+
+		$response = wp_remote_post($endpoint, $request_args);
 		if (is_wp_error($response)) {
 			return array('content' => 'AI request failed: ' . $response->get_error_message(), 'model' => $model);
 		}
+
+		$status_code = wp_remote_retrieve_response_code($response);
 		$body = wp_remote_retrieve_body($response);
 		$data = json_decode((string) $body, true);
-		$content = (string) ($data['choices'][0]['message']['content'] ?? 'No response.');
+
+		// Handle API errors
+		if ($status_code < 200 || $status_code >= 300) {
+			$error_msg = isset($data['error']['message']) ? $data['error']['message'] : (isset($data['error']['details'][0]['description']) ? $data['error']['details'][0]['description'] : 'HTTP ' . $status_code);
+			return array('content' => 'AI API error (' . $model_setting . '): ' . $error_msg, 'model' => $model, 'raw' => $data);
+		}
+
+		// Parse response based on provider format
+		if ($model_setting === 'gemini') {
+			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+				$content = (string) $data['candidates'][0]['content']['parts'][0]['text'];
+			} elseif (isset($data['candidates'][0]['finishReason']) && $data['candidates'][0]['finishReason'] !== 'STOP') {
+				$content = 'Response blocked: ' . $data['candidates'][0]['finishReason'];
+			} else {
+				$content = 'No response from Gemini. Check API key and model configuration.';
+			}
+		} else {
+			$content = (string) ($data['choices'][0]['message']['content'] ?? 'No response.');
+		}
+
 		return array(
 			'content' => $content,
 			'model'   => $model,
@@ -152,7 +176,7 @@ class AI_Service {
 			// Return default models based on selected provider
 			switch ($model_setting) {
 				case 'gemini':
-					return array('gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash');
+					return array('gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro');
 				case 'sonnet':
 				case 'opus':
 				case 'haiku':
@@ -167,7 +191,7 @@ class AI_Service {
 		// Try to fetch models from the selected provider's API
 		$endpoint = 'https://api.openai.com/v1/models';
 		if ($model_setting === 'gemini') {
-			return array('gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash');
+			return array('gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro');
 		} elseif (in_array($model_setting, array('sonnet', 'opus', 'haiku'), true)) {
 			return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
 		}

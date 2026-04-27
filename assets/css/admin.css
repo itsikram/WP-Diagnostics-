@@ -309,8 +309,8 @@
 .wudt-fm-shell.is-dark #wudt-fm-compress-selected:hover { background: #79b8ff; border-color: #79b8ff; }
 
 /* Pro Admin Page Header with Logo */
-.wudt-pro-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
-.wudt-pro-logo { width: 56px; height: 56px; object-fit: contain; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.wudt-pro-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
+.wudt-pro-logo { width: 40px; height: 40px; object-fit: contain; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 .wudt-pro-title h1 { margin: 0 0 6px 0; font-size: 1.5rem; font-weight: 600; }
 .wudt-pro-title p { margin: 0; color: #6b7280; font-size: 0.9rem; }
 .wudt-pro-wrap.is-dark .wudt-pro-header { border-bottom-color: #374151; }

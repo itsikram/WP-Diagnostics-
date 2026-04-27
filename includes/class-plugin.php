@@ -41,6 +41,7 @@ use WUDT\Modules\State\State_Module;
 use WUDT\Modules\AIAssistant\AI_Controller;
 use WUDT\Modules\ProgressMonitor\Progress_Monitor_Module;
 use WUDT\Modules\SearchTool\Search_Controller;
+use WUDT\Modules\SMTP\SMTP_Module;
 
 if (! defined('ABSPATH')) {
 	exit;
@@ -95,6 +96,7 @@ class Plugin {
 				External_Requests_Module::class,
 				Progress_Monitor_Module::class,
 				Search_Controller::class,
+				SMTP_Module::class,
 			),
 			$emergency
 		);
