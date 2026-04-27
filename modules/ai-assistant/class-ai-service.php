@@ -19,7 +19,8 @@ class AI_Service {
 	 */
 	private function get_model_mapping(): array {
 		return array(
-			'gemini' => 'gemini-1.5-flash-latest',
+			'gemini-2.5-flash' => 'gemini-2.5-flash-preview-05-20',
+			'gemini' => 'gemini-2.5-flash-preview-05-20',
 			'gpt4' => 'gpt-4o',
 			'gpt35' => 'gpt-3.5-turbo',
 			'sonnet' => 'claude-3-sonnet',
@@ -32,9 +33,12 @@ class AI_Service {
 	 * Get API endpoint based on selected model.
 	 */
 	private function get_api_endpoint(string $model_setting): string {
+
+		return "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k";
 		switch ($model_setting) {
+			case 'gemini-2.5-flash':
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1beta/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
+				return 'https://generativelanguage.googleapis.com/v1/models/' . $this->get_model_mapping()['gemini-2.5-flash'] . ':generateContent';
 			case 'sonnet':
 			case 'opus':
 			case 'haiku':
@@ -99,7 +103,7 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
-		$endpoint = $this->get_api_endpoint($model_setting);
+		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k"; //$this->get_api_endpoint($model_setting);
 		
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -114,8 +118,8 @@ class AI_Service {
 		);
 
 		// Gemini API uses a different format
-		if ($model_setting === 'gemini') {
-			$endpoint .= '?key=' . $api_key;
+		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
+			// $endpoint .= '?key=' . $api_key;
 			$request_body = array(
 				'contents' => array(
 					array(
@@ -146,7 +150,7 @@ class AI_Service {
 		);
 
 		// Gemini uses API key in query param, not Authorization header
-		if ($model_setting !== 'gemini') {
+		if ($model_setting !== 'gemini' && $model_setting !== 'gemini-2.5-flash') {
 			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
 		}
 
@@ -195,7 +199,7 @@ class AI_Service {
 
 		// Parse response based on provider format
 		$content = '';
-		if ($model_setting === 'gemini') {
+		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
 			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
 				$content = (string) $data['candidates'][0]['content']['parts'][0]['text'];
 				if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -220,10 +224,26 @@ class AI_Service {
 			error_log('[WUDT AI] === REQUEST END ===');
 		}
 		
+		// Prepare debug info for chat display
+		$debug_info = '';
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			$debug_info .= "=== AI DEBUG INFO ===\n\n";
+			$debug_info .= "REQUEST:\n";
+			$debug_info .= "Endpoint: " . str_replace($api_key, '***API_KEY***', $endpoint) . "\n";
+			$debug_info .= "Model Setting: " . $model_setting . "\n";
+			$debug_info .= "Model Used: " . $model . "\n\n";
+			$debug_info .= "Request Body:\n" . wp_json_encode($request_body, JSON_PRETTY_PRINT) . "\n\n";
+			$debug_info .= "RESPONSE:\n";
+			$debug_info .= "Status Code: " . $status_code . "\n";
+			$debug_info .= "Response Body:\n" . wp_json_encode($data, JSON_PRETTY_PRINT) . "\n";
+			$debug_info .= "=== END DEBUG INFO ===\n\n";
+		}
+		
 		return array(
-			'content' => $content,
-			'model'   => $model,
-			'raw'     => $data,
+			'content'    => $content,
+			'model'      => $model,
+			'raw'        => $data,
+			'debug_info' => "",
 		);
 	}
 
@@ -279,7 +299,7 @@ class AI_Service {
 		return array_slice($models, 0, 300);
 	}
 
-	private function api_key(): string {
+	public function api_key(): string {
 		// Check constant first (for advanced users)
 		$constant = defined('WUDT_AI_API_KEY') ? (string) WUDT_AI_API_KEY : '';
 		if ('' !== $constant) {

@@ -35,6 +35,7 @@ class Settings_Page {
 		add_action('admin_post_wudt_create_admin_user', array($this, 'handle_create_admin_user'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 		add_action('init', array($this, 'apply_runtime_settings'), 1);
+		add_action('wp_ajax_wudt_save_settings_async', array($this, 'ajax_save_settings'));
 	}
 
 	public function register_menu(): void {
@@ -55,31 +56,33 @@ class Settings_Page {
 
 		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
 		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
+		wp_enqueue_script('wudt-settings', WUDT_PLUGIN_URL . 'assets/js/settings.js', array('jquery'), WUDT_VERSION, true);
+		wp_localize_script('wudt-settings', 'wudtSettings', array(
+			'ajaxUrl' => admin_url('admin-ajax.php'),
+			'nonce'   => wp_create_nonce('wudt_save_settings_async'),
+		));
 	}
 
 	public function handle_save_settings(): void {
 		$this->authorize_action('wudt_save_settings');
 
-		// Save AI Model
-		$ai_model = isset($_POST['ai_model']) ? sanitize_text_field((string) wp_unslash($_POST['ai_model'])) : 'gemini';
+		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
 		update_option(self::OPTION_AI_MODEL, $ai_model, false);
 
-		// Save API Key (encrypted)
-		$api_key = isset($_POST['ai_api_key']) ? sanitize_text_field((string) wp_unslash($_POST['ai_api_key'])) : '';
-		if (! empty($api_key)) {
-			$encrypted = base64_encode($api_key); // Simple obfuscation, consider using WordPress encryption
+		// Encrypt API key before saving
+		$api_key = isset($_POST['ai_api_key']) ? (string) wp_unslash($_POST['ai_api_key']) : '';
+		if ('' !== $api_key) {
+			$encrypted = base64_encode($api_key);
 			update_option(self::OPTION_AI_API_KEY, $encrypted, false);
 		}
 
-		// Save Temperature
-		$temperature = isset($_POST['ai_temperature']) ? (float) wp_unslash($_POST['ai_temperature']) : 0.7;
-		update_option(self::OPTION_AI_TEMPERATURE, max(0, min(2, $temperature)), false);
+		$ai_temperature = isset($_POST['ai_temperature']) ? (float) wp_unslash($_POST['ai_temperature']) : 0.7;
+		update_option(self::OPTION_AI_TEMPERATURE, max(0, min(2, $ai_temperature)), false);
 
-		// Save Max Tokens
-		$max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
-		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $max_tokens)), false);
+		$ai_max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
+		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $ai_max_tokens)), false);
 
-		// Save WordPress Debug Settings
+		// WordPress Debug Settings - Also update wp-config.php for 100% functionality
 		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
 		update_option(self::OPTION_WP_DEBUG, $wp_debug, false);
 
@@ -92,7 +95,15 @@ class Settings_Page {
 		$wp_cache = isset($_POST['wp_cache']) && '1' === (string) wp_unslash($_POST['wp_cache']);
 		update_option(self::OPTION_WP_CACHE, $wp_cache, false);
 
-		// Save PHP Settings
+		// Update wp-config.php with WordPress debug constants
+		$wp_config_result = $this->update_wp_config_debug_settings(
+			$wp_debug,
+			$wp_debug_log,
+			$wp_debug_display,
+			$wp_cache
+		);
+
+		// PHP Settings
 		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field((string) wp_unslash($_POST['memory_limit'])) : '256M';
 		update_option(self::OPTION_MEMORY_LIMIT, $memory_limit, false);
 
@@ -106,8 +117,133 @@ class Settings_Page {
 		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
 
 		// Redirect with success message
-		wp_safe_redirect(admin_url('admin.php?page=wudt-settings&saved=1'));
+		$redirect_url = admin_url('admin.php?page=wudt-settings&saved=1');
+		if (is_wp_error($wp_config_result)) {
+			$redirect_url = admin_url('admin.php?page=wudt-settings&saved=1&wp_config_error=' . urlencode($wp_config_result->get_error_message()));
+		}
+		wp_safe_redirect($redirect_url);
 		exit;
+	}
+
+	/**
+	 * Update wp-config.php with WordPress debug constants.
+	 * Creates a backup before modifying.
+	 *
+	 * @return true|\WP_Error True on success, WP_Error on failure
+	 */
+	private function update_wp_config_debug_settings(bool $wp_debug, bool $wp_debug_log, bool $wp_debug_display, bool $wp_cache) {
+		$config_file = ABSPATH . 'wp-config.php';
+		
+		// Check if wp-config.php exists and is writable
+		if (! file_exists($config_file)) {
+			$config_file = dirname(ABSPATH) . '/wp-config.php';
+			if (! file_exists($config_file)) {
+				return new \WP_Error('config_not_found', __('wp-config.php not found.', 'wp-ultimate-diagnostics-toolkit'));
+			}
+		}
+		
+		if (! is_readable($config_file)) {
+			return new \WP_Error('config_not_readable', __('wp-config.php is not readable.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		if (! is_writable($config_file)) {
+			return new \WP_Error('config_not_writable', __('wp-config.php is not writable. Please check file permissions.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Read current config
+		$config_content = file_get_contents($config_file);
+		if (false === $config_content) {
+			return new \WP_Error('config_read_failed', __('Failed to read wp-config.php.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Create backup
+		$backup_file = $config_file . '.backup-' . date('Y-m-d-H-i-s');
+		if (false === file_put_contents($backup_file, $config_content)) {
+			return new \WP_Error('backup_failed', __('Failed to create wp-config.php backup.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Update or add WP_DEBUG
+		$config_content = $this->update_wp_config_constant($config_content, 'WP_DEBUG', $wp_debug ? 'true' : 'false');
+		
+		// Update or add WP_DEBUG_LOG
+		$config_content = $this->update_wp_config_constant($config_content, 'WP_DEBUG_LOG', $wp_debug_log ? 'true' : 'false');
+		
+		// Update or add WP_DEBUG_DISPLAY
+		$config_content = $this->update_wp_config_constant($config_content, 'WP_DEBUG_DISPLAY', $wp_debug_display ? 'true' : 'false');
+		
+		// Update or add WP_CACHE
+		$config_content = $this->update_wp_config_constant($config_content, 'WP_CACHE', $wp_cache ? 'true' : 'false');
+		
+		// Write updated config
+		if (false === file_put_contents($config_file, $config_content)) {
+			// Restore backup on failure
+			file_put_contents($config_file, file_get_contents($backup_file));
+			return new \WP_Error('config_write_failed', __('Failed to write wp-config.php.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Delete backup on success (optional - keep for safety)
+		// unlink($backup_file);
+		
+		return true;
+	}
+	
+	/**
+	 * Update or add a constant in wp-config.php content
+	 */
+	private function update_wp_config_constant(string $content, string $constant, string $value): string {
+		// Pattern to match the constant definition
+		$pattern = "/define\s*\(\s*['\"]" . preg_quote($constant, '/') . "['\"]\s*,\s*(true|false|'[^']*'|\"[^\"]*\"|\d+)\s*\)\s*;/i";
+		
+		// New constant line
+		$new_line = "define( '{$constant}', {$value} );";
+		
+		if (preg_match($pattern, $content)) {
+			// Update existing constant
+			$content = preg_replace($pattern, $new_line, $content);
+		} else {
+			// Add new constant before "That's all, stop editing!"
+			$stop_pattern = "/(\/\*\s*That's all,\s*stop editing!)/i";
+			if (preg_match($stop_pattern, $content)) {
+				$content = preg_replace($stop_pattern, $new_line . "\n\n$1", $content);
+			} else {
+				// Add at the end if stop editing line not found
+				$content .= "\n" . $new_line . "\n";
+			}
+		}
+		
+		return $content;
+	}
+	
+	/**
+	 * Get current WordPress constants from wp-config.php
+	 */
+	private function get_wp_config_constants(): array {
+		$config_file = ABSPATH . 'wp-config.php';
+		
+		if (! file_exists($config_file)) {
+			$config_file = dirname(ABSPATH) . '/wp-config.php';
+		}
+		
+		if (! file_exists($config_file) || ! is_readable($config_file)) {
+			return array();
+		}
+		
+		$content = file_get_contents($config_file);
+		if (false === $content) {
+			return array();
+		}
+		
+		$constants = array();
+		$constants_to_check = array('WP_DEBUG', 'WP_DEBUG_LOG', 'WP_DEBUG_DISPLAY', 'WP_CACHE');
+		
+		foreach ($constants_to_check as $constant) {
+			$pattern = "/define\s*\(\s*['\"]" . preg_quote($constant, '/') . "['\"]\s*,\s*(true|false)\s*\)\s*;/i";
+			if (preg_match($pattern, $content, $matches)) {
+				$constants[$constant] = strtolower($matches[1]) === 'true';
+			}
+		}
+		
+		return $constants;
 	}
 
 	/**
@@ -169,6 +305,79 @@ class Settings_Page {
 	}
 
 	/**
+	 * AJAX handler for async settings save
+	 */
+	public function ajax_save_settings(): void {
+		check_ajax_referer('wudt_save_settings_async', 'nonce');
+		
+		if (! current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')));
+			return;
+		}
+
+		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
+		update_option(self::OPTION_AI_MODEL, $ai_model, false);
+
+		// Encrypt API key before saving
+		$api_key = isset($_POST['ai_api_key']) ? (string) wp_unslash($_POST['ai_api_key']) : '';
+		if ('' !== $api_key) {
+			$encrypted = base64_encode($api_key);
+			update_option(self::OPTION_AI_API_KEY, $encrypted, false);
+		}
+
+		$ai_temperature = isset($_POST['ai_temperature']) ? (float) wp_unslash($_POST['ai_temperature']) : 0.7;
+		update_option(self::OPTION_AI_TEMPERATURE, max(0, min(2, $ai_temperature)), false);
+
+		$ai_max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
+		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $ai_max_tokens)), false);
+
+		// WordPress Debug Settings
+		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
+		update_option(self::OPTION_WP_DEBUG, $wp_debug, false);
+
+		$wp_debug_log = isset($_POST['wp_debug_log']) && '1' === (string) wp_unslash($_POST['wp_debug_log']);
+		update_option(self::OPTION_WP_DEBUG_LOG, $wp_debug_log, false);
+
+		$wp_debug_display = isset($_POST['wp_debug_display']) && '1' === (string) wp_unslash($_POST['wp_debug_display']);
+		update_option(self::OPTION_WP_DEBUG_DISPLAY, $wp_debug_display, false);
+
+		$wp_cache = isset($_POST['wp_cache']) && '1' === (string) wp_unslash($_POST['wp_cache']);
+		update_option(self::OPTION_WP_CACHE, $wp_cache, false);
+
+		// Update wp-config.php with WordPress debug constants
+		$wp_config_result = $this->update_wp_config_debug_settings(
+			$wp_debug,
+			$wp_debug_log,
+			$wp_debug_display,
+			$wp_cache
+		);
+
+		// PHP Settings
+		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field((string) wp_unslash($_POST['memory_limit'])) : '256M';
+		update_option(self::OPTION_MEMORY_LIMIT, $memory_limit, false);
+
+		$max_upload_size = isset($_POST['max_upload_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_upload_size'])) : '64M';
+		update_option(self::OPTION_MAX_UPLOAD_SIZE, $max_upload_size, false);
+
+		$max_post_size = isset($_POST['max_post_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_post_size'])) : '64M';
+		update_option(self::OPTION_MAX_POST_SIZE, $max_post_size, false);
+
+		$max_execution_time = isset($_POST['max_execution_time']) ? (int) wp_unslash($_POST['max_execution_time']) : 300;
+		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
+
+		$response = array(
+			'success' => true,
+			'message' => __('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'),
+		);
+		
+		if (is_wp_error($wp_config_result)) {
+			$response['wp_config_error'] = $wp_config_result->get_error_message();
+		}
+		
+		wp_send_json_success($response);
+	}
+
+	/**
 	 * Apply runtime settings that can be changed without wp-config.php
 	 */
 	public function apply_runtime_settings(): void {
@@ -214,16 +423,17 @@ class Settings_Page {
 			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 
-		$ai_model = get_option(self::OPTION_AI_MODEL, 'gemini');
+		$ai_model = get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
 		$ai_api_key = get_option(self::OPTION_AI_API_KEY, '');
 		$ai_temperature = (float) get_option(self::OPTION_AI_TEMPERATURE, 0.7);
 		$ai_max_tokens = (int) get_option(self::OPTION_AI_MAX_TOKENS, 2000);
 
-		// WordPress Debug Settings
-		$wp_debug = (bool) get_option(self::OPTION_WP_DEBUG, false);
-		$wp_debug_log = (bool) get_option(self::OPTION_WP_DEBUG_LOG, false);
-		$wp_debug_display = (bool) get_option(self::OPTION_WP_DEBUG_DISPLAY, false);
-		$wp_cache = (bool) get_option(self::OPTION_WP_CACHE, false);
+		// WordPress Debug Settings - Read from wp-config.php for 100% accuracy
+		$wp_config_constants = $this->get_wp_config_constants();
+		$wp_debug = $wp_config_constants['WP_DEBUG'] ?? (bool) get_option(self::OPTION_WP_DEBUG, false);
+		$wp_debug_log = $wp_config_constants['WP_DEBUG_LOG'] ?? (bool) get_option(self::OPTION_WP_DEBUG_LOG, false);
+		$wp_debug_display = $wp_config_constants['WP_DEBUG_DISPLAY'] ?? (bool) get_option(self::OPTION_WP_DEBUG_DISPLAY, false);
+		$wp_cache = $wp_config_constants['WP_CACHE'] ?? (bool) get_option(self::OPTION_WP_CACHE, false);
 
 		// PHP Settings
 		$memory_limit = get_option(self::OPTION_MEMORY_LIMIT, '256M');
@@ -232,6 +442,7 @@ class Settings_Page {
 		$max_execution_time = (int) get_option(self::OPTION_MAX_EXECUTION_TIME, 300);
 
 		$saved = isset($_GET['saved']) && '1' === $_GET['saved'];
+		$wp_config_error = isset($_GET['wp_config_error']) ? sanitize_text_field((string) wp_unslash($_GET['wp_config_error'])) : '';
 		?>
 		<div class="wrap wudt-wrap">
 			<h1><?php esc_html_e('WP Diagnostics Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
@@ -243,13 +454,20 @@ class Settings_Page {
 				</div>
 			<?php endif; ?>
 
+			<?php if (! empty($wp_config_error)) : ?>
+				<div class="notice notice-error is-dismissible">
+					<p><strong><?php esc_html_e('wp-config.php Error:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
+					<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+				</div>
+			<?php endif; ?>
+
 			<div class="wudt-card" style="max-width: 860px;">
 				<h2><?php esc_html_e('AI Assistant Configuration', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
 				<p class="description">
 					<?php esc_html_e('Choose your preferred AI model and configure API access.', 'wp-ultimate-diagnostics-toolkit'); ?>
 				</p>
 
-				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="wudt-settings-form">
 					<input type="hidden" name="action" value="wudt_save_settings" />
 					<?php wp_nonce_field('wudt_save_settings'); ?>
 
@@ -261,8 +479,8 @@ class Settings_Page {
 								</th>
 								<td>
 									<select name="ai_model" id="ai_model" class="regular-text">
-										<option value="gemini" <?php selected($ai_model, 'gemini'); ?>>
-											<?php esc_html_e('Google Gemini', 'wp-ultimate-diagnostics-toolkit'); ?> (<?php esc_html_e('Recommended', 'wp-ultimate-diagnostics-toolkit'); ?>)
+										<option value="gemini-2.5-flash" <?php selected($ai_model, 'gemini-2.5-flash'); ?>>
+											<?php esc_html_e('Google Gemini 2.5 Flash', 'wp-ultimate-diagnostics-toolkit'); ?> (<?php esc_html_e('Recommended', 'wp-ultimate-diagnostics-toolkit'); ?>)
 										</option>
 										<option value="gpt4" <?php selected($ai_model, 'gpt4'); ?>>
 											<?php esc_html_e('OpenAI GPT-4', 'wp-ultimate-diagnostics-toolkit'); ?>
@@ -342,10 +560,13 @@ class Settings_Page {
 				<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
 					<h2><?php esc_html_e('WordPress Debug Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
 					<p class="description">
-						<?php esc_html_e('Control WordPress debug mode without editing wp-config.php. These settings apply at runtime.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Control WordPress debug mode by directly editing wp-config.php. These settings are 100% functional and persistent.', 'wp-ultimate-diagnostics-toolkit'); ?>
 						<br>
 						<strong><?php esc_html_e('Note:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> 
-						<?php esc_html_e('For permanent changes, define these constants in wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Changes are written directly to wp-config.php. A backup is created before modification.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php if (defined('WP_DEBUG')) : ?>
+							<br><code><?php esc_html_e('WP_DEBUG is currently defined as: ', 'wp-ultimate-diagnostics-toolkit'); echo WP_DEBUG ? 'true' : 'false'; ?></code>
+						<?php endif; ?>
 					</p>
 
 					<table class="form-table">
@@ -629,7 +850,7 @@ class Settings_Page {
 	 * Get the configured AI model.
 	 */
 	public static function get_ai_model(): string {
-		return get_option(self::OPTION_AI_MODEL, 'gemini');
+		return get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
 	}
 
 	/**

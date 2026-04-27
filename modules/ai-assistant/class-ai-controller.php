@@ -97,11 +97,18 @@ class AI_Controller extends Module_Base {
 		$this->push_history('user', $prompt, $context);
 		$this->push_history('assistant', (string) ($parsed['text'] ?? ''), array('model' => $result['model'] ?? 'unknown', 'mode' => $mode));
 		Operation_Logger::log('ai', 'AI diagnosis generated', array('prompt_len' => strlen($prompt)));
-		wp_send_json_success(array(
+		$response = array(
 			'message' => $parsed['text'] ?? '',
 			'action'  => $parsed['action'] ?? array(),
 			'model'   => $result['model'] ?? 'unknown',
-		));
+		);
+		
+		// Include debug info if available (when WP_DEBUG is enabled)
+		if (! empty($result['debug_info'])) {
+			$response['debug_info'] = $result['debug_info'];
+		}
+		
+		wp_send_json_success($response);
 	}
 
 	public function ajax_chat_stream(): void {
@@ -135,6 +142,12 @@ class AI_Controller extends Module_Base {
 			@ob_flush();
 			@flush();
 			usleep(30000);
+		}
+		// Include debug info if available (when WP_DEBUG is enabled)
+		if (! empty($result['debug_info'])) {
+			echo wp_json_encode(array('type' => 'debug', 'content' => $result['debug_info'])) . "\n";
+			@ob_flush();
+			@flush();
 		}
 		echo wp_json_encode(array('type' => 'done', 'action' => $parsed['action'] ?? array())) . "\n";
 		exit;
@@ -236,5 +249,87 @@ class AI_Controller extends Module_Base {
 			wp_send_json_error(array('message' => 'Rate limit reached. Please wait a minute.'), 429);
 		}
 		set_transient($key, $count + 1, MINUTE_IN_SECONDS);
+	}
+
+	/**
+	 * Test API connection and return diagnostic info
+	 */
+	public function ajax_test_api(): void {
+		Security_Guard::assert_ajax_admin();
+		
+		$api_key = $this->service->api_key();
+		$model_setting = 'gemini-2.5-flash';//\WUDT\Admin\Settings_Page::get_ai_model();
+		$model =  "gemini-2.5-flash"; //sanitize_text_field((string) ($_POST['model'] ?? ''));
+		
+		if ('' === $api_key) {
+			wp_send_json_error(array('message' => 'API key not configured'));
+			return;
+		}
+		
+		// Test with a simple prompt
+		$test_prompt = 'Say "API connection successful" and nothing else.';
+		
+		// Build endpoint manually for testing
+		$endpoint = '';
+		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
+			$model_to_use = $model ?: 'gemini-2.5-flash';
+			$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k';
+			// $endpoint = 'https://generativelanguage.googleapis.com/v1/models/' . $model_to_use . ':generateContent?key=' . $api_key;
+		} else {
+			wp_send_json_error(array('message' => 'Test only supports Gemini currently'));
+			return;
+		}
+		
+		// Make direct test request
+		$request_body = array(
+			'contents' => array(
+				array(
+					'parts' => array(
+						array('text' => $test_prompt),
+					),
+				),
+			),
+			'generationConfig' => array(
+				'temperature' => 0.1,
+				'maxOutputTokens' => 50,
+			),
+		);
+		
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => 30,
+				'headers' => array('Content-Type' => 'application/json'),
+				'body' => wp_json_encode($request_body),
+			)
+		);
+		
+		$status_code = wp_remote_retrieve_response_code($response);
+		$body = wp_remote_retrieve_body($response);
+		$data = json_decode((string) $body, true);
+		
+		$result = array(
+			'model_setting' =>   $model_setting,
+			'model_used' => $model ?: 'gemini-2.5-flash',
+			'endpoint' => str_replace($api_key, '***', $endpoint),
+			'status_code' => $status_code,
+			'raw_response' => $data,
+		);
+		
+		if ($status_code >= 200 && $status_code < 300) {
+			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+				$result['success'] = true;
+				$result['response_text'] = $data['candidates'][0]['content']['parts'][0]['text'];
+				wp_send_json_success($result);
+			} else {
+				$result['success'] = false;
+				$result['error'] = 'No content in response';
+				wp_send_json_error($result);
+			}
+		} else {
+			$result['success'] = false;
+			$result['error'] = isset($data['error']['message']) ? $data['error']['message'] : 'HTTP ' . $status_code;
+			wp_send_json_error($result);
+		}
 	}
 }

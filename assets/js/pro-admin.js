@@ -1002,6 +1002,7 @@
 			+ '<select id="wudt-ai-model">' + modelOptions + '</select>'
 			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Custom model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid var(--wudt-gray-300);border-radius:6px;font-size:13px;">'
 			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
+			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-test-api" title="Test API Connection" style="margin-left:4px;">Test API</button>'
 			+ '</div>'
 			+ '</div>'
 			// Mode toggle
@@ -1567,6 +1568,25 @@
 					state.ai.models = r.data.models || [];
 					render();
 				}
+			});
+		});
+		$('#wudt-ai-test-api').on('click', function () {
+			var $btn = $(this);
+			var model = $('#wudt-ai-model').val() || $('#wudt-ai-model-custom').val() || '';
+			$btn.prop('disabled', true).text('Testing...');
+			post('diagnostics_ai_test_api', { model: model }).done(function (r) {
+				$btn.prop('disabled', false).text('Test API');
+				if (r && r.success) {
+					alert('API Test SUCCESS!\n\nModel: ' + r.data.model_used + '\nResponse: ' + (r.data.response_text || 'OK'));
+				} else {
+					var err = r && r.data && r.data.error ? r.data.error : 'Unknown error';
+					var full = r && r.data && r.data.raw_response ? JSON.stringify(r.data.raw_response, null, 2) : '';
+					console.error('[WUDT AI Test] Error:', r);
+					alert('API Test FAILED!\n\nError: ' + err + '\n\nSee browser console for full details.');
+				}
+			}).fail(function () {
+				$btn.prop('disabled', false).text('Test API');
+				alert('API Test FAILED! Network error.');
 			});
 		});
 		$('#wudt-ai-chat-file').on('change', function () {
@@ -2368,6 +2388,9 @@
 							var evt = JSON.parse(lines[i]);
 							if (evt.type === 'chunk') {
 								aiText += evt.content || '';
+								state.ai.history[aiIndex].content = aiText;
+							} else if (evt.type === 'debug') {
+								aiText += '\n\n---\n\n' + (evt.content || '');
 								state.ai.history[aiIndex].content = aiText;
 							} else if (evt.type === 'done' && evt.action && evt.action.action && mode === 'agent') {
 								state.ai.lastAction = evt.action;
