@@ -4,7 +4,7 @@
 	var bootData = (window.wudtProAdmin && window.wudtProAdmin.data) ? window.wudtProAdmin.data : { tabs: [] };
 	var state = {
 		data: bootData,
-		tab: 'dashboard',
+		tab: (window.wudtProAdmin && window.wudtProAdmin.defaultTab) ? window.wudtProAdmin.defaultTab : 'dashboard',
 		currentPath: '',
 		history: [],
 		historyIndex: -1,
@@ -60,6 +60,16 @@
 			dragging: false,
 			dragOffsetX: 0,
 			dragOffsetY: 0
+		},
+		ai: {
+			history: [],
+			typing: false,
+			buffer: '',
+			lastAction: null,
+			mode: 'ask',
+			model: '',
+			models: [],
+			chatTranscript: ''
 		}
 	};
 
@@ -95,7 +105,7 @@
 	}
 
 	function render() {
-		var tabs = ['dashboard', 'file_manager', 'database_manager', 'malware_scanner', 'logs', 'performance', 'security'];
+		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
 		var tabsHtml = '';
 		for (var i = 0; i < tabs.length; i++) {
 			var t = tabs[i];
@@ -132,9 +142,13 @@
 		if (state.tab === 'security') {
 			return '<div class="wudt-card"><h3>Security Checks</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('security'), null, 2)) + '</pre></div>';
 		}
+		if (state.tab === 'backup_suite') { return renderBackupSuite(); }
+		if (state.tab === 'restore_suite') { return renderRestoreSuite(); }
+		if (state.tab === 'ai_assistant') { return renderAIAssistant(); }
 		if (state.tab === 'file_manager') { return renderFileManager(); }
 		if (state.tab === 'database_manager') { return renderDbManager(); }
-		if (state.tab === 'malware_scanner') { return renderMalware(); }
+		if (state.tab === 'malware_enterprise') { return renderMalwareEnterprise(); }
+		if (state.tab === 'recovery') { return '<div class="wudt-card"><h3>Crash Recovery</h3><pre class="wudt-pre">' + esc(JSON.stringify(tabData('recovery'), null, 2)) + '</pre></div>'; }
 		return '<p>No data.</p>';
 	}
 
@@ -238,6 +252,7 @@
 			state.dirCache[resolved] = parsed;
 			state.selected = [];
 			state.lastSelected = -1;
+			persistFileManagerState();
 			if (pushHistory !== false) {
 				updateHistory(resolved);
 			}
@@ -586,9 +601,113 @@
 			+ '</div><pre class="wudt-pre" id="wudt-db-op-result"></pre>';
 	}
 
-	function renderMalware() {
-		var d = tabData('malware_scanner');
-		return '<div class="wudt-card"><div class="wudt-toolbar"><button class="button button-primary" id="wudt-malware-scan">Run Scan</button></div><pre class="wudt-pre" id="wudt-malware-result">' + esc(JSON.stringify(d, null, 2)) + '</pre></div>';
+	function renderBackupSuite() {
+		var d = tabData('backup_suite');
+		return ''
+			+ '<div class="wudt-card"><h3>Advanced Backup</h3>'
+			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="core" checked> WordPress Core Files</label> '
+			+ '<label><input type="checkbox" class="wudt-backup-component" value="plugins" checked> Plugin Files</label> '
+			+ '<label><input type="checkbox" class="wudt-backup-component" value="themes" checked> Theme Files</label> '
+			+ '<label><input type="checkbox" class="wudt-backup-component" value="uploads" checked> Uploads Directory</label> '
+			+ '<label><input type="checkbox" class="wudt-backup-component" value="database" checked> Database</label></p>'
+			+ '<div class="wudt-toolbar"><label><input type="checkbox" id="wudt-backup-gzip"> GZIP Compression</label>'
+			+ '<input id="wudt-backup-password" class="wudt-input" placeholder="Optional archive password">'
+			+ '<button class="button button-primary" id="wudt-backup-create">Create Backup</button>'
+			+ '<button class="button" id="wudt-backup-refresh">Refresh List</button></div>'
+			+ '<pre class="wudt-pre" id="wudt-backup-result">' + esc(JSON.stringify(d.backups || [], null, 2)) + '</pre>'
+			+ '</div>';
+	}
+
+	function renderRestoreSuite() {
+		return ''
+			+ '<div class="wudt-card"><h3>Restore Engine</h3>'
+			+ '<input id="wudt-restore-path" class="wudt-input" placeholder="Backup archive absolute path">'
+			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-preview">Preview</button>'
+			+ '<label><input type="checkbox" id="wudt-restore-safe" checked> Safe restore mode</label></div>'
+			+ '<p><label><input type="checkbox" class="wudt-restore-component" value="core"> Core</label> '
+			+ '<label><input type="checkbox" class="wudt-restore-component" value="plugins" checked> Plugins</label> '
+			+ '<label><input type="checkbox" class="wudt-restore-component" value="themes" checked> Themes</label> '
+			+ '<label><input type="checkbox" class="wudt-restore-component" value="uploads"> Uploads</label> '
+			+ '<label><input type="checkbox" class="wudt-restore-component" value="database" checked> Database</label></p>'
+			+ '<input id="wudt-restore-media-base" class="wudt-input" placeholder="Optional media CDN/domain fallback">'
+			+ '<div class="wudt-toolbar"><button class="button button-primary" id="wudt-restore-run">Run Restore</button></div>'
+			+ '<pre class="wudt-pre" id="wudt-restore-result"></pre></div>';
+	}
+
+	function renderAIAssistant() {
+		var messages = state.ai.history || [];
+		var mode = state.ai.mode || 'ask';
+		var model = state.ai.model || '';
+		var models = state.ai.models || [];
+		var modelOptions = '<option value="">Default</option>';
+		for (var mo = 0; mo < models.length; mo++) {
+			var mName = String(models[mo] || '');
+			modelOptions += '<option value="' + esc(mName) + '" ' + (model === mName ? 'selected' : '') + '>' + esc(mName) + '</option>';
+		}
+		var threads = '<div class="wudt-ai-thread-item is-active">Current Session</div>';
+		var bubble = '';
+		for (var i = 0; i < messages.length; i++) {
+			var m = messages[i];
+			var cls = m.role === 'assistant' ? 'wudt-ai-msg ai' : 'wudt-ai-msg user';
+			bubble += '<div class="' + cls + '"><div class="wudt-ai-msg-content">' + renderMarkdownLite(m.content || '') + '</div>'
+				+ (m.role === 'assistant' ? '<button class="button-link wudt-ai-copy" data-copy-index="' + i + '">Copy</button>' : '')
+				+ '</div>';
+		}
+		if (state.ai.typing) {
+			bubble += '<div class="wudt-ai-msg ai"><div class="wudt-ai-typing"><span></span><span></span><span></span></div></div>';
+		}
+		var actionBox = '';
+		if (state.ai.lastAction && state.ai.lastAction.action) {
+			actionBox = '<div class="wudt-ai-action"><strong>Suggested Fix:</strong> ' + esc(state.ai.lastAction.action)
+				+ ' <button class="button button-secondary" id="wudt-ai-apply-fix">Apply Automatically</button></div>';
+		}
+		return ''
+			+ '<div class="wudt-ai-layout">'
+			+ '<aside class="wudt-ai-sidebar"><h3>Conversations</h3>' + threads + '<button class="button" id="wudt-ai-clear-chat">Clear Chat</button></aside>'
+			+ '<section class="wudt-ai-main">'
+			+ '<div class="wudt-toolbar">'
+			+ '<label>Mode <select id="wudt-ai-mode" class="wudt-select"><option value="ask"' + (mode === 'ask' ? ' selected' : '') + '>Ask mode</option><option value="agent"' + (mode === 'agent' ? ' selected' : '') + '>Agent mode</option></select></label>'
+			+ '<label>Model <select id="wudt-ai-model" class="wudt-select">' + modelOptions + '</select></label>'
+			+ '<input id="wudt-ai-model-custom" class="wudt-input" placeholder="Or type any model id (all models allowed)" value="' + esc(model) + '">'
+			+ '<button class="button" id="wudt-ai-refresh-models">Refresh Models</button>'
+			+ '</div>'
+			+ '<div class="wudt-ai-chat" id="wudt-ai-chat-window">' + bubble + '</div>'
+			+ actionBox
+			+ '<div class="wudt-ai-context">'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="error_logs" checked> Error logs</label>'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="plugins" checked> Active plugins</label>'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="system" checked> System info</label>'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="database" checked> Database info</label>'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="file"> Selected file content</label>'
+			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Client/Fiverr chats</label>'
+			+ '<input type="file" id="wudt-ai-chat-file" accept=".txt,.md,.log,.json" multiple>'
+			+ '</div>'
+			+ '<div class="wudt-ai-input-row"><textarea id="wudt-ai-input" class="wudt-textarea" placeholder="Describe the issue you want diagnosed..."></textarea>'
+			+ '<div class="wudt-toolbar"><button class="button button-primary" id="wudt-ai-send">Send</button><button class="button" id="wudt-ai-autodebug">Auto Debug Mode</button></div>'
+			+ '</div></section></div>';
+	}
+
+	function renderMarkdownLite(text) {
+		var out = esc(text || '');
+		out = out.replace(/```([\s\S]*?)```/g, '<pre class="wudt-pre">$1</pre>');
+		out = out.replace(/\n/g, '<br>');
+		return out;
+	}
+
+	function renderMalwareEnterprise() {
+		var d = tabData('malware_enterprise');
+		var summary = d.summary || {};
+		return ''
+			+ '<div class="wudt-grid">'
+			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Threats Detected</h3><strong>' + esc(summary.threats || 0) + '</strong></div></div>'
+			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Files Scanned</h3><strong>' + esc(summary.files_scanned || 0) + '</strong></div></div>'
+			+ '<div class="wudt-col-4"><div class="wudt-card"><h3>Risk Level</h3><strong>' + esc(summary.risk_level || 'Low') + '</strong></div></div>'
+			+ '<div class="wudt-col-12"><div class="wudt-card"><div class="wudt-toolbar">'
+			+ '<button class="button button-primary" id="wudt-mw-start-scan">Start Scan</button>'
+			+ '<button class="button" id="wudt-mw-refresh">Refresh Status</button>'
+			+ '<button class="button" id="wudt-mw-schedule">Schedule Auto Scan</button>'
+			+ '</div><div class="wudt-progress"><div class="wudt-progress-bar"></div></div>'
+			+ '<pre class="wudt-pre" id="wudt-malware-result">' + esc(JSON.stringify(d.results || [], null, 2)) + '</pre></div></div></div>';
 	}
 
 	function bind() {
@@ -601,6 +720,112 @@
 					render();
 					status('Refreshed');
 				}
+			});
+		});
+		$('#wudt-ai-send').on('click', function () {
+			sendAIMessage();
+		});
+		$('#wudt-ai-mode').on('change', function () {
+			state.ai.mode = String($(this).val() || 'ask');
+		});
+		$('#wudt-ai-model').on('change', function () {
+			var val = String($(this).val() || '');
+			if (val) {
+				state.ai.model = val;
+				$('#wudt-ai-model-custom').val(val);
+			}
+		});
+		$('#wudt-ai-model-custom').on('input', function () {
+			state.ai.model = String($(this).val() || '').trim();
+		});
+		$('#wudt-ai-refresh-models').on('click', function () {
+			post('diagnostics_ai_models').done(function (r) {
+				if (r && r.success) {
+					state.ai.models = r.data.models || [];
+					render();
+				}
+			});
+		});
+		$('#wudt-ai-chat-file').on('change', function () {
+			var files = (this.files || []);
+			if (!files.length) { return; }
+			var parts = [];
+			var pending = files.length;
+			for (var i = 0; i < files.length; i++) {
+				(function (file) {
+					var reader = new FileReader();
+					reader.onload = function (ev) {
+						parts.push('### ' + file.name + '\n' + String(ev.target.result || ''));
+						pending--;
+						if (pending === 0) {
+							state.ai.chatTranscript = parts.join('\n\n').slice(0, 120000);
+							alert('Chat transcript attached: ' + files.length + ' file(s).');
+						}
+					};
+					reader.onerror = function () { pending--; };
+					reader.readAsText(file);
+				})(files[i]);
+			}
+		});
+		$('#wudt-ai-autodebug').on('click', function () {
+			post('diagnostics_ai_autodebug').done(function (r) {
+				if (r && r.success) {
+					state.ai.history.push({ role: 'assistant', content: r.data.suggestion || '' });
+					render();
+				}
+			});
+		});
+		$('#wudt-ai-clear-chat').on('click', function () {
+			post('diagnostics_ai_clear_history').done(function () {
+				state.ai.history = [];
+				render();
+			});
+		});
+		$(document).on('click', '.wudt-ai-copy', function () {
+			var idx = parseInt($(this).attr('data-copy-index'), 10);
+			var msg = state.ai.history[idx];
+			if (msg) { navigator.clipboard.writeText(msg.content || ''); }
+		});
+		$('#wudt-ai-apply-fix').on('click', function () {
+			if (!state.ai.lastAction || !state.ai.lastAction.action) { return; }
+			post('diagnostics_ai_apply_fix', {
+				action_type: state.ai.lastAction.action,
+				params: JSON.stringify(state.ai.lastAction)
+			}).done(function (r) {
+				alert(r && r.success && r.data && r.data.applied ? 'Fix applied.' : 'Could not apply fix automatically.');
+			});
+		});
+		$('#wudt-backup-create').on('click', function () {
+			var components = [];
+			$('.wudt-backup-component:checked').each(function () { components.push($(this).val()); });
+			post('wudt_backup_create', {
+				components: JSON.stringify(components),
+				gzip: $('#wudt-backup-gzip').is(':checked') ? '1' : '0',
+				password: $('#wudt-backup-password').val()
+			}).done(function (r) {
+				$('#wudt-backup-result').text(JSON.stringify(r, null, 2));
+			});
+		});
+		$('#wudt-backup-refresh').on('click', function () {
+			post('wudt_backup_list').done(function (r) {
+				$('#wudt-backup-result').text(JSON.stringify(r, null, 2));
+			});
+		});
+		$('#wudt-restore-preview').on('click', function () {
+			post('wudt_restore_preview', { backup_path: $('#wudt-restore-path').val() }).done(function (r) {
+				$('#wudt-restore-result').text(JSON.stringify(r, null, 2));
+			});
+		});
+		$('#wudt-restore-run').on('click', function () {
+			var components = [];
+			$('.wudt-restore-component:checked').each(function () { components.push($(this).val()); });
+			post('wudt_restore_run', {
+				backup_path: $('#wudt-restore-path').val(),
+				restore_options: JSON.stringify(components),
+				safe_mode: $('#wudt-restore-safe').is(':checked') ? '1' : '0',
+				media_base: $('#wudt-restore-media-base').val()
+			}).done(function (r) {
+				$('#wudt-restore-result').text(JSON.stringify(r, null, 2));
 			});
 		});
 
@@ -784,8 +1009,19 @@
 			var where = {}; where[pk] = row[pk];
 			post('diagnostics_db_update', { table: state.db.selectedTable, data: JSON.stringify(updated), where: JSON.stringify(where) }).done(function () { loadDbBrowse(); });
 		});
-		$('#wudt-malware-scan').on('click', function () {
-			post('wudt_malware_scan').done(function (r) {
+		$('#wudt-mw-start-scan').on('click', function () {
+			post('wudt_mw_scan_start').done(function (r) {
+				$('#wudt-malware-result').text(JSON.stringify(r, null, 2));
+			});
+		});
+		$('#wudt-mw-refresh').on('click', function () {
+			post('wudt_mw_scan_status').done(function (r) {
+				$('#wudt-malware-result').text(JSON.stringify(r, null, 2));
+			});
+		});
+		$('#wudt-mw-schedule').on('click', function () {
+			var email = prompt('Alert email address');
+			post('wudt_mw_schedule', { enabled: '1', interval: 'daily', email: email || '' }).done(function (r) {
 				$('#wudt-malware-result').text(JSON.stringify(r, null, 2));
 			});
 		});
@@ -1013,6 +1249,89 @@
 			state.db._loadedOnce = true;
 			loadDbTables(true);
 		}
+		if (state.tab === 'ai_assistant' && !state.ai._loadedOnce) {
+			state.ai._loadedOnce = true;
+			post('diagnostics_ai_history').done(function (r) {
+				if (r && r.success) { state.ai.history = r.data.history || []; render(); }
+			});
+			post('diagnostics_ai_models').done(function (r) {
+				if (r && r.success) { state.ai.models = r.data.models || []; render(); }
+			});
+		}
+	}
+
+	function sendAIMessage() {
+		var prompt = $('#wudt-ai-input').val();
+		if (!prompt) { return; }
+		var flags = {};
+		$('.wudt-ai-ctx:checked').each(function () { flags[$(this).val()] = true; });
+		var fileContent = state.editor && state.editor.visible ? (state.editor.content || '') : '';
+		var mode = state.ai.mode || 'ask';
+		var model = (state.ai.model || $('#wudt-ai-model-custom').val() || $('#wudt-ai-model').val() || '').trim();
+		var chatTranscript = flags.chat_transcript ? (state.ai.chatTranscript || '') : '';
+		if (mode !== 'agent') { state.ai.lastAction = null; }
+		state.ai.history.push({ role: 'user', content: prompt });
+		state.ai.typing = true;
+		render();
+		var payload = new URLSearchParams();
+		payload.append('action', 'diagnostics_ai_chat_stream');
+		payload.append('nonce', window.wudtProAdmin.nonce);
+		payload.append('prompt', String(prompt));
+		payload.append('context_flags', JSON.stringify(flags));
+		payload.append('file_content', String(fileContent));
+		payload.append('chat_transcript', String(chatTranscript));
+		payload.append('mode', String(mode));
+		payload.append('model', String(model));
+		fetch(window.wudtProAdmin.ajaxUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+			body: payload.toString()
+		}).then(function (res) {
+			if (!res.body) { throw new Error('No stream body'); }
+			var reader = res.body.getReader();
+			var decoder = new TextDecoder();
+			var buffer = '';
+			var aiText = '';
+			state.ai.history.push({ role: 'assistant', content: '' });
+			var aiIndex = state.ai.history.length - 1;
+			function pump() {
+				return reader.read().then(function (result) {
+					if (result.done) {
+						state.ai.typing = false;
+						render();
+						return;
+					}
+					buffer += decoder.decode(result.value, { stream: true });
+					var lines = buffer.split('\n');
+					buffer = lines.pop() || '';
+					for (var i = 0; i < lines.length; i++) {
+						if (!lines[i]) { continue; }
+						try {
+							var evt = JSON.parse(lines[i]);
+							if (evt.type === 'chunk') {
+								aiText += evt.content || '';
+								state.ai.history[aiIndex].content = aiText;
+							} else if (evt.type === 'done' && evt.action && evt.action.action && mode === 'agent') {
+								state.ai.lastAction = evt.action;
+							}
+						} catch (e) {}
+					}
+					render();
+					scrollAIToBottom();
+					return pump();
+				});
+			}
+			return pump();
+		}).catch(function () {
+			state.ai.typing = false;
+			state.ai.history.push({ role: 'assistant', content: 'AI streaming failed. Try again.' });
+			render();
+		});
+	}
+
+	function scrollAIToBottom() {
+		var chat = document.getElementById('wudt-ai-chat-window');
+		if (chat) { chat.scrollTop = chat.scrollHeight; }
 	}
 
 	function loadDbTables(alsoLoadCurrent) {
@@ -1089,6 +1408,7 @@
 		state.editor.content = content;
 		state.editor.original = content;
 		state.editor.language = detectLanguageFromPath(path);
+		persistFileManagerState();
 		render();
 	}
 
@@ -1113,6 +1433,7 @@
 		state.editor.title = '';
 		state.editor.content = '';
 		state.editor.original = '';
+		persistFileManagerState();
 		render();
 	}
 
@@ -1300,5 +1621,37 @@
 		}
 	}
 
-	$(function () { render(); });
+	function persistFileManagerState() {
+		var payload = {
+			lastPath: state.currentPath || '',
+			openFile: state.editor.path || '',
+			editorOpen: !!state.editor.visible
+		};
+		try {
+			window.localStorage.setItem('wudt.fm.state', JSON.stringify(payload));
+		} catch (e) {}
+		post('wudt_state_save', { state: JSON.stringify(payload) });
+	}
+
+	function bootstrapFileManagerState() {
+		var local = {};
+		try {
+			local = JSON.parse(window.localStorage.getItem('wudt.fm.state') || '{}');
+		} catch (e) {}
+		post('wudt_state_get').done(function (r) {
+			var remote = (r && r.success && r.data && r.data.state) ? r.data.state : {};
+			var lastPath = remote.lastPath || local.lastPath || '';
+			if (lastPath) {
+				loadDirectory(lastPath, true, function () {
+					var filePath = remote.openFile || local.openFile || '';
+					var editorOpen = !!remote.editorOpen || !!local.editorOpen;
+					if (editorOpen && filePath) {
+						editFile(filePath);
+					}
+				});
+			}
+		});
+	}
+
+	$(function () { render(); bootstrapFileManagerState(); });
 })(jQuery);

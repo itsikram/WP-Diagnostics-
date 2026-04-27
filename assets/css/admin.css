@@ -467,3 +467,36 @@
 	bottom: 12px;
 	z-index: 100010;
 }
+
+.wudt-progress {
+	height: 10px;
+	background: #eef2f7;
+	border-radius: 999px;
+	overflow: hidden;
+	margin: 8px 0 10px;
+}
+.wudt-progress-bar {
+	height: 100%;
+	width: 100%;
+	background: linear-gradient(90deg, #2271b1, #44a0d8);
+}
+
+.wudt-ai-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; min-height: 640px; }
+.wudt-ai-sidebar { border: 1px solid #dcdcde; border-radius: 8px; padding: 10px; background: #f8fafc; }
+.wudt-ai-thread-item { padding: 8px; border: 1px solid #dbe2ea; border-radius: 6px; margin-bottom: 8px; cursor: pointer; background: #fff; }
+.wudt-ai-thread-item.is-active { background: #eaf3ff; border-color: #9fc5f8; }
+.wudt-ai-main { border: 1px solid #dcdcde; border-radius: 8px; padding: 10px; display: grid; grid-template-rows: 1fr auto auto; gap: 10px; }
+.wudt-ai-chat { overflow: auto; max-height: 430px; background: #f7f8fa; border: 1px solid #e7ebef; border-radius: 6px; padding: 12px; }
+.wudt-ai-msg { margin-bottom: 12px; display: grid; gap: 4px; }
+.wudt-ai-msg-content { padding: 10px 12px; border-radius: 10px; max-width: 85%; word-break: break-word; }
+.wudt-ai-msg.user .wudt-ai-msg-content { background: #dbeafe; margin-left: auto; }
+.wudt-ai-msg.ai .wudt-ai-msg-content { background: #fff; border: 1px solid #e4e7eb; }
+.wudt-ai-context { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.wudt-ai-context input[type="file"] { max-width: 340px; }
+.wudt-ai-input-row .wudt-textarea { min-height: 90px; }
+.wudt-ai-action { padding: 8px; background: #fff8e6; border: 1px solid #f4dba3; border-radius: 6px; }
+.wudt-ai-typing { display: inline-flex; gap: 4px; padding: 8px; }
+.wudt-ai-typing span { width: 6px; height: 6px; border-radius: 50%; background: #7e8793; animation: wudtAIDot 1s infinite ease-in-out; }
+.wudt-ai-typing span:nth-child(2) { animation-delay: 0.1s; }
+.wudt-ai-typing span:nth-child(3) { animation-delay: 0.2s; }
+@keyframes wudtAIDot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.5; } 40% { transform: translateY(-4px); opacity: 1; } }

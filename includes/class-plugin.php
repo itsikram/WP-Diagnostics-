@@ -10,6 +10,8 @@ namespace WUDT;
 use WUDT\Admin\Admin_Page;
 use WUDT\Admin\Debug_Page;
 use WUDT\Admin\Pro_Admin_Page;
+use WUDT\Admin\Backup_Page;
+use WUDT\Admin\AI_Assistant_Page;
 use WUDT\Includes\Failsafe_Manager;
 use WUDT\Includes\Operation_Logger;
 use WUDT\Modules\Conflict_Detector_Module;
@@ -27,6 +29,12 @@ use WUDT\Modules\Advanced_Diagnostics_Module;
 use WUDT\Modules\DatabaseManager\Database_Manager_Module;
 use WUDT\Modules\FileManager\File_Manager_Module;
 use WUDT\Modules\MalwareScanner\Malware_Scanner_Module;
+use WUDT\Modules\Backup\Backup_Module;
+use WUDT\Modules\Restore\Restore_Module;
+use WUDT\Modules\Malware\Enterprise_Malware_Module;
+use WUDT\Modules\Recovery\Crash_Recovery_Module;
+use WUDT\Modules\State\State_Module;
+use WUDT\Modules\AIAssistant\AI_Controller;
 
 if (! defined('ABSPATH')) {
 	exit;
@@ -68,6 +76,12 @@ class Plugin {
 				File_Manager_Module::class,
 				Database_Manager_Module::class,
 				Malware_Scanner_Module::class,
+				Enterprise_Malware_Module::class,
+				Backup_Module::class,
+				Restore_Module::class,
+				Crash_Recovery_Module::class,
+				State_Module::class,
+				AI_Controller::class,
 				Pro_Logs_Module::class,
 				Performance_Module::class,
 				Security_Module::class,
@@ -90,6 +104,10 @@ class Plugin {
 		$pro_page->register_hooks();
 		$debug_page = new Debug_Page();
 		$debug_page->register_hooks();
+		$backup_page = new Backup_Page();
+		$backup_page->register_hooks();
+		$ai_page = new AI_Assistant_Page();
+		$ai_page->register_hooks();
 	}
 
 	/**
