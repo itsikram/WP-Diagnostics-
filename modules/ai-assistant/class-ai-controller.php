@@ -35,6 +35,7 @@ class AI_Controller extends Module_Base {
 		add_action('wp_ajax_diagnostics_ai_apply_fix', array($this, 'ajax_apply_fix'));
 		add_action('wp_ajax_diagnostics_ai_autodebug', array($this, 'ajax_autodebug'));
 		add_action('wp_ajax_diagnostics_ai_models', array($this, 'ajax_models'));
+		add_action('wp_ajax_diagnostics_ai_test_api', array($this, 'ajax_test_api'));
 	}
 
 	public function get_key(): string {

@@ -41,6 +41,7 @@ class AI_Assistant_Page {
 			'nonce'   => wp_create_nonce('wudt_admin_nonce'),
 			'data'    => array('generated_at' => current_time('mysql'), 'tabs' => array()),
 			'defaultTab' => 'ai_assistant',
+			'diagnosticsUrl' => admin_url('admin.php?page=wp-ultimate-diagnostics'),
 		));
 	}
 

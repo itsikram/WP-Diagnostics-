@@ -108,6 +108,20 @@ class Restore_Module extends Module_Base {
 	 * @return array<string,mixed>
 	 */
 	private function restore_package(string $archive, array $restore_options, bool $safe_mode, string $media_base): array {
+		// Increase memory and execution time for large sites
+		$original_memory_limit = ini_get('memory_limit');
+		$original_max_execution_time = ini_get('max_execution_time');
+		
+		if (function_exists('wp_raise_memory_limit')) {
+			wp_raise_memory_limit('admin');
+		} else {
+			ini_set('memory_limit', '1024M');
+		}
+		
+		if (0 !== (int) $original_max_execution_time) {
+			set_time_limit(600);
+		}
+		
 		$temp = WP_CONTENT_DIR . '/uploads/wudt-restore-' . wp_generate_password(10, false, false) . '/';
 		wp_mkdir_p($temp);
 
@@ -153,6 +167,13 @@ class Restore_Module extends Module_Base {
 
 		$this->delete_recursive($temp);
 		Operation_Logger::log('restore', 'Restore completed', array('archive' => $archive, 'options' => $restore_options, 'safe_mode' => $safe_mode));
+		
+		// Restore original limits
+		ini_set('memory_limit', $original_memory_limit);
+		if (0 !== (int) $original_max_execution_time) {
+			set_time_limit((int) $original_max_execution_time);
+		}
+		
 		return array('restored' => $done, 'safe_mode' => $safe_mode);
 	}
 
@@ -305,21 +326,57 @@ class Restore_Module extends Module_Base {
 
 	private function import_sql_file(string $file): void {
 		global $wpdb;
-		$sql = file_get_contents($file);
-		if (false === $sql) {
-			throw new \RuntimeException('Could not read SQL file.');
+		
+		// For large SQL files, use chunked reading instead of loading entire file
+		$handle = fopen($file, 'rb');
+		if (false === $handle) {
+			throw new \RuntimeException('Could not read SQL file: ' . $file);
 		}
-		$parts = preg_split('/;\s*\n/', (string) $sql) ?: array();
-		foreach ($parts as $statement) {
-			$query = trim($statement);
-			if ('' === $query || str_starts_with($query, '--')) {
-				continue;
+		
+		$buffer = '';
+		$chunk_size = 8192; // Read 8KB at a time
+		$statement_count = 0;
+		
+		while (! feof($handle)) {
+			$data = fread($handle, $chunk_size);
+			if (false === $data) {
+				break;
 			}
-			if (preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
-				continue;
+			
+			$buffer .= $data;
+			
+			// Process complete statements (ending with ;)
+			while (($pos = strpos($buffer, ';')) !== false) {
+				$statement = substr($buffer, 0, $pos);
+				$buffer = substr($buffer, $pos + 1);
+				
+				$query = trim($statement);
+				if ('' === $query || str_starts_with($query, '--')) {
+					continue;
+				}
+				if (preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
+					continue;
+				}
+				
+				$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$statement_count++;
+				
+				// Prevent memory buildup by clearing WPDB queries periodically
+				if ($statement_count % 100 === 0) {
+					$wpdb->queries = array();
+				}
 			}
-			$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
+		
+		// Process any remaining statement without trailing semicolon
+		$query = trim($buffer);
+		if ('' !== $query && ! str_starts_with($query, '--')) {
+			if (! preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
+				$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			}
+		}
+		
+		fclose($handle);
 	}
 
 	/**

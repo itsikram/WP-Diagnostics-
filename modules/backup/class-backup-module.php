@@ -204,6 +204,22 @@ class Backup_Module extends Module_Base {
 	 * @return array<string,mixed>
 	 */
 	public function create_backup_package(array $components, bool $gzip, string $password): array {
+		// Increase memory and execution time for large sites
+		$original_memory_limit = ini_get('memory_limit');
+		$original_max_execution_time = ini_get('max_execution_time');
+		
+		// Set generous limits for backup operations
+		if (function_exists('wp_raise_memory_limit')) {
+			wp_raise_memory_limit('admin');
+		} else {
+			ini_set('memory_limit', '1024M');
+		}
+		
+		// Set execution time to 0 (unlimited) or max 600 seconds
+		if (0 !== (int) $original_max_execution_time) {
+			set_time_limit(600);
+		}
+		
 		$paths = wp_get_upload_dir();
 		$dir   = trailingslashit($paths['basedir']) . 'wudt-backups/';
 		
@@ -212,6 +228,8 @@ class Backup_Module extends Module_Base {
 			'base_dir' => $dir,
 			'wp_content_dir' => WP_CONTENT_DIR,
 			'upload_dir' => $paths['basedir'],
+			'memory_limit' => ini_get('memory_limit'),
+			'max_execution_time' => ini_get('max_execution_time'),
 		));
 		
 		if (! wp_mkdir_p($dir)) {
@@ -292,7 +310,7 @@ class Backup_Module extends Module_Base {
 
 		if (in_array('database', $components, true)) {
 			$this->set_progress('running', $progress, __('Backing up database...', 'wp-ultimate-diagnostics-toolkit'));
-			file_put_contents($db_file, $this->build_sql_dump());
+			$this->build_sql_dump_to_file($db_file);
 			$progress += $progress_step;
 		}
 		if (in_array('core', $components, true)) {
@@ -411,6 +429,13 @@ class Backup_Module extends Module_Base {
 		set_transient(self::TRANSIENT_PROGRESS, $progress_data, 5 * MINUTE_IN_SECONDS);
 		
 		Operation_Logger::log('backup', 'Backup package created', $entry);
+		
+		// Restore original limits
+		ini_set('memory_limit', $original_memory_limit);
+		if (0 !== (int) $original_max_execution_time) {
+			set_time_limit((int) $original_max_execution_time);
+		}
+		
 		return $entry;
 	}
 
@@ -504,30 +529,94 @@ class Backup_Module extends Module_Base {
 		return empty($clean) ? array('database') : $clean;
 	}
 
-	private function build_sql_dump(): string {
+	/**
+	 * Build SQL dump directly to file for memory efficiency with large databases
+	 */
+	private function build_sql_dump_to_file(string $file): void {
 		global $wpdb;
-		$sql    = "-- WUDT SQL Backup\n-- " . gmdate('c') . "\n\n";
+		
+		$handle = fopen($file, 'wb');
+		if (false === $handle) {
+			throw new \RuntimeException('Could not create database dump file: ' . $file);
+		}
+		
+		// Write header
+		fwrite($handle, "-- WUDT SQL Backup\n-- " . gmdate('c') . "\n-- For large databases, this backup uses chunked processing\n\n");
+		fwrite($handle, "SET FOREIGN_KEY_CHECKS=0;\n\n");
+		
 		$tables = $wpdb->get_col('SHOW TABLES');
 		if (! is_array($tables)) {
-			return $sql;
+			fwrite($handle, "SET FOREIGN_KEY_CHECKS=1;\n");
+			fclose($handle);
+			return;
 		}
+		
+		$table_count = 0;
 		foreach ($tables as $table) {
 			$table_name = sanitize_text_field((string) $table);
 			if (! preg_match('/^[a-zA-Z0-9_]+$/', $table_name)) {
 				continue;
 			}
+			
+			$table_count++;
+			
+			// Get create statement
 			$create = $wpdb->get_row('SHOW CREATE TABLE `' . esc_sql($table_name) . '`', ARRAY_N); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-			$sql .= "\nDROP TABLE IF EXISTS `" . esc_sql($table_name) . "`;\n";
-			$sql .= (string) ($create[1] ?? '') . ";\n";
-			$rows = $wpdb->get_results('SELECT * FROM `' . esc_sql($table_name) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-			foreach ((array) $rows as $row) {
-				$columns = array_map(static fn( $col ): string => '`' . esc_sql((string) $col) . '`', array_keys($row));
-				$values  = array_map(static fn( $value ): string => "'" . esc_sql((string) $value) . "'", array_values($row));
-				$sql    .= 'INSERT INTO `' . esc_sql($table_name) . '` (' . implode(',', $columns) . ') VALUES (' . implode(',', $values) . ");\n";
+			fwrite($handle, "\n-- Table structure for table `{$table_name}`\n");
+			fwrite($handle, "DROP TABLE IF EXISTS `" . esc_sql($table_name) . "`;\n");
+			fwrite($handle, (string) ($create[1] ?? '') . ";\n\n");
+			
+			// Get row count for batching
+			$count_result = $wpdb->get_row("SELECT COUNT(*) as cnt FROM `" . esc_sql($table_name) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$total_rows = (int) ($count_result['cnt'] ?? 0);
+			
+			if ($total_rows === 0) {
+				continue;
 			}
-			$sql .= "\n";
+			
+			fwrite($handle, "-- Dumping data for table `{$table_name}` ({$total_rows} rows)\n");
+			
+			// Process in batches to avoid memory issues with large tables
+			$batch_size = 1000;
+			$offset = 0;
+			
+			while ($offset < $total_rows) {
+				$rows = $wpdb->get_results(
+					"SELECT * FROM `" . esc_sql($table_name) . '` LIMIT ' . (int) $batch_size . ' OFFSET ' . (int) $offset, // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+					ARRAY_A
+				);
+				
+				if (empty($rows)) {
+					break;
+				}
+				
+				foreach ($rows as $row) {
+					$columns = array_map(static fn( $col ): string => '`' . esc_sql((string) $col) . '`', array_keys($row));
+					$values  = array_map(static fn( $value ): string => "'" . esc_sql((string) $value) . "'", array_values($row));
+					fwrite($handle, 'INSERT INTO `' . esc_sql($table_name) . '` (' . implode(',', $columns) . ') VALUES (' . implode(',', $values) . ");\n");
+				}
+				
+				$offset += $batch_size;
+				
+				// Clear query cache periodically to prevent memory buildup
+				if ($offset % 10000 === 0) {
+					$wpdb->queries = array();
+				}
+			}
+			
+			fwrite($handle, "\n");
 		}
-		return $sql;
+		
+		fwrite($handle, "SET FOREIGN_KEY_CHECKS=1;\n");
+		fclose($handle);
+	}
+
+	/**
+	 * Legacy method - kept for compatibility but redirects to file-based method
+	 */
+	private function build_sql_dump(): string {
+		// For backwards compatibility only - returns empty string as this is now file-based
+		return "-- This method is deprecated. Use build_sql_dump_to_file() instead.\n";
 	}
 
 	/**

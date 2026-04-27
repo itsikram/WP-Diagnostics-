@@ -1096,28 +1096,22 @@
 .wudt-ai-fullscreen {
 	position: fixed;
 	top: 32px;
-	left: 0;
+	left: 160px; /* WordPress admin menu width */
 	right: 0;
 	bottom: 0;
 	background: #fff;
-	z-index: 99999;
+	z-index: 1000;
 	overflow: hidden;
 }
 
-/* Hide WordPress admin elements when in fullscreen AI mode */
-.wudt-ai-fullscreen ~ #wpfooter,
-.wudt-ai-fullscreen ~ .notice,
-.wudt-ai-fullscreen ~ #screen-meta,
-.wudt-ai-fullscreen ~ #screen-meta-links {
+/* Auto-adjust for collapsed WordPress admin menu */
+.folded .wudt-ai-fullscreen {
+	left: 36px;
+}
+
+/* Hide WordPress admin elements only inside AI page */
+.wudt-ai-fullscreen ~ #wpfooter {
 	display: none !important;
-}
-
-#wpcontent {
-	padding-left: 0 !important;
-}
-
-#wpbody-content {
-	padding-bottom: 0 !important;
 }
 
 .wudt-ai-fullscreen #wudt-pro-admin-app {
@@ -1128,10 +1122,42 @@
 /* Fullscreen AI Layout */
 .wudt-ai-fullscreen .wudt-ai-layout {
 	display: grid;
-	grid-template-columns: 300px 1fr;
+	grid-template-columns: 280px 1fr;
 	height: 100%;
 	width: 100%;
 	background: var(--wudt-gray-50);
+}
+
+/* Back to Dashboard Link */
+.wudt-ai-back-link {
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-2);
+	padding: var(--wudt-space-3) var(--wudt-space-4);
+	background: linear-gradient(135deg, #fff 0%, var(--wudt-gray-50) 100%);
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-lg);
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--wudt-gray-600);
+	text-decoration: none;
+	transition: all var(--wudt-transition-fast);
+	box-shadow: var(--wudt-shadow-sm);
+	margin-bottom: var(--wudt-space-4);
+}
+
+.wudt-ai-back-link:hover {
+	background: #fff;
+	border-color: var(--wudt-primary);
+	color: var(--wudt-primary);
+	box-shadow: var(--wudt-shadow-md);
+	text-decoration: none;
+}
+
+.wudt-ai-back-link svg {
+	width: 18px;
+	height: 18px;
 }
 
 /* Sidebar - Enhanced */
@@ -1448,34 +1474,83 @@
 	padding: 0;
 }
 
-/* Suggestions - Enhanced */
+/* Suggestions - Enhanced Modern Cards */
 .wudt-ai-fullscreen .wudt-ai-suggestions {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--wudt-space-3);
-	padding: var(--wudt-space-4) var(--wudt-space-6);
+	gap: var(--wudt-space-4);
+	padding: var(--wudt-space-5) var(--wudt-space-6);
 	background: linear-gradient(180deg, #fff 0%, var(--wudt-gray-50) 100%);
 	border-bottom: 1px solid var(--wudt-gray-200);
+	justify-content: center;
 }
 
 .wudt-ai-fullscreen .wudt-ai-suggestion {
-	padding: var(--wudt-space-2) var(--wudt-space-4);
-	background: #fff;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--wudt-space-3);
+	padding: var(--wudt-space-4) var(--wudt-space-5);
+	min-width: 140px;
+	max-width: 180px;
+	min-height: 100px;
+	background: linear-gradient(135deg, #fff 0%, var(--wudt-gray-50) 100%);
 	border: 1px solid var(--wudt-gray-200);
-	border-radius: var(--wudt-radius-full);
-	font-size: 13px;
-	color: var(--wudt-gray-600);
+	border-radius: var(--wudt-radius-xl);
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--wudt-gray-700);
+	text-align: center;
+	line-height: 1.4;
 	cursor: pointer;
-	transition: all var(--wudt-transition-fast);
-	box-shadow: var(--wudt-shadow-sm);
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+	position: relative;
+	overflow: hidden;
+}
+
+.wudt-ai-fullscreen .wudt-ai-suggestion::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 3px;
+	background: linear-gradient(90deg, var(--wudt-primary) 0%, var(--wudt-primary-light) 100%);
+	opacity: 0;
+	transition: opacity 0.2s ease;
 }
 
 .wudt-ai-fullscreen .wudt-ai-suggestion:hover {
-	background: var(--wudt-primary-50);
+	background: #fff;
 	border-color: var(--wudt-primary);
-	color: var(--wudt-primary);
-	transform: translateY(-1px);
-	box-shadow: var(--wudt-shadow-md);
+	color: var(--wudt-primary-dark);
+	transform: translateY(-3px) scale(1.02);
+	box-shadow: 0 12px 24px rgba(34, 113, 177, 0.15), 0 4px 8px rgba(0, 0, 0, 0.08);
+}
+
+.wudt-ai-fullscreen .wudt-ai-suggestion:hover::before {
+	opacity: 1;
+}
+
+.wudt-ai-fullscreen .wudt-ai-suggestion:active {
+	transform: translateY(-1px) scale(0.98);
+	box-shadow: 0 4px 12px rgba(34, 113, 177, 0.1);
+}
+
+.wudt-ai-fullscreen .wudt-ai-suggestion-icon {
+	font-size: 28px;
+	line-height: 1;
+	display: block;
+	margin-bottom: var(--wudt-space-2);
+	filter: grayscale(0.2);
+	transition: all 0.2s ease;
+}
+
+.wudt-ai-fullscreen .wudt-ai-suggestion:hover .wudt-ai-suggestion-icon {
+	filter: grayscale(0);
+	transform: scale(1.1);
 }
 
 /* Context Panel - Enhanced */

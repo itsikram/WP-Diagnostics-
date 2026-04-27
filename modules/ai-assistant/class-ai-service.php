@@ -19,7 +19,7 @@ class AI_Service {
 	 */
 	private function get_model_mapping(): array {
 		return array(
-			'gemini' => 'gemini-1.5-flash',
+			'gemini' => 'gemini-1.5-flash-latest',
 			'gpt4' => 'gpt-4o',
 			'gpt35' => 'gpt-3.5-turbo',
 			'sonnet' => 'claude-3-sonnet',
@@ -34,7 +34,7 @@ class AI_Service {
 	private function get_api_endpoint(string $model_setting): string {
 		switch ($model_setting) {
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
+				return 'https://generativelanguage.googleapis.com/v1beta/models/' . $this->get_model_mapping()['gemini'] . ':generateContent';
 			case 'sonnet':
 			case 'opus':
 			case 'haiku':
@@ -63,6 +63,14 @@ class AI_Service {
 		$model_setting = Settings_Page::get_ai_model();
 		$model_mapping = $this->get_model_mapping();
 		$model = sanitize_text_field((string) ($options['model'] ?? ($model_mapping[$model_setting] ?? 'gpt-4o-mini')));
+
+		// DEBUG LOGGING
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			error_log('[WUDT AI] === REQUEST START ===');
+			error_log('[WUDT AI] Model Setting: ' . $model_setting);
+			error_log('[WUDT AI] Model Name: ' . $model);
+			error_log('[WUDT AI] API Key (first 10 chars): ' . substr($api_key, 0, 10) . '...');
+		}
 		$mode     = sanitize_key((string) ($options['mode'] ?? 'ask'));
 		$temperature = Settings_Page::get_temperature();
 		$max_tokens = Settings_Page::get_max_tokens();
@@ -92,6 +100,12 @@ class AI_Service {
 		);
 
 		$endpoint = $this->get_api_endpoint($model_setting);
+		
+		// DEBUG LOGGING
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			error_log('[WUDT AI] Endpoint: ' . $endpoint);
+		}
+		
 		$request_body = array(
 			'model'       => $model,
 			'messages'    => $messages,
@@ -115,6 +129,12 @@ class AI_Service {
 					'maxOutputTokens' => $max_tokens,
 				),
 			);
+			
+			// DEBUG LOGGING
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('[WUDT AI] Gemini Endpoint with key: ' . str_replace($api_key, '***API_KEY***', $endpoint));
+				error_log('[WUDT AI] Gemini Request Body: ' . wp_json_encode($request_body));
+			}
 		}
 
 		$request_args = array(
@@ -132,32 +152,74 @@ class AI_Service {
 
 		$response = wp_remote_post($endpoint, $request_args);
 		if (is_wp_error($response)) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('[WUDT AI] WP ERROR: ' . $response->get_error_message());
+			}
 			return array('content' => 'AI request failed: ' . $response->get_error_message(), 'model' => $model);
 		}
 
 		$status_code = wp_remote_retrieve_response_code($response);
 		$body = wp_remote_retrieve_body($response);
 		$data = json_decode((string) $body, true);
+		
+		// DEBUG LOGGING
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			error_log('[WUDT AI] Response Status: ' . $status_code);
+			error_log('[WUDT AI] Response Body: ' . substr($body, 0, 2000)); // Log first 2000 chars
+			error_log('[WUDT AI] Parsed Data Keys: ' . implode(', ', array_keys($data ?? array())));
+			if (isset($data['error'])) {
+				error_log('[WUDT AI] Error Details: ' . wp_json_encode($data['error']));
+			}
+			if (isset($data['candidates'])) {
+				error_log('[WUDT AI] Candidates Count: ' . count($data['candidates']));
+				if (isset($data['candidates'][0])) {
+					error_log('[WUDT AI] First Candidate Keys: ' . implode(', ', array_keys($data['candidates'][0])));
+					if (isset($data['candidates'][0]['finishReason'])) {
+						error_log('[WUDT AI] Finish Reason: ' . $data['candidates'][0]['finishReason']);
+					}
+				}
+			}
+		}
 
 		// Handle API errors
 		if ($status_code < 200 || $status_code >= 300) {
 			$error_msg = isset($data['error']['message']) ? $data['error']['message'] : (isset($data['error']['details'][0]['description']) ? $data['error']['details'][0]['description'] : 'HTTP ' . $status_code);
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('[WUDT AI] API ERROR: ' . $error_msg);
+				if (isset($data['error']['details'])) {
+					error_log('[WUDT AI] Error Details Full: ' . wp_json_encode($data['error']['details']));
+				}
+			}
 			return array('content' => 'AI API error (' . $model_setting . '): ' . $error_msg, 'model' => $model, 'raw' => $data);
 		}
 
 		// Parse response based on provider format
+		$content = '';
 		if ($model_setting === 'gemini') {
 			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
 				$content = (string) $data['candidates'][0]['content']['parts'][0]['text'];
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('[WUDT AI] Gemini Content Retrieved: ' . substr($content, 0, 100) . '...');
+				}
 			} elseif (isset($data['candidates'][0]['finishReason']) && $data['candidates'][0]['finishReason'] !== 'STOP') {
 				$content = 'Response blocked: ' . $data['candidates'][0]['finishReason'];
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('[WUDT AI] Gemini Blocked: ' . $data['candidates'][0]['finishReason']);
+				}
 			} else {
 				$content = 'No response from Gemini. Check API key and model configuration.';
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('[WUDT AI] Gemini No Response - Full Data: ' . wp_json_encode($data));
+				}
 			}
 		} else {
 			$content = (string) ($data['choices'][0]['message']['content'] ?? 'No response.');
 		}
 
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			error_log('[WUDT AI] === REQUEST END ===');
+		}
+		
 		return array(
 			'content' => $content,
 			'model'   => $model,
@@ -176,7 +238,7 @@ class AI_Service {
 			// Return default models based on selected provider
 			switch ($model_setting) {
 				case 'gemini':
-					return array('gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro');
+					return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
 				case 'sonnet':
 				case 'opus':
 				case 'haiku':
@@ -191,7 +253,7 @@ class AI_Service {
 		// Try to fetch models from the selected provider's API
 		$endpoint = 'https://api.openai.com/v1/models';
 		if ($model_setting === 'gemini') {
-			return array('gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro');
+			return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
 		} elseif (in_array($model_setting, array('sonnet', 'opus', 'haiku'), true)) {
 			return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
 		}
