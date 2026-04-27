@@ -228,8 +228,27 @@ class File_Manager_Module extends Module_Base {
 		if ('' === $path) {
 			return ABSPATH;
 		}
-		$full = wp_normalize_path(realpath($path) ?: $path);
-		if (0 !== strpos($full, wp_normalize_path(ABSPATH))) {
+		
+		// Try realpath first, fallback to normalizing the input path
+		$real_path = realpath($path);
+		if (false === $real_path) {
+			// Path might not exist yet, use as-is but normalized
+			$full = wp_normalize_path($path);
+		} else {
+			$full = wp_normalize_path($real_path);
+		}
+		
+		$abs_path = wp_normalize_path(ABSPATH);
+		
+		// Ensure both paths end with trailing slash for proper comparison
+		$full = trailingslashit($full);
+		$abs_path = trailingslashit($abs_path);
+		
+		// On Windows, make case-insensitive comparison
+		$full_lower = strtolower($full);
+		$abs_lower = strtolower($abs_path);
+		
+		if (0 !== strpos($full_lower, $abs_lower)) {
 			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
 		}
 		return $full;
@@ -240,8 +259,26 @@ class File_Manager_Module extends Module_Base {
 		if ('' === $normalized) {
 			return wp_normalize_path(ABSPATH);
 		}
-		$full = wp_normalize_path(realpath($normalized) ?: $normalized);
-		if (0 !== strpos($full, wp_normalize_path(ABSPATH))) {
+		
+		// Try realpath first, fallback to normalizing the input path
+		$real_path = realpath($normalized);
+		if (false === $real_path) {
+			$full = wp_normalize_path($normalized);
+		} else {
+			$full = wp_normalize_path($real_path);
+		}
+		
+		$abs_path = wp_normalize_path(ABSPATH);
+		
+		// Ensure both paths end with trailing slash for proper comparison
+		$full = trailingslashit($full);
+		$abs_path = trailingslashit($abs_path);
+		
+		// On Windows, make case-insensitive comparison
+		$full_lower = strtolower($full);
+		$abs_lower = strtolower($abs_path);
+		
+		if (0 !== strpos($full_lower, $abs_lower)) {
 			throw new \RuntimeException('Path outside WordPress root.');
 		}
 		return $full;

@@ -26,6 +26,7 @@ class Backup_Module extends Module_Base {
 		add_action('wp_ajax_wudt_backup_schedule', array($this, 'ajax_schedule_backup'));
 		add_action('wp_ajax_wudt_backup_delete', array($this, 'ajax_delete_backup'));
 		add_action('wp_ajax_wudt_backup_progress', array($this, 'ajax_get_progress'));
+		add_action('wp_ajax_wudt_backup_download', array($this, 'ajax_download_backup'));
 		add_action('wudt_scheduled_backup_event', array($this, 'run_scheduled_backup'));
 	}
 
@@ -124,6 +125,49 @@ class Backup_Module extends Module_Base {
 		}
 	}
 
+	public function ajax_download_backup(): void {
+		Security_Guard::assert_ajax_admin();
+		
+		$path = isset($_GET['file']) ? (string) wp_unslash($_GET['file']) : '';
+		if (empty($path)) {
+			wp_send_json_error(array('message' => __('No file specified.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+		
+		try {
+			$safe = Security_Guard::normalize_inside_wp($path);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 403);
+			return;
+		}
+		
+		if (! file_exists($safe) || ! is_readable($safe)) {
+			wp_send_json_error(array('message' => __('File not found or not readable.', 'wp-ultimate-diagnostics-toolkit')), 404);
+			return;
+		}
+		
+		$filename = basename($safe);
+		$file_size = filesize($safe);
+		
+		// Clear any output buffers
+		while (ob_get_level()) {
+			ob_end_clean();
+		}
+		
+		// Set headers for download
+		header('Content-Type: application/octet-stream');
+		header('Content-Disposition: attachment; filename="' . $filename . '"');
+		header('Content-Length: ' . $file_size);
+		header('Cache-Control: no-cache, must-revalidate');
+		header('Pragma: no-cache');
+		header('X-Content-Type-Options: nosniff');
+		header('X-Frame-Options: DENY');
+		
+		// Output file
+		readfile($safe);
+		exit;
+	}
+
 	public function ajax_get_progress(): void {
 		Security_Guard::assert_ajax_admin();
 		$progress = get_transient(self::TRANSIENT_PROGRESS);
@@ -133,12 +177,12 @@ class Backup_Module extends Module_Base {
 		wp_send_json_success($progress);
 	}
 
-	private function set_progress(string $status, int $percent, string $message): void {
+	private function set_progress(string $status, float $percent, string $message): void {
 		set_transient(
 			self::TRANSIENT_PROGRESS,
 			array(
 				'status'    => $status,
-				'percent'   => max(0, min(100, $percent)),
+				'percent'   => max(0, min(100, (int) $percent)),
 				'message'   => $message,
 				'timestamp' => time(),
 			),
@@ -162,21 +206,70 @@ class Backup_Module extends Module_Base {
 	public function create_backup_package(array $components, bool $gzip, string $password): array {
 		$paths = wp_get_upload_dir();
 		$dir   = trailingslashit($paths['basedir']) . 'wudt-backups/';
-		wp_mkdir_p($dir);
 		
-		// Create filename in format: site_url-hh:mm_dd-mm-yy with random suffix for uniqueness
+		// Debug logging
+		Operation_Logger::log('backup', 'Backup starting', array(
+			'base_dir' => $dir,
+			'wp_content_dir' => WP_CONTENT_DIR,
+			'upload_dir' => $paths['basedir'],
+		));
+		
+		if (! wp_mkdir_p($dir)) {
+			throw new \RuntimeException('Failed to create base backup directory: ' . $dir);
+		}
+		
+		// Create filename in format: site_url-hh-mm_dd-mm-yy with random suffix for uniqueness
+		// Note: Using hyphens instead of colons for Windows compatibility
 		$site_url = parse_url(home_url('/'), PHP_URL_HOST);
 		$site_url = preg_replace('/[^a-zA-Z0-9_-]/', '_', $site_url);
-		$stamp    = gmdate('H:i_d-m-y');
 		$unique   = wp_generate_password(6, false, false);
-		$filename = $site_url . '-' . $stamp . '-' . $unique;
+		
+		// Use hyphens instead of colons for Windows compatibility (H:i becomes H-i)
+		$stamp      = gmdate('H-i_d-m-y');
+		$filename   = $site_url . '-' . $stamp . '-' . $unique;
+		
+		// Directory name uses same format
+		$dir_stamp  = $stamp;
+		$dir_name   = $site_url . '-' . $dir_stamp . '-' . $unique;
 		
 		$work_dir   = $dir . 'tmp-' . wp_generate_password(10, false, false) . '/';
-		$backup_dir = $dir . 'backup-' . $filename . '/';
+		$backup_dir = $dir . 'backup-' . $dir_name . '/';
+		
+		// Debug paths
+		$zip_file_path = $backup_dir . $filename . '.zip';
+		Operation_Logger::log('backup', 'Backup paths', array(
+			'work_dir' => $work_dir,
+			'backup_dir' => $backup_dir,
+			'filename' => $filename,
+			'zip_file' => $zip_file_path,
+			'has_colon' => strpos($filename, ':') !== false,
+			'stamp' => $stamp,
+		));
+		
+		// Extra safety: ensure no colons in filename (Windows compatibility)
+		if (strpos($filename, ':') !== false) {
+			error_log('WUDT Backup ERROR: Filename contains colon! This will fail on Windows.');
+			$filename = str_replace(':', '-', $filename);
+			error_log('WUDT Backup: Fixed filename to: ' . $filename);
+		}
 		
 		$this->set_progress('preparing', 5, __('Creating backup directories...', 'wp-ultimate-diagnostics-toolkit'));
-		wp_mkdir_p($work_dir);
-		wp_mkdir_p($backup_dir);
+		
+		// Create directories with error checking
+		if (! wp_mkdir_p($work_dir)) {
+			throw new \RuntimeException('Failed to create work directory: ' . $work_dir);
+		}
+		if (! wp_mkdir_p($backup_dir)) {
+			throw new \RuntimeException('Failed to create backup directory: ' . $backup_dir);
+		}
+		
+		// Verify directories were created
+		if (! is_dir($work_dir)) {
+			throw new \RuntimeException('Work directory does not exist after creation: ' . $work_dir);
+		}
+		if (! is_dir($backup_dir)) {
+			throw new \RuntimeException('Backup directory does not exist after creation: ' . $backup_dir);
+		}
 		
 		// Clean up old orphaned tmp directories (older than 1 hour)
 		$this->cleanup_old_tmp_dirs($dir);
@@ -226,8 +319,25 @@ class Backup_Module extends Module_Base {
 
 		$this->set_progress('zipping', 60, __('Creating ZIP archive...', 'wp-ultimate-diagnostics-toolkit'));
 		$zip_file = $backup_dir . $filename . '.zip';
+		
+		// Debug logging before zip
+		Operation_Logger::log('backup', 'Before zip creation', array(
+			'work_dir' => $work_dir,
+			'work_dir_exists' => is_dir($work_dir),
+			'zip_file' => $zip_file,
+			'backup_dir_exists' => is_dir($backup_dir),
+			'backup_dir_writable' => is_writable($backup_dir),
+		));
+		
 		$this->zip_dir($work_dir, $zip_file, $password);
 		$progress = 75;
+		
+		// Debug logging after zip
+		Operation_Logger::log('backup', 'After zip creation', array(
+			'zip_file' => $zip_file,
+			'zip_exists' => file_exists($zip_file),
+			'zip_size' => file_exists($zip_file) ? filesize($zip_file) : 0,
+		));
 
 		$final_file = $zip_file;
 		if ($gzip) {
@@ -265,6 +375,12 @@ class Backup_Module extends Module_Base {
 		$this->delete_recursive($work_dir);
 		
 		$file_size = filesize($final_file);
+		
+		// Verify file was created
+		if (! file_exists($final_file)) {
+			throw new \RuntimeException('Backup file was not created: ' . $final_file);
+		}
+		
 		$entry = array(
 			'time'       => current_time('mysql'),
 			'file'       => $final_file,
@@ -274,6 +390,14 @@ class Backup_Module extends Module_Base {
 			'name'       => basename($final_file),
 			'time_formatted' => current_time('H:i d-m-Y'),
 		);
+		
+		// Debug success
+		Operation_Logger::log('backup', 'Backup created successfully', array(
+			'file' => $final_file,
+			'size' => $entry['size'],
+			'exists' => file_exists($final_file),
+		));
+		
 		$this->push_log($entry);
 		
 		// Store backup info in progress for auto-download
@@ -314,17 +438,20 @@ class Backup_Module extends Module_Base {
 			}
 			
 			// Only include zip files that match our backup naming pattern
-			// Pattern: site_url-hh:mm_dd-mm-yy-unique.zip (site_url may contain dots, underscores, hyphens)
-			if (! preg_match('/^.+-\d{2}:\d{2}_\d{2}-\d{2}-\d{2}-[a-zA-Z0-9]{6}\.zip(\.gz)?$/', $name)) {
+			// Pattern: site_url-hh-mm_dd-mm-yy-unique.zip (site_url may contain dots, underscores, hyphens)
+			// Note: Using hyphens instead of colons for Windows compatibility
+			if (! preg_match('/^.+-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-[a-zA-Z0-9]{6}\.zip(\.gz)?$/', $name)) {
 				continue;
 			}
 			
 			$mtime = (int) $file->getMTime();
 			
-			// Parse time from filename: site_url-hh:mm_dd-mm-yy-unique.zip
+			// Parse time from filename: site_url-hh-mm_dd-mm-yy-unique.zip
 			$time_formatted = gmdate('H:i d-m-Y', $mtime);
-			if (preg_match('/-(\d{2}:\d{2})_(\d{2}-\d{2}-\d{2})-[a-zA-Z0-9]{6}\.zip/', $name, $matches)) {
-				$time_formatted = $matches[1] . ' ' . $matches[2];
+			if (preg_match('/-(\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})-[a-zA-Z0-9]{6}\.zip/', $name, $matches)) {
+				// Convert hyphens back to colons for display
+				$hour_min = str_replace('-', ':', $matches[1]);
+				$time_formatted = $hour_min . ' ' . $matches[2];
 			}
 			
 			$items[] = array(
@@ -443,27 +570,122 @@ class Backup_Module extends Module_Base {
 	}
 
 	private function zip_dir(string $source_dir, string $zip_file, string $password): void {
+		// Normalize path first
+		$zip_file = wp_normalize_path($zip_file);
+		
+		// Ensure parent directory exists
+		$zip_dir = dirname($zip_file);
+		if (! is_dir($zip_dir)) {
+			if (! wp_mkdir_p($zip_dir)) {
+				throw new \RuntimeException('Failed to create zip directory: ' . $zip_dir);
+			}
+		}
+		
+		// Now use realpath for Windows compatibility (directory should exist now)
+		$zip_dir_real = realpath($zip_dir);
+		if ($zip_dir_real === false) {
+			throw new \RuntimeException('Could not resolve zip directory path: ' . $zip_dir);
+		}
+		$zip_file = $zip_dir_real . DIRECTORY_SEPARATOR . basename($zip_file);
+		
+		// Verify directory exists and is writable (use original path for check)
+		if (! is_dir($zip_dir)) {
+			throw new \RuntimeException('Zip directory does not exist: ' . $zip_dir);
+		}
+		if (! is_writable($zip_dir)) {
+			throw new \RuntimeException('Zip directory is not writable: ' . $zip_dir);
+		}
+		
+		// On Windows, delete existing file first to avoid "renaming temporary file failed" error
+		if (file_exists($zip_file)) {
+			unlink($zip_file);
+		}
+		
 		$zip = new \ZipArchive();
-		if (true !== $zip->open($zip_file, \ZipArchive::CREATE | \ZipArchive::OVERWRITE)) {
-			throw new \RuntimeException('Could not create backup archive.');
+		// Use CREATE only, not OVERWRITE (avoids temp file rename issues on Windows)
+		$result = $zip->open($zip_file, \ZipArchive::CREATE);
+		if (true !== $result) {
+			$error_msg = 'Could not create backup archive';
+			if ($result === \ZipArchive::ER_EXISTS) {
+				$error_msg = 'Backup file already exists';
+			} elseif ($result === \ZipArchive::ER_OPEN) {
+				$error_msg = 'Could not open backup file (permission denied or invalid path)';
+			} elseif ($result === \ZipArchive::ER_WRITE) {
+				$error_msg = 'Could not write backup file (permission denied)';
+			} elseif ($result === \ZipArchive::ER_NOENT) {
+				$error_msg = 'Path does not exist';
+			} elseif ($result === \ZipArchive::ER_INVAL) {
+				$error_msg = 'Invalid argument';
+			}
+			throw new \RuntimeException($error_msg . ': ' . $zip_file . ' (Error code: ' . $result . ')');
 		}
 		if ('' !== $password && method_exists($zip, 'setPassword')) {
 			$zip->setPassword($password);
 		}
-		$it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source_dir, \FilesystemIterator::SKIP_DOTS));
+		
+		// Ensure source directory exists
+		if (! is_dir($source_dir)) {
+			throw new \RuntimeException('Source directory does not exist: ' . $source_dir);
+		}
+		
+		$source_dir_normalized = wp_normalize_path($source_dir);
+		$it = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($source_dir, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::LEAVES_ONLY
+		);
+		
+		$file_count = 0;
 		foreach ($it as $file) {
 			if (! $file->isFile()) {
 				continue;
 			}
+			
 			$full = wp_normalize_path((string) $file->getPathname());
-			$rel  = ltrim(str_replace(wp_normalize_path($source_dir), '', $full), '/');
+			$rel  = ltrim(str_replace($source_dir_normalized, '', $full), '/');
 			$rel  = Security_Guard::safe_zip_entry_name($rel);
-			$zip->addFile($full, $rel);
+			
+			// On Windows, convert path back for addFile
+			if (DIRECTORY_SEPARATOR === '\\') {
+				$full = str_replace('/', '\\', $full);
+			}
+			
+			if (! $zip->addFile($full, $rel)) {
+				// Log error but continue
+				error_log('WUDT Backup: Failed to add file to zip: ' . $full);
+				continue;
+			}
+			$file_count++;
+			
 			if ('' !== $password && method_exists($zip, 'setEncryptionName')) {
 				$zip->setEncryptionName($rel, \ZipArchive::EM_AES_256);
 			}
 		}
-		$zip->close();
+		
+		if ($file_count === 0) {
+			// No files were added, this is suspicious
+			error_log('WUDT Backup: No files were added to the zip archive from: ' . $source_dir);
+		}
+		
+		// Close the zip archive
+		$close_result = $zip->close();
+		
+		// On Windows, close() may return false even if the file was created successfully
+		// Check if the file exists and has content
+		if (! $close_result) {
+			// Get the last error
+			$status = $zip->status;
+			$status_sys = $zip->getStatusString();
+			error_log('WUDT Backup: Zip close returned false. Status: ' . $status . ', System: ' . $status_sys);
+			
+			// Check if file was actually created despite close() returning false
+			if (file_exists($zip_file) && filesize($zip_file) > 0) {
+				// File was created successfully despite the error
+				error_log('WUDT Backup: Zip file created successfully despite close() error. Size: ' . filesize($zip_file));
+				return;
+			}
+			
+			throw new \RuntimeException('Failed to close zip archive properly: ' . $status_sys);
+		}
 	}
 
 	/**

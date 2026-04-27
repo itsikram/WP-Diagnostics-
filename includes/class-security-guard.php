@@ -24,7 +24,12 @@ class Security_Guard {
 		$real       = realpath($normalized);
 		$resolved   = wp_normalize_path(false !== $real ? $real : $normalized);
 		$root       = rtrim(wp_normalize_path(ABSPATH), '/') . '/';
-		if (0 !== strpos($resolved . '/', $root) && rtrim($resolved, '/') !== rtrim($root, '/')) {
+		
+		// On Windows, make case-insensitive comparison
+		$resolved_lower = strtolower($resolved . '/');
+		$root_lower     = strtolower($root);
+		
+		if (0 !== strpos($resolved_lower, $root_lower) && rtrim($resolved, '/') !== rtrim($root, '/')) {
 			throw new \RuntimeException('Path outside WordPress root.');
 		}
 		return $resolved;

@@ -357,8 +357,11 @@
 			options = options || {};
 			data = data || {};
 			
-			if (window.wudtProAdmin) {
+			// Get nonce from various sources (wudtProAdmin, wudtSearchTool, etc.)
+			if (window.wudtProAdmin && window.wudtProAdmin.nonce) {
 				data.nonce = window.wudtProAdmin.nonce;
+			} else if (window.wudtSearchTool && window.wudtSearchTool.nonce) {
+				data.nonce = window.wudtSearchTool.nonce;
 			}
 
 			const $loadingEl = options.loadingElement;
@@ -366,8 +369,16 @@
 				Loading.show($loadingEl, { type: options.loadingType || 'spinner' });
 			}
 
+			// Get ajax URL from various sources
+			var ajaxUrl = ajaxurl;
+			if (window.wudtProAdmin && window.wudtProAdmin.ajaxUrl) {
+				ajaxUrl = window.wudtProAdmin.ajaxUrl;
+			} else if (window.wudtSearchTool && window.wudtSearchTool.ajaxUrl) {
+				ajaxUrl = window.wudtSearchTool.ajaxUrl;
+			}
+
 			return $.ajax({
-				url: window.wudtProAdmin ? window.wudtProAdmin.ajaxUrl : ajaxurl,
+				url: ajaxUrl,
 				type: 'POST',
 				data: $.extend({ action: action }, data),
 				complete: () => {

@@ -2,9 +2,21 @@
 	'use strict';
 
 	var bootData = (window.wudtProAdmin && window.wudtProAdmin.data) ? window.wudtProAdmin.data : { tabs: [] };
+
+	// Get initial tab from URL hash or default to dashboard
+	function getInitialTab() {
+		var hash = window.location.hash.replace('#', '');
+		var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
+		if (hash && validTabs.indexOf(hash) !== -1) {
+			return hash;
+		}
+		return (window.wudtProAdmin && window.wudtProAdmin.defaultTab) ? window.wudtProAdmin.defaultTab : 'dashboard';
+	}
+
 	var state = {
 		data: bootData,
-		tab: (window.wudtProAdmin && window.wudtProAdmin.defaultTab) ? window.wudtProAdmin.defaultTab : 'dashboard',
+		tab: getInitialTab(),
+		tabLoading: false,
 		currentPath: '',
 		history: [],
 		historyIndex: -1,
@@ -111,8 +123,12 @@
 		var tabsHtml = '';
 		for (var i = 0; i < tabs.length; i++) {
 			var t = tabs[i];
-			tabsHtml += '<button class="wudt-tab ' + (state.tab === t ? 'is-active' : '') + '" data-tab="' + esc(t) + '">' + esc(titleCase(t)) + '</button>';
+			var isActive = state.tab === t;
+			// Use anchor links for proper URL handling
+			tabsHtml += '<a href="#' + esc(t) + '" class="wudt-tab ' + (isActive ? 'is-active' : '') + '" data-tab="' + esc(t) + '">' + esc(titleCase(t)) + '</a>';
 		}
+
+		var panelContent = state.tabLoading ? renderLoadingPanel() : renderPanel();
 
 		var html = ''
 			+ '<div class="wudt-app-shell">'
@@ -122,10 +138,17 @@
 			+ '<span class="wudt-status" id="wudt-pro-status"></span>'
 			+ '</div>'
 			+ '<div class="wudt-tabs">' + tabsHtml + '</div>'
-			+ '<div class="wudt-panel">' + renderPanel() + '</div>'
+			+ '<div class="wudt-panel">' + panelContent + '</div>'
 			+ '</div>';
 		$('#wudt-pro-admin-app').html(html);
 		bind();
+	}
+
+	function renderLoadingPanel() {
+		return '<div class="wudt-tab-loading">'
+			+ '<div class="wudt-tab-loading-spinner"></div>'
+			+ '<p>Loading ' + esc(titleCase(state.tab)) + '...</p>'
+			+ '</div>';
 	}
 
 	function renderDashboard() {
@@ -741,6 +764,10 @@
 					} catch(e) {}
 				}
 				
+				// Use AJAX download endpoint instead of direct file URL
+				var nonce = (window.wudtProAdmin && window.wudtProAdmin.nonce) ? window.wudtProAdmin.nonce : '';
+				var downloadUrl = ajaxurl + '?action=wudt_backup_download&file=' + encodeURIComponent(path) + '&nonce=' + encodeURIComponent(nonce);
+				
 				cardsHtml += '<div class="wudt-backup-card" data-path="' + esc(path) + '">'
 					+ '<div class="wudt-backup-card-header">'
 					+ '<span class="wudt-backup-icon">📦</span>'
@@ -751,7 +778,7 @@
 					+ '<p class="wudt-backup-date">' + (timeStr ? '🕐 ' + esc(timeStr) : '') + '</p>'
 					+ '</div>'
 					+ '<div class="wudt-backup-card-footer">'
-					+ '<a href="' + esc(url) + '" class="button button-small" download title="Download">⬇️</a>'
+					+ '<a href="' + esc(downloadUrl) + '" class="button button-small" title="Download">⬇️</a>'
 					+ '<button class="button button-small wudt-backup-copy-path" data-path="' + esc(path) + '" title="Copy path for Restore">📋</button>'
 					+ '<button class="button button-small wudt-backup-delete button-link-delete" data-path="' + esc(path) + '" data-name="' + esc(name) + '" title="Delete backup">🗑️</button>'
 					+ '</div>'
@@ -843,58 +870,175 @@
 		var mode = state.ai.mode || 'ask';
 		var model = state.ai.model || '';
 		var models = state.ai.models || [];
-		var modelOptions = '<option value="">Default</option>';
+		var modelOptions = '<option value="">Default (GPT-4o-mini)</option>';
 		for (var mo = 0; mo < models.length; mo++) {
 			var mName = String(models[mo] || '');
 			modelOptions += '<option value="' + esc(mName) + '" ' + (model === mName ? 'selected' : '') + '>' + esc(mName) + '</option>';
 		}
-		var threads = '<div class="wudt-ai-thread-item is-active">Current Session</div>';
+
+		// Icons
+		var iconPlus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>';
+		var iconMessage = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+		var iconSend = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
+		var iconCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+		var iconRefresh = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+		var iconSparkles = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L14 8L20 10L14 12L12 18L10 12L4 10L10 8L12 2Z"/></svg>';
+		var iconContext = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+		var iconUpload = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+		var iconUser = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+		var iconBot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>';
+		var iconWarning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+		// Sidebar threads
+		var threads = '<div class="wudt-ai-thread-list">'
+			+ '<div class="wudt-ai-thread-item is-active">' + iconMessage + ' Current Session</div>'
+			+ '</div>';
+
+		// Chat messages
 		var bubble = '';
-		for (var i = 0; i < messages.length; i++) {
-			var m = messages[i];
-			var cls = m.role === 'assistant' ? 'wudt-ai-msg ai' : 'wudt-ai-msg user';
-			bubble += '<div class="' + cls + '"><div class="wudt-ai-msg-content">' + renderMarkdownLite(m.content || '') + '</div>'
-				+ (m.role === 'assistant' ? '<button class="button-link wudt-ai-copy" data-copy-index="' + i + '">Copy</button>' : '')
+		if (messages.length === 0) {
+			// Empty state
+			bubble = '<div class="wudt-ai-chat-empty">'
+				+ '<div class="wudt-ai-chat-empty-icon">' + iconBot + '</div>'
+				+ '<h4>WP Diagnostics AI Assistant</h4>'
+				+ '<p>Ask me anything about your WordPress site - from debugging errors to optimizing performance, security checks, and more.</p>'
+				+ '</div>';
+		} else {
+			for (var i = 0; i < messages.length; i++) {
+				var m = messages[i];
+				var isUser = m.role === 'user';
+				var cls = isUser ? 'wudt-ai-msg user' : 'wudt-ai-msg ai';
+				var avatar = isUser ? iconUser : iconBot;
+				var avatarBg = isUser ? 'background:#5436da;' : 'background:#10a37f;';
+				bubble += '<div class="' + cls + '">'
+					+ '<div class="wudt-ai-msg-avatar" style="' + avatarBg + '">' + avatar + '</div>'
+					+ '<div class="wudt-ai-msg-content">' + renderMarkdownLite(m.content || '') + ''
+					+ (isUser ? '' : '<div class="wudt-ai-msg-actions"><button class="wudt-ai-msg-action wudt-ai-copy" data-copy-index="' + i + '">' + iconCopy + ' Copy</button></div>')
+					+ '</div>'
+					+ '</div>';
+			}
+		}
+
+		if (state.ai.typing) {
+			bubble += '<div class="wudt-ai-msg ai">'
+				+ '<div class="wudt-ai-msg-avatar" style="background:#10a37f;">' + iconBot + '</div>'
+				+ '<div class="wudt-ai-msg-content"><div class="wudt-ai-typing"><span></span><span></span><span></span></div></div>'
 				+ '</div>';
 		}
-		if (state.ai.typing) {
-			bubble += '<div class="wudt-ai-msg ai"><div class="wudt-ai-typing"><span></span><span></span><span></span></div></div>';
+
+		// Suggested prompts (only when empty)
+		var suggestions = '';
+		if (messages.length === 0) {
+			suggestions = '<div class="wudt-ai-suggestions">'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Why is my site slow?">Why is my site slow?</div>'
+				+ '<div class="wudt-suggestion" data-prompt="Check for security issues">Check for security issues</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Debug PHP errors">Debug PHP errors</div>'
+				+ '<div class="wudt-ai-suggestion" data-prompt="Optimize database">Optimize database</div>'
+				+ '</div>';
 		}
+
+		// Action box for suggested fixes
 		var actionBox = '';
 		if (state.ai.lastAction && state.ai.lastAction.action) {
-			actionBox = '<div class="wudt-ai-action"><strong>Suggested Fix:</strong> ' + esc(state.ai.lastAction.action)
-				+ ' <button class="button button-secondary" id="wudt-ai-apply-fix">Apply Automatically</button></div>';
+			actionBox = '<div class="wudt-ai-action">'
+				+ '<div class="wudt-ai-action-content">' + iconWarning + '<span>Suggested action: <strong>' + esc(state.ai.lastAction.action) + '</strong></span></div>'
+				+ '<button id="wudt-ai-apply-fix">Apply Fix</button>'
+				+ '</div>';
 		}
+
 		return ''
 			+ '<div class="wudt-ai-layout">'
-			+ '<aside class="wudt-ai-sidebar"><h3>Conversations</h3>' + threads + '<button class="button" id="wudt-ai-clear-chat">Clear Chat</button></aside>'
+			// Sidebar
+			+ '<aside class="wudt-ai-sidebar">'
+			+ '<div class="wudt-ai-new-chat" id="wudt-ai-clear-chat">' + iconPlus + ' New Chat</div>'
+			+ '<h3>Recent Conversations</h3>'
+			+ threads
+			+ '<div class="wudt-ai-sidebar-footer">AI Assistant v1.0</div>'
+			+ '</aside>'
+			// Main area
 			+ '<section class="wudt-ai-main">'
-			+ '<div class="wudt-toolbar">'
-			+ '<label>Mode <select id="wudt-ai-mode" class="wudt-select"><option value="ask"' + (mode === 'ask' ? ' selected' : '') + '>Ask mode</option><option value="agent"' + (mode === 'agent' ? ' selected' : '') + '>Agent mode</option></select></label>'
-			+ '<label>Model <select id="wudt-ai-model" class="wudt-select">' + modelOptions + '</select></label>'
-			+ '<input id="wudt-ai-model-custom" class="wudt-input" placeholder="Or type any model id (all models allowed)" value="' + esc(model) + '">'
-			+ '<button class="button" id="wudt-ai-refresh-models">Refresh Models</button>'
+			// Header
+			+ '<div class="wudt-ai-header">'
+			+ '<div class="wudt-ai-header-left">'
+			+ '<span class="wudt-ai-header-title">' + iconSparkles + ' AI Assistant</span>'
 			+ '</div>'
+			+ '<div class="wudt-ai-model-selector">'
+			+ '<select id="wudt-ai-model">' + modelOptions + '</select>'
+			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Or type model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">'
+			+ '<button class="button button-small" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
+			+ '</div>'
+			+ '</div>'
+			// Mode toggle
+			+ '<div class="wudt-ai-mode-toggle" style="padding:8px 20px;border-bottom:1px solid #e5e7eb;background:#fafafa;">'
+			+ '<button class="wudt-ai-mode-btn ' + (mode === 'ask' ? 'is-active' : '') + '" data-mode="ask">Ask Mode</button>'
+			+ '<button class="wudt-ai-mode-btn ' + (mode === 'agent' ? 'is-active' : '') + '" data-mode="agent">Agent Mode</button>'
+			+ '</div>'
+			// Suggestions
+			+ suggestions
+			// Chat window
 			+ '<div class="wudt-ai-chat" id="wudt-ai-chat-window">' + bubble + '</div>'
+			// Action box
 			+ actionBox
-			+ '<div class="wudt-ai-context">'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="error_logs" checked> Error logs</label>'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="plugins" checked> Active plugins</label>'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="system" checked> System info</label>'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="database" checked> Database info</label>'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="file"> Selected file content</label>'
-			+ '<label><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Client/Fiverr chats</label>'
-			+ '<input type="file" id="wudt-ai-chat-file" accept=".txt,.md,.log,.json" multiple>'
+			// Context panel
+			+ '<div class="wudt-ai-context-panel">'
+			+ '<span class="wudt-ai-context-title">' + iconContext + ' Context:</span>'
+			+ '<div class="wudt-ai-context-list">'
+			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="error_logs" checked> Error Logs</label>'
+			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="plugins" checked> Plugins</label>'
+			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="system" checked> System Info</label>'
+			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="database" checked> Database</label>'
+			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="file"> File Content</label>'
+			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Chat Transcript</label>'
 			+ '</div>'
-			+ '<div class="wudt-ai-input-row"><textarea id="wudt-ai-input" class="wudt-textarea" placeholder="Describe the issue you want diagnosed..."></textarea>'
-			+ '<div class="wudt-toolbar"><button class="button button-primary" id="wudt-ai-send">Send</button><button class="button" id="wudt-ai-autodebug">Auto Debug Mode</button></div>'
-			+ '</div></section></div>';
+			+ '<div class="wudt-ai-file-upload">'
+			+ '<input type="file" id="wudt-ai-chat-file" accept=".txt,.md,.log,.json" multiple>'
+			+ '<label for="wudt-ai-chat-file" class="wudt-ai-file-upload-btn">' + iconUpload + ' Upload</label>'
+			+ '</div>'
+			+ '</div>'
+			// Input area
+			+ '<div class="wudt-ai-input-area">'
+			+ '<div class="wudt-ai-input-wrapper">'
+			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Message AI Assistant..."></textarea>'
+			+ '<button class="wudt-ai-send-btn" id="wudt-ai-send" ' + (state.ai.typing ? 'disabled' : '') + '>' + iconSend + '</button>'
+			+ '</div>'
+			+ '</div>'
+			+ '</section></div>';
 	}
 
 	function renderMarkdownLite(text) {
-		var out = esc(text || '');
-		out = out.replace(/```([\s\S]*?)```/g, '<pre class="wudt-pre">$1</pre>');
+		if (!text) { return ''; }
+		var out = esc(text);
+		// Code blocks with language support
+		out = out.replace(/```(\w+)?\n?([\s\S]*?)```/g, function(match, lang, code) {
+			return '<pre class="wudt-pre"><code>' + code.trim() + '</code></pre>';
+		});
+		// Inline code
+		out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+		// Bold
+		out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+		out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+		// Italic
+		out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+		out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
+		// Links
+		out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+		// Lists
+		out = out.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+		out = out.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+		// Numbered lists
+		out = out.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+		// Headers
+		out = out.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>');
+		out = out.replace(/^##\s+(.+)$/gm, '<h3>$1</h3>');
+		out = out.replace(/^#\s+(.+)$/gm, '<h2>$1</h2>');
+		// Paragraphs (convert double newlines to paragraphs)
+		out = out.replace(/\n\n/g, '</p><p>');
+		// Single newlines to breaks (within paragraphs)
 		out = out.replace(/\n/g, '<br>');
+		// Wrap in paragraph if not already wrapped
+		if (!out.match(/^<[hp]/)) {
+			out = '<p>' + out + '</p>';
+		}
 		return out;
 	}
 
@@ -1312,7 +1456,33 @@
 	}
 
 	function bind() {
-		$('.wudt-tab').on('click', function () { state.tab = $(this).data('tab'); render(); });
+		// Tab click handler with URL hash update and AJAX loading
+		$('.wudt-tab').on('click', function (e) {
+			e.preventDefault();
+			var newTab = $(this).data('tab');
+			if (newTab === state.tab) { return; }
+
+			// Update URL hash
+			window.location.hash = newTab;
+			state.tab = newTab;
+			state.tabLoading = true;
+			render();
+
+			// Load tab data via AJAX
+			loadTabData(newTab);
+		});
+
+		// Listen for hash changes (browser back/forward buttons)
+		$(window).off('hashchange.wudt').on('hashchange.wudt', function () {
+			var newTab = window.location.hash.replace('#', '');
+			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security'];
+			if (newTab && validTabs.indexOf(newTab) !== -1 && newTab !== state.tab) {
+				state.tab = newTab;
+				state.tabLoading = true;
+				render();
+				loadTabData(newTab);
+			}
+		});
 		$('#wudt-pro-refresh').on('click', function () {
 			status('Refreshing...');
 			post('wudt_pro_refresh_dashboard').done(function (r) {
@@ -1325,6 +1495,26 @@
 		});
 		$('#wudt-ai-send').on('click', function () {
 			sendAIMessage();
+		});
+		// Enter key to send message (Shift+Enter for new line)
+		$(document).on('keydown', '#wudt-ai-input', function (e) {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				sendAIMessage();
+			}
+		});
+		// Mode toggle buttons (new ChatGPT-style)
+		$(document).on('click', '.wudt-ai-mode-btn', function () {
+			state.ai.mode = String($(this).data('mode') || 'ask');
+			render();
+		});
+		// Suggested prompt clicks
+		$(document).on('click', '.wudt-ai-suggestion', function () {
+			var prompt = String($(this).data('prompt') || '');
+			if (prompt) {
+				$('#wudt-ai-input').val(prompt);
+				sendAIMessage();
+			}
 		});
 		$('#wudt-ai-mode').on('change', function () {
 			state.ai.mode = String($(this).val() || 'ask');
@@ -1452,9 +1642,10 @@
 										var size = formatSize(newBackup.size || 0);
 										var autoDownload = $('#wudt-backup-autodownload').is(':checked');
 										
-										if (autoDownload && newBackup.url) {
-											// Trigger automatic download using window.location for better compatibility
-											var downloadUrl = newBackup.url + '?download=1';
+										if (autoDownload && newBackup.file) {
+								// Use AJAX download endpoint instead of direct file URL
+								var downloadNonce = (window.wudtProAdmin && window.wudtProAdmin.nonce) ? window.wudtProAdmin.nonce : '';
+								var downloadUrl = ajaxurl + '?action=wudt_backup_download&file=' + encodeURIComponent(newBackup.file) + '&nonce=' + encodeURIComponent(downloadNonce);
 											var iframe = document.createElement('iframe');
 											iframe.style.display = 'none';
 											iframe.src = downloadUrl;
@@ -2059,19 +2250,6 @@
 			});
 		});
 
-		if (state.tab === 'database_manager' && !state.db._loadedOnce) {
-			state.db._loadedOnce = true;
-			loadDbTables(true);
-		}
-		if (state.tab === 'ai_assistant' && !state.ai._loadedOnce) {
-			state.ai._loadedOnce = true;
-			post('diagnostics_ai_history').done(function (r) {
-				if (r && r.success) { state.ai.history = r.data.history || []; render(); }
-			});
-			post('diagnostics_ai_models').done(function (r) {
-				if (r && r.success) { state.ai.models = r.data.models || []; render(); }
-			});
-		}
 	}
 
 	function sendAIMessage() {
@@ -2488,5 +2666,82 @@
 		});
 	}
 
-	$(function () { render(); bootstrapFileManagerState(); });
+	// Load individual tab data via AJAX
+	function loadTabData(tabKey) {
+		status('Loading ' + titleCase(tabKey) + '...');
+		post('wudt_pro_load_tab', { tab: tabKey }).done(function (r) {
+			state.tabLoading = false;
+			if (r && r.success && r.data) {
+				// Update the tab data in state
+				var tabs = state.data.tabs || [];
+				var found = false;
+				for (var i = 0; i < tabs.length; i++) {
+					if (tabs[i].key === tabKey) {
+						tabs[i].data = r.data;
+						found = true;
+						break;
+					}
+				}
+				if (!found) {
+					state.data.tabs.push({
+						key: tabKey,
+						label: titleCase(tabKey),
+						data: r.data
+					});
+				}
+				status('');
+				render();
+
+				// Initialize tab-specific data after render
+				if (tabKey === 'database_manager') {
+					state.db._loadedOnce = true;
+					loadDbTables(true);
+				}
+				if (tabKey === 'ai_assistant') {
+					state.ai._loadedOnce = true;
+					post('diagnostics_ai_history').done(function (r) {
+						if (r && r.success) { state.ai.history = r.data.history || []; render(); }
+					});
+					post('diagnostics_ai_models').done(function (r) {
+						if (r && r.success) { state.ai.models = r.data.models || []; render(); }
+					});
+				}
+				if (tabKey === 'file_manager') {
+					var d = tabData('file_manager');
+					if (!state.currentPath && d && d.root) {
+						state.currentPath = normalizePath(d.root || '/');
+						state.dirCache[state.currentPath] = parseListing(d.entries || []);
+						updateHistory(state.currentPath);
+					}
+				}
+			} else {
+				status('Failed to load ' + titleCase(tabKey));
+				render();
+			}
+		}).fail(function () {
+			state.tabLoading = false;
+			status('Failed to load ' + titleCase(tabKey));
+			render();
+		});
+	}
+
+	$(function () {
+		render();
+		// Load initial tab data if not dashboard or if no data exists
+		var initialTab = state.tab;
+		var hasTabData = false;
+		var tabs = state.data.tabs || [];
+		for (var i = 0; i < tabs.length; i++) {
+			if (tabs[i].key === initialTab && tabs[i].data && Object.keys(tabs[i].data).length > 0) {
+				hasTabData = true;
+				break;
+			}
+		}
+		if (!hasTabData || initialTab !== 'dashboard') {
+			state.tabLoading = true;
+			render();
+			loadTabData(initialTab);
+		}
+		bootstrapFileManagerState();
+	});
 })(jQuery);

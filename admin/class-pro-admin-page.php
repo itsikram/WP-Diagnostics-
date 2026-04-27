@@ -31,6 +31,7 @@ class Pro_Admin_Page {
 		add_action('admin_menu', array($this, 'register_menu'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 		add_action('wp_ajax_wudt_pro_refresh_dashboard', array($this, 'ajax_refresh_dashboard'));
+		add_action('wp_ajax_wudt_pro_load_tab', array($this, 'ajax_load_tab'));
 	}
 
 	public function register_menu(): void {
@@ -68,9 +69,10 @@ class Pro_Admin_Page {
 			'wudt-pro-admin',
 			'wudtProAdmin',
 			array(
-				'ajaxUrl' => admin_url('admin-ajax.php'),
-				'nonce'   => wp_create_nonce('wudt_admin_nonce'),
-				'data'    => $data,
+				'ajaxUrl'     => admin_url('admin-ajax.php'),
+				'nonce'       => wp_create_nonce('wudt_admin_nonce'),
+				'data'        => $data,
+				'defaultTab'  => 'dashboard',
 			)
 		);
 	}
@@ -91,6 +93,28 @@ class Pro_Admin_Page {
 	public function ajax_refresh_dashboard(): void {
 		$this->check_permissions();
 		wp_send_json_success($this->get_full_report());
+	}
+
+	public function ajax_load_tab(): void {
+		$this->check_permissions();
+
+		$tab = isset($_POST['tab']) ? sanitize_text_field(wp_unslash($_POST['tab'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		if (empty($tab)) {
+			wp_send_json_error(new WP_Error('invalid_tab', __('No tab specified.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Find the module matching the requested tab
+		foreach ($this->modules as $module) {
+			if ($module->get_key() === $tab) {
+				wp_send_json_success($module->get_dashboard_data());
+				return;
+			}
+		}
+
+		// If no module found, return empty data
+		wp_send_json_success(array());
 	}
 
 	/**
