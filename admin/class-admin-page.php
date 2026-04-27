@@ -36,17 +36,19 @@ class Admin_Page {
 	}
 
 	public function register_menu(): void {
-		add_management_page(
+		add_menu_page(
 			__('WP Diagnostics', 'wp-ultimate-diagnostics-toolkit'),
 			__('WP Diagnostics', 'wp-ultimate-diagnostics-toolkit'),
 			'manage_options',
 			'wudt-diagnostics',
-			array($this, 'render_page')
+			array($this, 'render_page'),
+			'dashicons-admin-tools',
+			58
 		);
 	}
 
 	public function enqueue_assets(string $hook): void {
-		if ('tools_page_wudt-diagnostics' !== $hook) {
+		if ('toplevel_page_wudt-diagnostics' !== $hook) {
 			return;
 		}
 

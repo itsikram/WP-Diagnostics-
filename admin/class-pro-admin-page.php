@@ -34,7 +34,8 @@ class Pro_Admin_Page {
 	}
 
 	public function register_menu(): void {
-		add_management_page(
+		add_submenu_page(
+			'wudt-diagnostics',
 			__('WP Diagnostics Pro', 'wp-ultimate-diagnostics-toolkit'),
 			__('WP Diagnostics Pro', 'wp-ultimate-diagnostics-toolkit'),
 			'manage_options',
@@ -44,18 +45,32 @@ class Pro_Admin_Page {
 	}
 
 	public function enqueue_assets(string $hook): void {
-		if ('tools_page_wudt-diagnostics-pro' !== $hook) {
+		$page = isset($_GET['page']) ? sanitize_text_field((string) wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ('wudt-diagnostics_page_wudt-diagnostics-pro' !== $hook && 'wudt-diagnostics-pro' !== $page) {
 			return;
 		}
 		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION);
 		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery'), WUDT_VERSION, true);
+		$data = array(
+			'generated_at' => current_time('mysql'),
+			'tabs'         => array(),
+		);
+		try {
+			$data = $this->get_full_report();
+		} catch (\Throwable $e) {
+			$data = array(
+				'generated_at' => current_time('mysql'),
+				'tabs'         => array(),
+				'error'        => $e->getMessage(),
+			);
+		}
 		wp_localize_script(
 			'wudt-pro-admin',
 			'wudtProAdmin',
 			array(
 				'ajaxUrl' => admin_url('admin-ajax.php'),
 				'nonce'   => wp_create_nonce('wudt_admin_nonce'),
-				'data'    => $this->get_full_report(),
+				'data'    => $data,
 			)
 		);
 	}

@@ -46,6 +46,43 @@ class File_Manager_Module extends Module_Base {
 		);
 	}
 
+	/**
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function get_directory_listing(string $path = ''): array {
+		$resolved = $this->resolve_path_for_cli($path);
+		return $this->list_path($resolved);
+	}
+
+	/**
+	 * @return array<int,array<string,string>>
+	 */
+	public function search_in_path(string $path, string $query, int $limit = 200): array {
+		$base       = $this->resolve_path_for_cli($path);
+		$query_text = sanitize_text_field($query);
+		$hits       = array();
+		if ('' === $query_text) {
+			return $hits;
+		}
+		$it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS));
+		foreach ($it as $file) {
+			if (count($hits) >= $limit) {
+				break;
+			}
+			$file_path = (string) $file->getPathname();
+			if (false !== stripos($file_path, $query_text)) {
+				$hits[] = array('path' => $file_path, 'kind' => 'name');
+			}
+			if ($file->isFile() && $file->getSize() < 1024 * 1024) {
+				$content = @file_get_contents($file_path); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+				if (false !== $content && false !== stripos($content, $query_text)) {
+					$hits[] = array('path' => $file_path, 'kind' => 'content');
+				}
+			}
+		}
+		return $hits;
+	}
+
 	public function ajax_list(): void {
 		$this->authorize();
 		$path = $this->resolve_path((string) ($_POST['path'] ?? ABSPATH));
@@ -138,23 +175,7 @@ class File_Manager_Module extends Module_Base {
 		$this->authorize();
 		$query = sanitize_text_field((string) ($_POST['query'] ?? ''));
 		$base  = $this->resolve_path((string) ($_POST['path'] ?? ABSPATH));
-		$hits  = array();
-		$it    = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS));
-		foreach ($it as $file) {
-			if (count($hits) >= 200) {
-				break;
-			}
-			$path = (string) $file->getPathname();
-			if (false !== stripos($path, $query)) {
-				$hits[] = array('path' => $path, 'kind' => 'name');
-			}
-			if ($file->isFile() && $file->getSize() < 1024 * 1024) {
-				$content = @file_get_contents($path); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-				if (false !== $content && false !== stripos($content, $query)) {
-					$hits[] = array('path' => $path, 'kind' => 'content');
-				}
-			}
-		}
+		$hits  = $this->search_in_path($base, $query, 200);
 		wp_send_json_success(array('results' => $hits));
 	}
 
@@ -210,6 +231,18 @@ class File_Manager_Module extends Module_Base {
 		$full = wp_normalize_path(realpath($path) ?: $path);
 		if (0 !== strpos($full, wp_normalize_path(ABSPATH))) {
 			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
+		}
+		return $full;
+	}
+
+	private function resolve_path_for_cli(string $path): string {
+		$normalized = wp_normalize_path($path);
+		if ('' === $normalized) {
+			return wp_normalize_path(ABSPATH);
+		}
+		$full = wp_normalize_path(realpath($normalized) ?: $normalized);
+		if (0 !== strpos($full, wp_normalize_path(ABSPATH))) {
+			throw new \RuntimeException('Path outside WordPress root.');
 		}
 		return $full;
 	}
