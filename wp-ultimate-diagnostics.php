@@ -24,6 +24,7 @@ define('WUDT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WUDT_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 require_once WUDT_PLUGIN_DIR . 'includes/class-module-base.php';
+require_once WUDT_PLUGIN_DIR . 'includes/class-operation-logger.php';
 require_once WUDT_PLUGIN_DIR . 'modules/system-info.php';
 require_once WUDT_PLUGIN_DIR . 'modules/error-logger.php';
 require_once WUDT_PLUGIN_DIR . 'modules/conflict-detector.php';
@@ -34,7 +35,13 @@ require_once WUDT_PLUGIN_DIR . 'modules/cron.php';
 require_once WUDT_PLUGIN_DIR . 'modules/rest-api.php';
 require_once WUDT_PLUGIN_DIR . 'modules/file-integrity.php';
 require_once WUDT_PLUGIN_DIR . 'modules/external-requests.php';
+require_once WUDT_PLUGIN_DIR . 'modules/advanced-diagnostics.php';
+require_once WUDT_PLUGIN_DIR . 'modules/pro-logs.php';
+require_once WUDT_PLUGIN_DIR . 'modules/file-manager/class-file-manager-module.php';
+require_once WUDT_PLUGIN_DIR . 'modules/database-manager/class-database-manager-module.php';
+require_once WUDT_PLUGIN_DIR . 'modules/malware-scanner/class-malware-scanner-module.php';
 require_once WUDT_PLUGIN_DIR . 'admin/class-admin-page.php';
+require_once WUDT_PLUGIN_DIR . 'admin/class-pro-admin-page.php';
 require_once WUDT_PLUGIN_DIR . 'includes/class-plugin.php';
 
 function bootstrap(): void {
