@@ -1053,14 +1053,74 @@
 						label = 'Switch Theme: ' + (act.theme_slug || 'Theme');
 						btnClass += ' is-warning';
 						break;
+					case 'schedule_cron':
+						icon = iconClock;
+						label = 'Schedule: ' + (act.hook || 'Cron');
+						btnClass += ' is-info';
+						break;
+					case 'unschedule_cron':
+						icon = iconClock;
+						label = 'Unschedule: ' + (act.hook || 'Cron');
+						btnClass += ' is-warning';
+						break;
+					case 'search_replace_db':
+						icon = iconSearch;
+						label = (act.dry_run ? 'Find' : 'Replace') + ': ' + (act.search || 'DB');
+						btnClass += act.dry_run ? ' is-info' : ' is-danger';
+						break;
+					case 'search_files':
+						icon = iconSearch;
+						label = 'Search: ' + (act.query || 'Files');
+						btnClass += ' is-info';
+						break;
+					case 'chmod':
+						icon = iconSettings;
+						label = 'Chmod: ' + (act.path ? basename(act.path) : 'File');
+						btnClass += ' is-warning';
+						break;
+					case 'compress':
+						icon = iconDownload;
+						label = 'Compress: ' + ((act.paths || []).length) + ' item(s)';
+						btnClass += ' is-primary';
+						break;
+					case 'extract':
+						icon = iconFile;
+						label = 'Extract: ' + (act.archive ? basename(act.archive) : 'Archive');
+						btnClass += ' is-primary';
+						break;
+					case 'rename':
+						icon = iconArrowRight;
+						label = 'Rename: ' + (act.old_path ? basename(act.old_path) : 'File');
+						btnClass += ' is-warning';
+						break;
+					case 'list_directory':
+						icon = iconFile;
+						label = 'List: ' + (act.path ? basename(act.path) : 'Root');
+						btnClass += ' is-info';
+						break;
+					case 'optimize_tables':
+						icon = iconSparkles;
+						label = 'Optimize: ' + ((act.tables || []).length || 'All') + ' tables';
+						btnClass += ' is-success';
+						break;
+					case 'repair_tables':
+						icon = iconWarning;
+						label = 'Repair: ' + ((act.tables || []).length || 'All') + ' tables';
+						btnClass += ' is-danger';
+						break;
+					case 'get_system_info':
+						icon = iconSparkles;
+						label = 'System Info';
+						btnClass += ' is-info';
+						break;
 				}
 				
 				actionButtons += '<div class="wudt-ai-action-item" data-action-idx="' + ai + '">'
-					+ '<div class="wudt-ai-action-content">' + icon + '<span>' + esc(label) + '</span></div>'
-					+ '<button class="' + btnClass + ' button button-primary" data-action-idx="' + ai + '">Execute</button>'
-					+ '</div>';
-			}
-			
+						+ '<div class="wudt-ai-action-content">' + icon + '<span>' + esc(label) + '</span></div>'
+						+ '<button class="' + btnClass + ' button button-primary" data-action-idx="' + ai + '">Execute</button>'
+						+ '</div>';
+				}
+				
 			actionBox = '<div class="wudt-ai-action-panel">'
 				+ '<h4>🤖 AI Proposed Actions</h4>'
 				+ '<p class="wudt-ai-action-desc">The AI has suggested the following actions. Review before executing:</p>'
@@ -1919,6 +1979,59 @@
 			case 'activate_theme':
 				extraInfo = '\n\nTheme: ' + (action.theme_slug || 'N/A');
 				confirmMsg = 'Switch to theme?' + extraInfo;
+				break;
+			case 'schedule_cron':
+				extraInfo = '\n\nHook: ' + (action.hook || 'N/A') + '\nWhen: ' + (action.timestamp || 'N/A');
+				if (action.recurring) extraInfo += ' (recurring: ' + (action.interval || 'hourly') + ')';
+				confirmMsg = 'Schedule cron event?' + extraInfo;
+				break;
+			case 'unschedule_cron':
+				extraInfo = '\n\nHook: ' + (action.hook || 'N/A');
+				confirmMsg = 'Remove scheduled cron?' + extraInfo;
+				break;
+			case 'search_replace_db':
+				var mode = action.dry_run ? 'DRY RUN - Check matches' : 'LIVE REPLACE';
+				extraInfo = '\n\nMode: ' + mode + '\nSearch: ' + (action.search || 'N/A') + '\nReplace: ' + (action.replace || '(empty)');
+				if (!action.dry_run) extraInfo += '\n\n⚠️ This will modify database content!';
+				confirmMsg = 'Search/Replace in database?' + extraInfo;
+				break;
+			case 'search_files':
+				extraInfo = '\n\nQuery: ' + (action.query || 'N/A') + '\nPath: ' + (action.path || 'WordPress root');
+				confirmMsg = 'Search in files?' + extraInfo;
+				break;
+			case 'chmod':
+				extraInfo = '\n\nPath: ' + (action.path || 'N/A') + '\nMode: ' + (action.mode || '644');
+				if (action.recursive) extraInfo += ' (recursive)';
+				confirmMsg = 'Change file permissions?' + extraInfo;
+				break;
+			case 'compress':
+				extraInfo = '\n\nPaths: ' + ((action.paths || []).join(', ') || 'N/A') + '\nDestination: ' + (action.destination || 'N/A');
+				confirmMsg = 'Create zip archive?' + extraInfo;
+				break;
+			case 'extract':
+				extraInfo = '\n\nArchive: ' + (action.archive || 'N/A') + '\nTo: ' + (action.destination || 'N/A');
+				confirmMsg = 'Extract archive?' + extraInfo;
+				break;
+			case 'rename':
+				extraInfo = '\n\nFrom: ' + (action.old_path || 'N/A') + '\nTo: ' + (action.new_path || 'N/A');
+				confirmMsg = 'Rename/move?' + extraInfo;
+				break;
+			case 'list_directory':
+				extraInfo = '\n\nPath: ' + (action.path || 'WordPress root');
+				confirmMsg = 'List directory contents?' + extraInfo;
+				break;
+			case 'optimize_tables':
+				var tableList = (action.tables || []).join(', ') || 'ALL tables';
+				extraInfo = '\n\nTables: ' + tableList;
+				confirmMsg = 'Optimize database tables?' + extraInfo;
+				break;
+			case 'repair_tables':
+				var tableList = (action.tables || []).join(', ') || 'ALL tables';
+				extraInfo = '\n\nTables: ' + tableList;
+				confirmMsg = 'Repair database tables?' + extraInfo;
+				break;
+			case 'get_system_info':
+				confirmMsg = 'Get system information?';
 				break;
 		}
 		

@@ -211,6 +211,42 @@ class AI_Controller extends Module_Base {
 			case 'toggle_wp_debug':
 				$result = $this->action_toggle_wp_debug($params);
 				break;
+			case 'schedule_cron':
+				$result = $this->action_schedule_cron($params);
+				break;
+			case 'unschedule_cron':
+				$result = $this->action_unschedule_cron($params);
+				break;
+			case 'search_replace_db':
+				$result = $this->action_search_replace_db($params);
+				break;
+			case 'search_files':
+				$result = $this->action_search_files($params);
+				break;
+			case 'chmod':
+				$result = $this->action_chmod($params);
+				break;
+			case 'compress':
+				$result = $this->action_compress($params);
+				break;
+			case 'extract':
+				$result = $this->action_extract($params);
+				break;
+			case 'rename':
+				$result = $this->action_rename($params);
+				break;
+			case 'list_directory':
+				$result = $this->action_list_directory($params);
+				break;
+			case 'optimize_tables':
+				$result = $this->action_optimize_tables($params);
+				break;
+			case 'repair_tables':
+				$result = $this->action_repair_tables($params);
+				break;
+			case 'get_system_info':
+				$result = $this->action_get_system_info($params);
+				break;
 			default:
 				$result['message'] = 'Unknown action: ' . $action;
 				break;
@@ -994,6 +1030,30 @@ class AI_Controller extends Module_Base {
 				return $this->action_read_file($params);
 			case 'toggle_wp_debug':
 				return $this->action_toggle_wp_debug($params);
+			case 'schedule_cron':
+				return $this->action_schedule_cron($params);
+			case 'unschedule_cron':
+				return $this->action_unschedule_cron($params);
+			case 'search_replace_db':
+				return $this->action_search_replace_db($params);
+			case 'search_files':
+				return $this->action_search_files($params);
+			case 'chmod':
+				return $this->action_chmod($params);
+			case 'compress':
+				return $this->action_compress($params);
+			case 'extract':
+				return $this->action_extract($params);
+			case 'rename':
+				return $this->action_rename($params);
+			case 'list_directory':
+				return $this->action_list_directory($params);
+			case 'optimize_tables':
+				return $this->action_optimize_tables($params);
+			case 'repair_tables':
+				return $this->action_repair_tables($params);
+			case 'get_system_info':
+				return $this->action_get_system_info($params);
 			default:
 				return array('applied' => false, 'message' => 'Unknown action: ' . $action_type);
 		}
@@ -1099,5 +1159,490 @@ class AI_Controller extends Module_Base {
 			$result['error'] = isset($data['error']['message']) ? $data['error']['message'] : 'HTTP ' . $status_code;
 			wp_send_json_error($result);
 		}
+	}
+
+	/**
+	 * Schedule cron action - schedule a WordPress cron event
+	 */
+	private function action_schedule_cron(array $params): array {
+		if (empty($params['hook']) || empty($params['timestamp'])) {
+			return array('applied' => false, 'message' => 'Hook name and timestamp required');
+		}
+		
+		$hook = sanitize_key((string) $params['hook']);
+		$timestamp = is_numeric($params['timestamp']) ? (int) $params['timestamp'] : strtotime((string) $params['timestamp']);
+		$args = isset($params['args']) ? (array) $params['args'] : array();
+		$recurring = !empty($params['recurring']);
+		$interval = sanitize_key((string) ($params['interval'] ?? 'hourly'));
+		
+		if (!$timestamp || $timestamp <= time()) {
+			return array('applied' => false, 'message' => 'Timestamp must be in the future');
+		}
+		
+		if ($recurring) {
+			// Schedule recurring event
+			if (!wp_next_scheduled($hook, $args)) {
+				$result = wp_schedule_event($timestamp, $interval, $hook, $args);
+				if ($result !== false) {
+					return array('applied' => true, 'message' => "Recurring cron scheduled: {$hook} every {$interval} starting " . wp_date('Y-m-d H:i:s', $timestamp));
+				}
+				return array('applied' => false, 'message' => 'Failed to schedule recurring cron');
+			}
+			return array('applied' => false, 'message' => 'Recurring cron already exists: ' . $hook);
+		}
+		
+		// Schedule single event
+		$result = wp_schedule_single_event($timestamp, $hook, $args);
+		if ($result !== false) {
+			return array('applied' => true, 'message' => 'Cron scheduled: ' . $hook . ' at ' . wp_date('Y-m-d H:i:s', $timestamp));
+		}
+		return array('applied' => false, 'message' => 'Failed to schedule cron event');
+	}
+
+	/**
+	 * Unschedule cron action - remove a scheduled cron event
+	 */
+	private function action_unschedule_cron(array $params): array {
+		if (empty($params['hook'])) {
+			return array('applied' => false, 'message' => 'Hook name required');
+		}
+		
+		$hook = sanitize_key((string) $params['hook']);
+		$args = isset($params['args']) ? (array) $params['args'] : array();
+		
+		$next_run = wp_next_scheduled($hook, $args);
+		if (!$next_run) {
+			return array('applied' => false, 'message' => 'No scheduled event found for: ' . $hook);
+		}
+		
+		$result = wp_unschedule_event($next_run, $hook, $args);
+		if ($result !== false) {
+			return array('applied' => true, 'message' => 'Unscheduled: ' . $hook);
+		}
+		return array('applied' => false, 'message' => 'Failed to unschedule: ' . $hook);
+	}
+
+	/**
+	 * Search and replace in database
+	 */
+	private function action_search_replace_db(array $params): array {
+		if (empty($params['search'])) {
+			return array('applied' => false, 'message' => 'Search term required');
+		}
+		
+		$search = (string) $params['search'];
+		$replace = isset($params['replace']) ? (string) $params['replace'] : '';
+		$dry_run = !empty($params['dry_run']);
+		$tables = isset($params['tables']) ? (array) $params['tables'] : array();
+		
+		global $wpdb;
+		
+		// If no tables specified, get all tables
+		if (empty($tables)) {
+			$tables = $wpdb->get_col("SHOW TABLES");
+		}
+		
+		$results = array();
+		$total_replacements = 0;
+		
+		foreach ($tables as $table) {
+			$table = sanitize_text_field($table);
+			$columns = $wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A);
+			$table_replacements = 0;
+			
+			foreach ($columns as $column) {
+				if (strpos($column['Type'], 'char') !== false || strpos($column['Type'], 'text') !== false) {
+					$column_name = $column['Field'];
+					
+					if ($dry_run) {
+						// Count matches
+						$count = $wpdb->get_var($wpdb->prepare(
+							"SELECT COUNT(*) FROM `{$table}` WHERE `{$column_name}` LIKE %s",
+							'%' . $wpdb->esc_like($search) . '%'
+						));
+						$table_replacements += (int) $count;
+					} else {
+						// Perform replacement
+						$updated = $wpdb->query($wpdb->prepare(
+							"UPDATE `{$table}` SET `{$column_name}` = REPLACE(`{$column_name}`, %s, %s) WHERE `{$column_name}` LIKE %s",
+							$search,
+							$replace,
+							'%' . $wpdb->esc_like($search) . '%'
+						));
+						$table_replacements += (int) $updated;
+					}
+				}
+			}
+			
+			if ($table_replacements > 0) {
+				$results[$table] = $table_replacements;
+				$total_replacements += $table_replacements;
+			}
+		}
+		
+		$mode = $dry_run ? 'Found' : 'Replaced';
+		return array(
+			'applied' => $total_replacements > 0,
+			'message' => "{$mode} {$total_replacements} occurrences across " . count($results) . " tables",
+			'data' => array('tables' => $results, 'total' => $total_replacements, 'dry_run' => $dry_run)
+		);
+	}
+
+	/**
+	 * Search in files
+	 */
+	private function action_search_files(array $params): array {
+		if (empty($params['query'])) {
+			return array('applied' => false, 'message' => 'Search query required');
+		}
+		
+		$query = sanitize_text_field((string) $params['query']);
+		$path = isset($params['path']) ? sanitize_text_field((string) $params['path']) : ABSPATH;
+		$extension = isset($params['extension']) ? sanitize_text_field((string) $params['extension']) : '';
+		$limit = isset($params['limit']) ? (int) $params['limit'] : 50;
+		
+		if (!is_dir($path)) {
+			return array('applied' => false, 'message' => 'Invalid path: ' . $path);
+		}
+		
+		$hits = array();
+		$iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \RecursiveDirectoryIterator::SKIP_DOTS));
+		
+		foreach ($iterator as $file) {
+			if (count($hits) >= $limit) break;
+			
+			if (!$file->isFile()) continue;
+			if ($file->getSize() > 5 * 1024 * 1024) continue; // Skip files > 5MB
+			
+			$file_path = $file->getPathname();
+			
+			// Check extension filter
+			if ($extension && !str_ends_with(strtolower($file_path), strtolower($extension))) {
+				continue;
+			}
+			
+			// Search in filename
+			if (stripos(basename($file_path), $query) !== false) {
+				$hits[] = array('path' => $file_path, 'type' => 'filename');
+				continue;
+			}
+			
+			// Search in content
+			$content = @file_get_contents($file_path);
+			if ($content !== false && stripos($content, $query) !== false) {
+				$line = 1;
+				$lines = explode("\n", $content);
+				foreach ($lines as $i => $l) {
+					if (stripos($l, $query) !== false) {
+						$line = $i + 1;
+						break;
+					}
+				}
+				$hits[] = array('path' => $file_path, 'type' => 'content', 'line' => $line);
+			}
+		}
+		
+		return array(
+			'applied' => true,
+			'message' => 'Found ' . count($hits) . ' matches for: ' . $query,
+			'data' => array('hits' => $hits, 'total' => count($hits))
+		);
+	}
+
+	/**
+	 * Change file permissions (chmod)
+	 */
+	private function action_chmod(array $params): array {
+		if (empty($params['path']) || empty($params['mode'])) {
+			return array('applied' => false, 'message' => 'Path and mode (permissions) required');
+		}
+		
+		$path = sanitize_text_field((string) $params['path']);
+		$mode = is_numeric($params['mode']) ? octdec((int) $params['mode']) : octdec(644);
+		$recursive = !empty($params['recursive']);
+		
+		$fullpath = realpath($path);
+		if (!$fullpath || strpos($fullpath, realpath(ABSPATH)) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid path');
+		}
+		
+		if (!file_exists($fullpath)) {
+			return array('applied' => false, 'message' => 'File not found: ' . $path);
+		}
+		
+		$changed = 0;
+		
+		if ($recursive && is_dir($fullpath)) {
+			$iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($fullpath));
+			foreach ($iterator as $file) {
+				if (@chmod($file->getPathname(), $mode)) {
+					$changed++;
+				}
+			}
+		} else {
+			if (@chmod($fullpath, $mode)) {
+				$changed = 1;
+			}
+		}
+		
+		return array(
+			'applied' => $changed > 0,
+			'message' => "Changed permissions on {$changed} item(s) to " . sprintf('%03o', $mode),
+			'data' => array('changed' => $changed, 'mode' => sprintf('%03o', $mode))
+		);
+	}
+
+	/**
+	 * Compress files/directories to zip
+	 */
+	private function action_compress(array $params): array {
+		if (empty($params['paths']) || empty($params['destination'])) {
+			return array('applied' => false, 'message' => 'Paths and destination required');
+		}
+		
+		$paths = (array) $params['paths'];
+		$destination = sanitize_text_field((string) $params['destination']);
+		
+		if (!class_exists('ZipArchive')) {
+			return array('applied' => false, 'message' => 'ZipArchive extension not available');
+		}
+		
+		$zip = new \ZipArchive();
+		if ($zip->open($destination, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+			return array('applied' => false, 'message' => 'Cannot create zip file');
+		}
+		
+		$added = 0;
+		foreach ($paths as $path) {
+			$fullpath = realpath($path);
+			if (!$fullpath) continue;
+			
+			if (is_dir($fullpath)) {
+				$iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($fullpath));
+				foreach ($iterator as $file) {
+					if ($file->isDir()) continue;
+					$zip->addFile($file->getPathname(), str_replace(ABSPATH, '', $file->getPathname()));
+					$added++;
+				}
+			} else if (is_file($fullpath)) {
+				$zip->addFile($fullpath, basename($fullpath));
+				$added++;
+			}
+		}
+		
+		$zip->close();
+		
+		return array(
+			'applied' => true,
+			'message' => "Created archive with {$added} file(s): " . $destination,
+			'data' => array('archive' => $destination, 'files' => $added)
+		);
+	}
+
+	/**
+	 * Extract zip archive
+	 */
+	private function action_extract(array $params): array {
+		if (empty($params['archive']) || empty($params['destination'])) {
+			return array('applied' => false, 'message' => 'Archive path and destination required');
+		}
+		
+		$archive = sanitize_text_field((string) $params['archive']);
+		$destination = sanitize_text_field((string) $params['destination']);
+		
+		if (!class_exists('ZipArchive')) {
+			return array('applied' => false, 'message' => 'ZipArchive extension not available');
+		}
+		
+		$full_archive = realpath($archive);
+		if (!$full_archive || !file_exists($full_archive)) {
+			return array('applied' => false, 'message' => 'Archive not found: ' . $archive);
+		}
+		
+		if (!is_dir($destination)) {
+			wp_mkdir_p($destination);
+		}
+		
+		$zip = new \ZipArchive();
+		if ($zip->open($full_archive) !== true) {
+			return array('applied' => false, 'message' => 'Cannot open archive');
+		}
+		
+		$extracted = $zip->extractTo($destination);
+		$count = $zip->numFiles;
+		$zip->close();
+		
+		if ($extracted) {
+			return array(
+				'applied' => true,
+				'message' => "Extracted {$count} file(s) to: " . $destination,
+				'data' => array('destination' => $destination, 'files' => $count)
+			);
+		}
+		return array('applied' => false, 'message' => 'Extraction failed');
+	}
+
+	/**
+	 * Rename/move file or directory
+	 */
+	private function action_rename(array $params): array {
+		if (empty($params['old_path']) || empty($params['new_path'])) {
+			return array('applied' => false, 'message' => 'Old path and new path required');
+		}
+		
+		$old_path = sanitize_text_field((string) $params['old_path']);
+		$new_path = sanitize_text_field((string) $params['new_path']);
+		
+		$old_full = realpath($old_path);
+		if (!$old_full || strpos($old_full, realpath(ABSPATH)) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid source path');
+		}
+		
+		if (file_exists($new_path)) {
+			return array('applied' => false, 'message' => 'Destination already exists: ' . $new_path);
+		}
+		
+		if (@rename($old_full, $new_path)) {
+			return array(
+				'applied' => true,
+				'message' => 'Renamed: ' . basename($old_path) . ' → ' . basename($new_path),
+				'data' => array('from' => $old_path, 'to' => $new_path)
+			);
+		}
+		return array('applied' => false, 'message' => 'Rename failed - check permissions');
+	}
+
+	/**
+	 * List directory contents
+	 */
+	private function action_list_directory(array $params): array {
+		$path = isset($params['path']) ? sanitize_text_field((string) $params['path']) : ABSPATH;
+		$fullpath = realpath($path);
+		
+		if (!$fullpath || strpos($fullpath, realpath(ABSPATH)) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid path');
+		}
+		
+		if (!is_dir($fullpath)) {
+			return array('applied' => false, 'message' => 'Not a directory: ' . $path);
+		}
+		
+		$items = array();
+		$dirs = array();
+		$files = array();
+		
+		foreach (new \DirectoryIterator($fullpath) as $item) {
+			if ($item->isDot()) continue;
+			
+			$info = array(
+				'name' => $item->getFilename(),
+				'size' => $item->getSize(),
+				'modified' => $item->getMTime(),
+				'permissions' => substr(sprintf('%o', $item->getPerms()), -4),
+			);
+			
+			if ($item->isDir()) {
+				$dirs[] = $info;
+			} else {
+				$files[] = $info;
+			}
+		}
+		
+		usort($dirs, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+		usort($files, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+		
+		return array(
+			'applied' => true,
+			'message' => 'Directory listing: ' . $path,
+			'data' => array(
+				'path' => $path,
+				'directories' => $dirs,
+				'files' => $files,
+				'total_dirs' => count($dirs),
+				'total_files' => count($files)
+			)
+		);
+	}
+
+	/**
+	 * Optimize database tables
+	 */
+	private function action_optimize_tables(array $params): array {
+		global $wpdb;
+		
+		$tables = isset($params['tables']) ? (array) $params['tables'] : array();
+		
+		// If no tables specified, optimize all
+		if (empty($tables)) {
+			$tables = $wpdb->get_col("SHOW TABLES");
+		}
+		
+		$results = array();
+		foreach ($tables as $table) {
+			$table = sanitize_text_field($table);
+			$result = $wpdb->get_results("OPTIMIZE TABLE `{$table}`", ARRAY_A);
+			$results[$table] = $result[0]['Msg_text'] ?? 'Unknown';
+		}
+		
+		return array(
+			'applied' => true,
+			'message' => 'Optimized ' . count($results) . ' table(s)',
+			'data' => array('results' => $results)
+		);
+	}
+
+	/**
+	 * Repair database tables
+	 */
+	private function action_repair_tables(array $params): array {
+		global $wpdb;
+		
+		$tables = isset($params['tables']) ? (array) $params['tables'] : array();
+		
+		// If no tables specified, repair all
+		if (empty($tables)) {
+			$tables = $wpdb->get_col("SHOW TABLES");
+		}
+		
+		$results = array();
+		foreach ($tables as $table) {
+			$table = sanitize_text_field($table);
+			$result = $wpdb->get_results("REPAIR TABLE `{$table}`", ARRAY_A);
+			$results[$table] = $result[0]['Msg_text'] ?? 'Unknown';
+		}
+		
+		return array(
+			'applied' => true,
+			'message' => 'Repaired ' . count($results) . ' table(s)',
+			'data' => array('results' => $results)
+		);
+	}
+
+	/**
+	 * Get system information
+	 */
+	private function action_get_system_info(array $params): array {
+		$info = array(
+			'wordpress_version' => get_bloginfo('version'),
+			'php_version' => phpversion(),
+			'mysql_version' => $GLOBALS['wpdb']->db_version(),
+			'web_server' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+			'os' => php_uname('s') . ' ' . php_uname('r'),
+			'memory_limit' => ini_get('memory_limit'),
+			'max_execution_time' => ini_get('max_execution_time'),
+			'upload_max_filesize' => ini_get('upload_max_filesize'),
+			'disk_free_space' => function_exists('disk_free_space') ? disk_free_space(ABSPATH) : null,
+			'active_plugins' => get_option('active_plugins', array()),
+			'active_theme' => wp_get_theme()->get('Name'),
+			'theme_version' => wp_get_theme()->get('Version'),
+			'locale' => get_locale(),
+			'timezone' => wp_timezone_string(),
+		);
+		
+		return array(
+			'applied' => true,
+			'message' => 'System information retrieved',
+			'data' => $info
+		);
 	}
 }
