@@ -6,7 +6,7 @@
 	// Get initial tab from URL hash or default to dashboard
 	function getInitialTab() {
 		var hash = window.location.hash.replace('#', '');
-		var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
+		var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp', 'site_migration'];
 		if (hash && validTabs.indexOf(hash) !== -1) {
 			return hash;
 		}
@@ -74,7 +74,9 @@
 			height: 560,
 			dragging: false,
 			dragOffsetX: 0,
-			dragOffsetY: 0
+			dragOffsetY: 0,
+			loading: false,
+			loadingMessage: ''
 		},
 		ai: {
 			history: [],
@@ -115,6 +117,37 @@
 		$('#wudt-pro-status').text(text || '');
 	}
 
+	function ensureToastContainer() {
+		if (!$('#wudt-toast-container').length) {
+			$('body').append('<div id="wudt-toast-container" class="wudt-toast-container"></div>');
+		}
+	}
+
+	function showToast(title, message, type, duration) {
+		type = type || 'info';
+		duration = duration || 4000;
+		ensureToastContainer();
+		var icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+		var toastId = 'wudt-toast-' + Date.now();
+		var toastHtml = ''
+			+ '<div id="' + toastId + '" class="wudt-toast wudt-toast--' + type + '">'
+			+ '<span class="wudt-toast__icon">' + icons[type] + '</span>'
+			+ '<div class="wudt-toast__content">'
+			+ '<div class="wudt-toast__title">' + esc(title) + '</div>'
+			+ (message ? '<div class="wudt-toast__message">' + esc(message) + '</div>' : '')
+			+ '</div>'
+			+ '<button class="wudt-toast__close" data-toast-dismiss>✕</button>'
+			+ '</div>';
+		$('#wudt-toast-container').append(toastHtml);
+		var $toast = $('#' + toastId);
+		$toast.find('[data-toast-dismiss]').on('click', function () {
+			$toast.fadeOut(200, function () { $toast.remove(); });
+		});
+		setTimeout(function () {
+			$toast.fadeOut(300, function () { $toast.remove(); });
+		}, duration);
+	}
+
 	function post(action, data) {
 		data = data || {};
 		if (!window.wudtProAdmin) {
@@ -124,7 +157,7 @@
 	}
 
 	function render() {
-		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
+		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp', 'site_migration'];
 		var tabsHtml = '';
 		for (var i = 0; i < tabs.length; i++) {
 			var t = tabs[i];
@@ -281,6 +314,7 @@
 		if (state.tab === 'malware_enterprise') { return renderMalwareEnterprise(); }
 		if (state.tab === 'recovery') { return renderRecovery(); }
 		if (state.tab === 'smtp') { return renderSMTP(); }
+		if (state.tab === 'site_migration') { return renderSiteMigration(); }
 		return '<p>No data.</p>';
 	}
 
@@ -542,14 +576,17 @@
 		if (e.minimized) {
 			cls += ' is-hidden';
 		}
+		var loadingOverlay = e.loading
+			? '<div class="wudt-ed-loading"><div class="wudt-ed-loading-spinner"></div><span>' + esc(e.loadingMessage || 'Loading...') + '</span></div>'
+			: '';
 		return ''
 			+ '<div class="' + cls + '" id="wudt-editor-window" ' + style + '>'
 			+ '<div class="wudt-ed-header" id="wudt-ed-header">'
 			+ '<div class="wudt-ed-title">' + esc(e.title || 'Untitled') + (dirty ? ' *' : '') + '</div>'
 			+ '<div class="wudt-ed-controls">'
-			+ '<button class="wudt-ed-btn" id="wudt-ed-min">➖</button>'
-			+ '<button class="wudt-ed-btn" id="wudt-ed-max">🗖</button>'
-			+ '<button class="wudt-ed-btn is-close" id="wudt-ed-close">✕</button>'
+			+ '<button class="wudt-ed-btn" id="wudt-ed-min" ' + (e.loading ? 'disabled' : '') + '>➖</button>'
+			+ '<button class="wudt-ed-btn" id="wudt-ed-max" ' + (e.loading ? 'disabled' : '') + '>🗖</button>'
+			+ '<button class="wudt-ed-btn is-close" id="wudt-ed-close" ' + (e.loading ? 'disabled' : '') + '>✕</button>'
 			+ '</div>'
 			+ '</div>'
 			+ '<div class="wudt-ed-meta">'
@@ -557,15 +594,16 @@
 			+ '<span class="wudt-status">' + esc(e.path) + '</span>'
 			+ '</div>'
 			+ '<div class="wudt-ed-body">'
-			+ '<textarea id="wudt-ed-textarea" class="wudt-ed-textarea ' + (e.wordWrap ? 'is-wrap' : '') + '">' + esc(e.content) + '</textarea>'
+			+ '<textarea id="wudt-ed-textarea" class="wudt-ed-textarea ' + (e.wordWrap ? 'is-wrap' : '') + '" ' + (e.loading ? 'disabled' : '') + '>' + String(e.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>'
+			+ loadingOverlay
 			+ '</div>'
 			+ '<div class="wudt-ed-footer">'
-			+ '<button class="button button-primary" id="wudt-ed-save">💾 Save</button>'
-			+ '<button class="button" id="wudt-ed-save-as">💾 Save As</button>'
-			+ '<button class="button" id="wudt-ed-format">🔄 Format</button>'
-			+ '<button class="button" id="wudt-ed-validate">🧪 Validate</button>'
-			+ '<button class="button" id="wudt-ed-wrap">' + (e.wordWrap ? 'Disable Wrap' : 'Enable Wrap') + '</button>'
-			+ '<button class="button" id="wudt-ed-close-footer">❌ Close</button>'
+			+ '<button class="button button-primary" id="wudt-ed-save" ' + (e.loading ? 'disabled' : '') + '>' + (e.loading ? '⏳ Saving...' : '💾 Save') + '</button>'
+			+ '<button class="button" id="wudt-ed-save-as" ' + (e.loading ? 'disabled' : '') + '>💾 Save As</button>'
+			+ '<button class="button" id="wudt-ed-format" ' + (e.loading ? 'disabled' : '') + '>🔄 Format</button>'
+			+ '<button class="button" id="wudt-ed-validate" ' + (e.loading ? 'disabled' : '') + '>🧪 Validate</button>'
+			+ '<button class="button" id="wudt-ed-wrap" ' + (e.loading ? 'disabled' : '') + '>' + (e.wordWrap ? 'Disable Wrap' : 'Enable Wrap') + '</button>'
+			+ '<button class="button" id="wudt-ed-close-footer" ' + (e.loading ? 'disabled' : '') + '>❌ Close</button>'
 			+ '</div>'
 			+ '</div>';
 	}
@@ -2956,17 +2994,27 @@
 
 	function editFile(path) {
 		status('Opening file...');
+		state.editor.loading = true;
+		state.editor.loadingMessage = 'Opening ' + pathBasename(path) + '...';
+		render();
 		post('wudt_fm_read', { path: path }).done(function (r) {
+			state.editor.loading = false;
 			if (!r || !r.success) {
-				status('Failed to open file: ' + (r && r.data && r.data.message ? r.data.message : 'Unknown error'));
+				status('Failed to open file');
+				showToast('Open Failed', (r && r.data && r.data.message) ? r.data.message : 'Could not open file', 'error');
 				console.error('editFile failed:', r);
+				render();
 				return;
 			}
 			openEditorWindow(path, String(r.data.content || ''));
 			status('File opened');
+			showToast('File Opened', pathBasename(path), 'success', 3000);
 		}).fail(function (xhr, statusText, error) {
-			status('Failed to open file: ' + statusText);
+			state.editor.loading = false;
+			status('Failed to open file');
+			showToast('Open Failed', 'Network error: ' + statusText, 'error');
 			console.error('editFile AJAX failed:', statusText, error);
+			render();
 		});
 	}
 
@@ -3033,18 +3081,32 @@
 			var proceed = confirm('Validation reported issues:\n' + validation.errors.join('\n') + '\n\nSave anyway?');
 			if (!proceed) { return; }
 		}
+		state.editor.loading = true;
+		state.editor.loadingMessage = 'Saving ' + pathBasename(targetPath) + '...';
+		status('Saving...');
+		render();
 		post('wudt_fm_write', { path: targetPath, content: state.editor.content }).done(function (r) {
+			state.editor.loading = false;
 			if (!r || !r.success) {
-				alert((r && r.data && r.data.message) ? r.data.message : 'Save failed');
+				status('Save failed');
+				var errorMsg = (r && r.data && r.data.message) ? r.data.message : 'Save failed';
+				showToast('Save Failed', errorMsg, 'error');
+				render();
 				return;
 			}
 			state.editor.path = targetPath;
 			state.editor.title = pathBasename(targetPath);
 			state.editor.original = state.editor.content;
-			status('Saved: ' + state.editor.title);
+			status('Saved');
+			showToast('File Saved', state.editor.title, 'success');
 			loadDirectory(state.currentPath, false);
 			render();
 			if (typeof onDone === 'function') { onDone(); }
+		}).fail(function (xhr, statusText, error) {
+			state.editor.loading = false;
+			status('Save failed');
+			showToast('Save Failed', 'Network error: ' + statusText, 'error');
+			render();
 		});
 	}
 
@@ -3497,6 +3559,124 @@
 		return '';
 	}
 
+	function renderSiteMigration() {
+		var d = tabData('site_migration') || {};
+		var sites = d.sites || [];
+		var jobs = d.jobs || [];
+		var currentJob = d.current_job || null;
+		var localApiKey = d.local_api_key || '';
+		var localSiteUrl = d.local_site_url || window.location.origin;
+
+		// Site manager section
+		var html = '<div class="wudt-migration-shell">';
+
+		// Header
+		html += '<div class="wudt-migration-header">';
+		html += '<h2>🌐 Site Migration</h2>';
+		html += '<p>Asynchronously migrate WordPress sites between localhost and live servers.</p>';
+		html += '</div>';
+
+		// Local API Key Section
+		html += '<div class="wudt-card wudt-migration-api-card">';
+		html += '<h3>🔐 Your Local API Key</h3>';
+		html += '<p class="wudt-migration-api-info">Share this API key with remote sites to allow them to connect to <strong>' + esc(localSiteUrl) + '</strong></p>';
+		html += '<div class="wudt-migration-api-key-container">';
+		html += '<input type="text" id="wudt_local_api_key" class="wudt-input wudt-api-key-input" value="' + esc(localApiKey) + '" readonly>';
+		html += '<button class="button" id="wudt-copy-api-key" title="Copy to clipboard">📋 Copy</button>';
+		html += '<button class="button" id="wudt-regenerate-api-key" title="Generate new key">🔄 Regenerate</button>';
+		html += '</div>';
+		html += '<div class="wudt-migration-setup-info">';
+		html += '<p><strong>📋 How to connect to a Live Site:</strong></p>';
+		html += '<ol>';
+		html += '<li>Install this plugin on your <strong>Live Server</strong> (if not already installed)</li>';
+		html += '<li>On the Live Server, go to <strong>Tools → WP Diagnostics → Site Migration</strong></li>';
+		html += '<li>Copy the Live Server\'s API key</li>';
+		html += '<li>Return to this localhost and click <strong>"Add Remote Site"</strong> below</li>';
+		html += '<li>Paste the Live Server URL and API key</li>';
+		html += '</ol>';
+		html += '</div>';
+		html += '<p class="wudt-migration-api-note">⚠️ <strong>Note:</strong> Regenerating the key will invalidate the old one. Remote sites will need to update their configuration.</p>';
+		html += '</div>';
+
+		// Remote Sites Section
+		html += '<div class="wudt-card">';
+		html += '<h3>📡 Remote Sites</h3>';
+
+		if (sites.length === 0) {
+			html += '<p class="wudt-migration-empty">No remote sites configured yet. Add your first site below.</p>';
+		} else {
+			html += '<div class="wudt-migration-sites">';
+			for (var i = 0; i < sites.length; i++) {
+				var site = sites[i];
+				html += '<div class="wudt-migration-site" data-site-id="' + esc(site.id) + '">';
+				html += '<div class="wudt-migration-site-info">';
+				html += '<strong>' + esc(site.label) + '</strong>';
+				html += '<span class="wudt-migration-site-url">' + esc(site.url) + '</span>';
+				html += '</div>';
+				html += '<div class="wudt-migration-site-actions">';
+				html += '<button class="button wudt-migration-test" data-site-id="' + esc(site.id) + '">Test Connection</button>';
+				html += '<button class="button wudt-migration-pull" data-site-id="' + esc(site.id) + '">⬇️ Pull (Download)</button>';
+				html += '<button class="button wudt-migration-push" data-site-id="' + esc(site.id) + '">⬆️ Push (Upload)</button>';
+				html += '<button class="button button-link-delete wudt-migration-delete-site" data-site-id="' + esc(site.id) + '">🗑️</button>';
+				html += '</div>';
+				html += '</div>';
+			}
+			html += '</div>';
+		}
+
+		// Add Site Form
+		html += '<div class="wudt-migration-add-form" style="margin-top: 20px;">';
+		html += '<h4>Add Remote Site</h4>';
+		html += '<table class="form-table">';
+		html += '<tr><th><label for="migration_site_label">Label</label></th><td><input type="text" id="migration_site_label" class="regular-text" placeholder="My Live Site"></td></tr>';
+		html += '<tr><th><label for="migration_site_url">Site URL</label></th><td><input type="url" id="migration_site_url" class="regular-text" placeholder="https://example.com"></td></tr>';
+		html += '<tr><th><label for="migration_site_api_key">API Key</label></th><td><input type="text" id="migration_site_api_key" class="regular-text" placeholder="32+ character secret key"></td></tr>';
+		html += '</table>';
+		html += '<button class="button button-primary" id="wudt-migration-add-site">Add Site</button>';
+		html += '</div>';
+		html += '</div>';
+
+		// Current Migration Progress
+		if (currentJob) {
+			html += '<div class="wudt-card wudt-migration-progress-card">';
+			html += '<h3>🔄 Current Migration</h3>';
+			html += '<div class="wudt-migration-progress">';
+			html += '<div class="wudt-progress-bar">';
+			html += '<div class="wudt-progress-fill" style="width: ' + (currentJob.progress || 0) + '%"></div>';
+			html += '</div>';
+			html += '<p class="wudt-migration-status">' + esc(currentJob.message || 'Processing...') + '</p>';
+			html += '<button class="button" id="wudt-migration-cancel">Cancel Migration</button>';
+			html += '</div>';
+			html += '</div>';
+		}
+
+		// Migration History
+		if (jobs.length > 0) {
+			html += '<div class="wudt-card">';
+			html += '<h3>📜 Migration History</h3>';
+			html += '<table class="wp-list-table widefat fixed striped">';
+			html += '<thead><tr><th>Site</th><th>Type</th><th>Status</th><th>Started</th><th>Actions</th></tr></thead>';
+			html += '<tbody>';
+			for (var j = 0; j < jobs.length; j++) {
+				var job = jobs[j];
+				var statusClass = job.status === 'complete' ? 'wudt-status-success' : (job.status === 'failed' ? 'wudt-status-error' : 'wudt-status-pending');
+				html += '<tr>';
+				html += '<td>' + esc((job.source_site || {}).label || 'Unknown') + '</td>';
+				html += '<td>' + esc(job.direction || 'pull') + '</td>';
+				html += '<td><span class="' + statusClass + '">' + esc(job.status) + '</span></td>';
+				html += '<td>' + esc(job.started_at || '') + '</td>';
+				html += '<td><button class="button button-small wudt-migration-delete-job" data-job-id="' + esc(job.job_id) + '">Delete</button></td>';
+				html += '</tr>';
+			}
+			html += '</tbody>';
+			html += '</table>';
+			html += '</div>';
+		}
+
+		html += '</div>';
+		return html;
+	}
+
 	$(function () {
 		render();
 		
@@ -3604,5 +3784,221 @@
 			var enabled = $(this).is(':checked');
 			$('#wudt-smtp-status').text(enabled ? 'Enabled' : 'Disabled');
 		});
+
+		// Migration Tab Event Handlers
+		$(document).on('click', '#wudt-copy-api-key', function () {
+			var $input = $('#wudt_local_api_key');
+			var apiKey = $input.val();
+			if (!apiKey) {
+				alert('No API key to copy.');
+				return;
+			}
+
+			// Copy to clipboard
+			if (navigator.clipboard && window.isSecureContext) {
+				navigator.clipboard.writeText(apiKey).then(function () {
+					var $btn = $('#wudt-copy-api-key');
+					var originalText = $btn.text();
+					$btn.text('✅ Copied!');
+					setTimeout(function () {
+						$btn.text(originalText);
+					}, 2000);
+				}).catch(function () {
+					fallbackCopyToClipboard(apiKey);
+				});
+			} else {
+				fallbackCopyToClipboard(apiKey);
+			}
+		});
+
+		function fallbackCopyToClipboard(text) {
+			var $temp = $('<textarea>');
+			$('body').append($temp);
+			$temp.val(text).select();
+			document.execCommand('copy');
+			$temp.remove();
+
+			var $btn = $('#wudt-copy-api-key');
+			var originalText = $btn.text();
+			$btn.text('✅ Copied!');
+			setTimeout(function () {
+				$btn.text(originalText);
+			}, 2000);
+		}
+
+		$(document).on('click', '#wudt-regenerate-api-key', function () {
+			if (!confirm('⚠️ Regenerate API Key?\n\nThis will invalidate the current key.\nRemote sites will need to update their configuration with the new key.\n\nAre you sure?')) {
+				return;
+			}
+
+			var $btn = $(this);
+			$btn.prop('disabled', true).text('Regenerating...');
+
+			post('wudt_migration_regenerate_key', {}).done(function (r) {
+				if (r && r.success && r.data.api_key) {
+					$('#wudt_local_api_key').val(r.data.api_key);
+					alert('✅ New API key generated successfully!\n\nMake sure to update remote sites with this new key.');
+				} else {
+					alert('Error: Failed to regenerate API key.');
+				}
+			}).fail(function () {
+				alert('Failed to regenerate API key. Please try again.');
+			}).always(function () {
+				$btn.prop('disabled', false).text('🔄 Regenerate');
+			});
+		});
+
+		$(document).on('click', '#wudt-migration-add-site', function () {
+			var $btn = $(this);
+			$btn.prop('disabled', true).text('Saving...');
+
+			var data = {
+				label: $('#migration_site_label').val(),
+				url: $('#migration_site_url').val(),
+				api_key: $('#migration_site_api_key').val()
+			};
+
+			post('wudt_migration_save_site', data).done(function (r) {
+				if (r && r.success) {
+					alert('Site added successfully!');
+					// Clear form
+					$('#migration_site_label').val('');
+					$('#migration_site_url').val('');
+					$('#migration_site_api_key').val('');
+					// Reload tab to show new site
+					state.tabLoading = true;
+					render();
+					loadTabData('site_migration');
+				} else {
+					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to add site'));
+				}
+			}).fail(function () {
+				alert('Failed to add site. Please check your connection.');
+			}).always(function () {
+				$btn.prop('disabled', false).text('Add Site');
+			});
+		});
+
+		$(document).on('click', '.wudt-migration-test', function () {
+			var siteId = $(this).data('site-id');
+			var $btn = $(this);
+			$btn.prop('disabled', true).text('Testing...');
+
+			post('wudt_migration_test_connection', { site_id: siteId }).done(function (r) {
+				if (r && r.success) {
+					alert('Connection successful!\n\nSite: ' + (r.data.site_info ? r.data.site_info.site_name : 'Unknown'));
+				} else {
+					alert('Connection failed: ' + ((r && r.data && r.data.message) ? r.data.message : 'Unknown error'));
+				}
+			}).fail(function () {
+				alert('Connection test failed. Please check the site URL and API key.');
+			}).always(function () {
+				$btn.prop('disabled', false).text('Test Connection');
+			});
+		});
+
+		$(document).on('click', '.wudt-migration-pull', function () {
+			var siteId = $(this).data('site-id');
+			if (!confirm('Start pull migration (download from remote)?\n\nThis will download and restore the remote site to this server.')) {
+				return;
+			}
+			startMigration(siteId, 'pull');
+		});
+
+		$(document).on('click', '.wudt-migration-push', function () {
+			var siteId = $(this).data('site-id');
+			if (!confirm('Start push migration (upload to remote)?\n\nThis will backup and send this site to the remote server.')) {
+				return;
+			}
+			startMigration(siteId, 'push');
+		});
+
+		$(document).on('click', '.wudt-migration-delete-site', function () {
+			var siteId = $(this).data('site-id');
+			if (!confirm('Delete this site configuration?\n\nThis will not affect any migrated data.')) {
+				return;
+			}
+
+			post('wudt_migration_delete_site', { site_id: siteId }).done(function (r) {
+				if (r && r.success) {
+					state.tabLoading = true;
+					render();
+					loadTabData('site_migration');
+				} else {
+					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to delete'));
+				}
+			});
+		});
+
+		$(document).on('click', '#wudt-migration-cancel', function () {
+			if (!confirm('Cancel the current migration?')) {
+				return;
+			}
+			var currentJob = (tabData('site_migration') || {}).current_job;
+			if (currentJob) {
+				post('wudt_migration_cancel', { job_id: currentJob.job_id }).done(function (r) {
+					if (r && r.success) {
+						alert('Migration cancelled.');
+						loadTabData('site_migration');
+					}
+				});
+			}
+		});
+
+		$(document).on('click', '.wudt-migration-delete-job', function () {
+			var jobId = $(this).data('job-id');
+			if (!confirm('Delete this migration job from history?')) {
+				return;
+			}
+			post('wudt_migration_delete_job', { job_id: jobId }).done(function (r) {
+				if (r && r.success) {
+					loadTabData('site_migration');
+				}
+			});
+		});
+
+		function startMigration(siteId, direction) {
+			var components = ['database', 'plugins', 'themes', 'uploads']; // Default components
+			post('wudt_migration_start', {
+				site_id: siteId,
+				direction: direction,
+				components: JSON.stringify(components)
+			}).done(function (r) {
+				if (r && r.success) {
+					alert('Migration started! You can monitor progress on this page.');
+					loadTabData('site_migration');
+					// Start polling for progress
+					pollMigrationProgress(r.data.job.job_id);
+				} else {
+					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to start migration'));
+				}
+			}).fail(function () {
+				alert('Failed to start migration. Please try again.');
+			});
+		}
+
+		function pollMigrationProgress(jobId) {
+			var pollInterval = setInterval(function () {
+				post('wudt_migration_progress', { job_id: jobId }).done(function (r) {
+					if (r && r.success && r.data.progress) {
+						var progress = r.data.progress;
+						// Update progress bar if visible
+						$('.wudt-progress-fill').css('width', progress.percent + '%');
+						$('.wudt-migration-status').text(progress.message || 'Processing...');
+
+						// Stop polling if complete or failed
+						if (progress.status === 'complete' || progress.status === 'failed' || progress.status === 'cancelled') {
+							clearInterval(pollInterval);
+							if (progress.status === 'complete') {
+								alert('Migration completed successfully!');
+							} else if (progress.status === 'failed') {
+								alert('Migration failed: ' + progress.message);
+							}
+							loadTabData('site_migration');
+						}
+					}
+				});
+			}, 3000); // Poll every 3 seconds
+		}
 	});
 })(jQuery);

@@ -472,6 +472,7 @@
 	min-height: 160px;
 	padding: 8px;
 	background: #ffffff;
+	position: relative;
 }
 .wudt-ed-textarea {
 	width: 100%;
@@ -494,6 +495,37 @@
 	padding: 8px 10px;
 	border-top: 1px solid #e5e7eb;
 	background: #f8fafc;
+}
+.wudt-ed-footer button:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+.wudt-ed-loading {
+	position: absolute;
+	inset: 0;
+	background: rgba(255, 255, 255, 0.9);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	z-index: 10;
+}
+.wudt-ed-loading-spinner {
+	width: 32px;
+	height: 32px;
+	border: 3px solid #e5e7eb;
+	border-top-color: #2271b1;
+	border-radius: 50%;
+	animation: wudtSpin 1s linear infinite;
+}
+.wudt-ed-loading span {
+	font-size: 13px;
+	color: #6b7280;
+}
+@keyframes wudtSpin {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
 }
 .wudt-ed-taskbar {
 	position: absolute;
@@ -1047,3 +1079,67 @@
 	font-weight: 500;
 	vertical-align: middle;
 }
+
+/* Site Migration Styles */
+.wudt-migration-shell { max-width: 1200px; }
+.wudt-migration-header { margin-bottom: 20px; }
+.wudt-migration-header h2 { margin: 0 0 8px; }
+.wudt-migration-header p { color: #6b7280; margin: 0; }
+
+/* API Key Section */
+.wudt-migration-api-card { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #0284c7; }
+.wudt-migration-api-info { margin: 8px 0 16px; color: #0369a1; }
+.wudt-migration-api-key-container { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.wudt-api-key-input {
+	flex: 1;
+	min-width: 300px;
+	font-family: Consolas, Monaco, monospace;
+	font-size: 13px;
+	letter-spacing: 0.5px;
+	background: #fff;
+	border: 2px solid #bae6fd;
+}
+.wudt-migration-api-note { margin-top: 12px; font-size: 12px; color: #dc2626; }
+
+/* Migration Sites List */
+.wudt-migration-sites { display: grid; gap: 12px; }
+.wudt-migration-site {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 16px;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+}
+.wudt-migration-site-info { flex: 1; }
+.wudt-migration-site-info strong { display: block; font-size: 15px; margin-bottom: 4px; }
+.wudt-migration-site-url { color: #64748b; font-size: 13px; }
+.wudt-migration-site-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Migration Progress */
+.wudt-migration-progress-card { background: #f0fdf4; border-left: 4px solid #22c55e; }
+.wudt-progress-bar { height: 24px; background: #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+.wudt-progress-fill { height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 0.3s ease; }
+.wudt-migration-status { text-align: center; color: #15803d; font-weight: 500; }
+
+/* Migration Empty State */
+.wudt-migration-empty { color: #64748b; font-style: italic; padding: 20px; text-align: center; }
+
+/* Migration History */
+.wudt-migration-history { margin-top: 20px; }
+.wudt-status-success { color: #16a34a; font-weight: 500; }
+.wudt-status-error { color: #dc2626; font-weight: 500; }
+.wudt-status-pending { color: #ca8a04; font-weight: 500; }
+
+/* Setup Instructions */
+.wudt-migration-setup-info {
+	background: #fffbeb;
+	border: 1px solid #fcd34d;
+	border-radius: 6px;
+	padding: 12px 16px;
+	margin: 16px 0;
+}
+.wudt-migration-setup-info p { margin: 0 0 8px; color: #92400e; }
+.wudt-migration-setup-info ol { margin: 0; padding-left: 20px; color: #78350f; }
+.wudt-migration-setup-info li { margin: 4px 0; }

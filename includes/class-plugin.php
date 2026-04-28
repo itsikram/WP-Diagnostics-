@@ -35,6 +35,7 @@ use WUDT\Modules\FileManager\File_Manager_Module;
 use WUDT\Modules\MalwareScanner\Malware_Scanner_Module;
 use WUDT\Modules\Backup\Backup_Module;
 use WUDT\Modules\Restore\Restore_Module;
+use WUDT\Modules\Migration\Migration_Module;
 use WUDT\Modules\Malware\Enterprise_Malware_Module;
 use WUDT\Modules\Recovery\Crash_Recovery_Module;
 use WUDT\Modules\AutoRecovery\Auto_Recovery_Module;
@@ -87,6 +88,7 @@ class Plugin {
 				Enterprise_Malware_Module::class,
 				Backup_Module::class,
 				Restore_Module::class,
+				Migration_Module::class,
 				Crash_Recovery_Module::class,
 				Auto_Recovery_Module::class,
 				State_Module::class,
@@ -124,7 +126,9 @@ class Plugin {
 		$ai_page->register_hooks();
 		$progress_page = new Progress_Page();
 		$progress_page->register_hooks();
-		$modern_admin = new Modern_Admin_Page($this->modules);
+		// Combine both module sets for Modern_Admin_Page to show all tabs
+		$all_modules = array_merge($this->modules, $this->pro_modules);
+		$modern_admin = new Modern_Admin_Page($all_modules);
 		$modern_admin->register_hooks();
 		$search_page = new Search_Page();
 		$search_page->register_hooks();
