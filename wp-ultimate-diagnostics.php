@@ -3,8 +3,8 @@
  * Plugin Name: WP Ultimate Diagnostics Toolkit
  * Plugin URI: https://example.com/wp-ultimate-diagnostics-toolkit
  * Description: All-in-one diagnostics toolkit for performance, security, errors, conflicts, REST, cron, and database checks.
- * Version: 1.0.0
- * Author: WP Ultimate Diagnostics
+ * Version: 1..0
+ * Author: Programmer Ikram
  * Requires at least: 6.4
  * Requires PHP: 8.0
  * Text Domain: wp-ultimate-diagnostics-toolkit
@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
-define('WUDT_VERSION', '1.0.0');
+define('WUDT_VERSION', '1.5.0');
 define('WUDT_PLUGIN_FILE', __FILE__);
 define('WUDT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WUDT_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -62,6 +62,7 @@ safe_require('modules/restore/class-media-url-handler.php');
 safe_require('modules/restore/class-restore-module.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
 safe_require('modules/recovery/class-crash-recovery-module.php');
+safe_require('modules/auto-recovery/class-auto-recovery-module.php');
 safe_require('modules/state/class-state-module.php');
 safe_require('admin/class-settings-page.php');
 safe_require('modules/ai-assistant/class-context-builder.php');

@@ -17,18 +17,35 @@
 	// Initialization
 	// ============================================
 	function init() {
+		console.log('[WUDT] Initializing Modern Admin...');
+		
+		// Check if we have tabs
+		const $tabs = $('.wudt-tab');
+		const $panels = $('.wudt-panel');
+		console.log('[WUDT] Found', $tabs.length, 'tabs and', $panels.length, 'panels');
+		
+		if ($tabs.length === 0) {
+			console.error('[WUDT] No tabs found!');
+			return;
+		}
+		
 		bindEvents();
 		
 		// Load first tab by default
-		const $firstTab = $('.wudt-tab').first();
-		if ($firstTab.length) {
-			switchTab($firstTab.data('tab'));
+		const $firstTab = $tabs.first();
+		const firstTabKey = $firstTab.data('tab');
+		console.log('[WUDT] First tab key:', firstTabKey);
+		
+		if (firstTabKey) {
+			switchTab(firstTabKey);
 		}
 
 		// Initialize dark mode from saved preference
 		if (localStorage.getItem('wudt-dark-mode') === 'true') {
 			$('body').addClass('wudt-dark');
 		}
+		
+		console.log('[WUDT] Initialization complete');
 	}
 
 	// ============================================
@@ -36,8 +53,10 @@
 	// ============================================
 	function bindEvents() {
 		// Tab switching
-		$(document).on('click', '.wudt-tab', function() {
+		$(document).on('click', '.wudt-tab', function(e) {
+			e.preventDefault();
 			const tab = $(this).data('tab');
+			console.log('[WUDT] Tab clicked:', tab);
 			switchTab(tab);
 		});
 
@@ -69,6 +88,20 @@
 			showHelp();
 		});
 
+		// Auto Recovery actions
+		$(document).on('click', '.wudt-restore-plugin', function() {
+			const plugin = $(this).data('plugin');
+			restorePlugin(plugin);
+		});
+
+		$(document).on('click', '.wudt-restore-theme', function() {
+			restoreTheme();
+		});
+
+		$(document).on('click', '.wudt-disable-safe-mode', function() {
+			disableSafeMode();
+		});
+
 		// Keyboard shortcuts
 		$(document).on('keydown', function(e) {
 			// Ctrl/Cmd + Shift + R = Refresh current tab
@@ -90,23 +123,38 @@
 			return;
 		}
 
+		console.log('[WUDT] Switching to tab:', tab);
+
 		// Update tab UI
 		$('.wudt-tab').removeClass('is-active');
-		$(`.wudt-tab[data-tab="${tab}"]`).addClass('is-active');
+		const $targetTab = $(`.wudt-tab[data-tab="${tab}"]`);
+		$targetTab.addClass('is-active');
+		console.log('[WUDT] Tab element found:', $targetTab.length > 0);
 
 		// Hide all panels
 		$('.wudt-panel').hide();
 
 		// Show target panel
 		const $panel = $(`.wudt-panel[data-panel="${tab}"]`);
+		console.log('[WUDT] Panel element found:', $panel.length > 0, 'data-panel:', tab);
+		
+		if ($panel.length === 0) {
+			console.error('[WUDT] Panel not found for tab:', tab);
+			WUDTUI.Toast.error('Panel not found for tab: ' + tab);
+			return;
+		}
+		
 		$panel.show();
+		console.log('[WUDT] Panel shown');
 
 		state.currentTab = tab;
 
 		// Load data if not cached
 		if (!state.moduleData[tab]) {
+			console.log('[WUDT] Loading tab data...');
 			loadTabData(tab);
 		} else {
+			console.log('[WUDT] Using cached data');
 			renderPanel(tab, state.moduleData[tab]);
 		}
 
@@ -155,7 +203,10 @@
 		// Generate HTML based on data type
 		let html = '';
 		
-		if (typeof data === 'object' && data !== null) {
+		// Custom rendering for auto_recovery tab
+		if (tab === 'auto_recovery' && typeof data === 'object' && data !== null) {
+			html = renderAutoRecoveryPanel(data);
+		} else if (typeof data === 'object' && data !== null) {
 			html = renderDataObject(data);
 		} else {
 			html = `<pre class="wudt-pre">${escapeHtml(String(data))}</pre>`;
@@ -166,6 +217,151 @@
 		// Add animation
 		$content.addClass('wudt-animate-fade-in');
 		setTimeout(() => $content.removeClass('wudt-animate-fade-in'), 300);
+	}
+
+	/**
+	 * Render Auto Recovery panel with action buttons
+	 */
+	function renderAutoRecoveryPanel(data) {
+		let html = '<div class="wudt-auto-recovery">';
+		
+		// Safe Mode Status
+		const safeModeActive = data.safe_mode_active === true;
+		html += '<div class="wudt-section">';
+		html += '<h3>Safe Mode Status</h3>';
+		if (safeModeActive) {
+			html += '<div class="wudt-alert wudt-alert--warning">';
+			html += '<span class="wudt-alert__icon">⚠️</span>';
+			html += '<div class="wudt-alert__content">';
+			html += '<strong>Safe Mode is Active</strong>';
+			html += '<p>WUDT detected a fatal error in itself. Advanced features are temporarily disabled to keep the site accessible.</p>';
+			html += '<button class="wudt-btn wudt-btn--primary wudt-disable-safe-mode">Exit Safe Mode</button>';
+			html += '</div></div>';
+		} else {
+			html += '<div class="wudt-alert wudt-alert--success">';
+			html += '<span class="wudt-alert__icon">✅</span>';
+			html += '<div class="wudt-alert__content">';
+			html += '<strong>Safe Mode Inactive</strong>';
+			html += '<p>WUDT is operating normally. All features are enabled.</p>';
+			html += '</div></div>';
+		}
+		html += '</div>';
+		
+		// Disabled Plugins
+		const disabledPlugins = data.disabled_plugins || {};
+		const pluginCount = Object.keys(disabledPlugins).length;
+		
+		html += '<div class="wudt-section">';
+		html += '<h3>Disabled Plugins</h3>';
+		if (pluginCount > 0) {
+			html += `<p class="wudt-section-desc">${pluginCount} plugin(s) were automatically deactivated due to fatal errors:</p>`;
+			html += '<div class="wudt-list">';
+			for (const [plugin, info] of Object.entries(disabledPlugins)) {
+				html += '<div class="wudt-list-item">';
+				html += '<div class="wudt-list-item__info">';
+				html += `<code class="wudt-list-item__title">${escapeHtml(plugin)}</code>`;
+				if (info.error && info.error.message) {
+					html += `<div class="wudt-list-item__subtitle">${escapeHtml(info.error.message)}</div>`;
+				}
+				if (info.time) {
+					html += `<div class="wudt-list-item__meta">Disabled: ${escapeHtml(info.time)}</div>`;
+				}
+				html += '</div>';
+				html += `<button class="wudt-btn wudt-btn--secondary wudt-btn--sm wudt-restore-plugin" data-plugin="${escapeHtml(plugin)}">Restore</button>`;
+				html += '</div>';
+			}
+			html += '</div>';
+		} else {
+			html += '<div class="wudt-empty">';
+			html += '<div class="wudt-empty__icon">✅</div>';
+			html += '<div class="wudt-empty__message">No plugins have been automatically disabled.</div>';
+			html += '</div>';
+		}
+		html += '</div>';
+		
+		// Disabled Theme
+		const disabledTheme = data.disabled_theme || {};
+		html += '<div class="wudt-section">';
+		html += '<h3>Theme Recovery</h3>';
+		if (disabledTheme.theme) {
+			html += '<div class="wudt-list">';
+			html += '<div class="wudt-list-item">';
+			html += '<div class="wudt-list-item__info">';
+			html += `<code class="wudt-list-item__title">${escapeHtml(disabledTheme.theme)}</code>`;
+			if (disabledTheme.error && disabledTheme.error.message) {
+				html += `<div class="wudt-list-item__subtitle">${escapeHtml(disabledTheme.error.message)}</div>`;
+			}
+			if (disabledTheme.time) {
+				html += `<div class="wudt-list-item__meta">Switched: ${escapeHtml(disabledTheme.time)}</div>`;
+			}
+			html += '</div>';
+			html += '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm wudt-restore-theme">Restore Theme</button>';
+			html += '</div>';
+			html += '</div>';
+		} else {
+			html += '<div class="wudt-empty">';
+			html += '<div class="wudt-empty__icon">✅</div>';
+			html += '<div class="wudt-empty__message">No theme changes have been made.</div>';
+			html += '</div>';
+		}
+		html += '</div>';
+		
+		// Recovery Log
+		const recoveryLog = data.recovery_log || [];
+		html += '<div class="wudt-section">';
+		html += '<h3>Recovery Log</h3>';
+		if (recoveryLog.length > 0) {
+			html += '<div class="wudt-log">';
+			// Show last 10 entries
+			const recentLog = recoveryLog.slice(-10).reverse();
+			for (const entry of recentLog) {
+				html += '<div class="wudt-log-entry">';
+				html += `<div class="wudt-log-entry__time">${escapeHtml(entry.time || 'Unknown')}</div>`;
+				html += `<div class="wudt-log-entry__action">${escapeHtml(entry.action || 'Unknown')}</div>`;
+				if (entry.target) {
+					html += `<div class="wudt-log-entry__target">${escapeHtml(entry.target)}</div>`;
+				}
+				if (entry.error_message) {
+					html += `<div class="wudt-log-entry__message">${escapeHtml(entry.error_message)}</div>`;
+				}
+				html += '</div>';
+			}
+			html += '</div>';
+		} else {
+			html += '<div class="wudt-empty">';
+			html += '<div class="wudt-empty__message">No recovery events logged yet.</div>';
+			html += '</div>';
+		}
+		html += '</div>';
+		
+		// Add custom styles
+		html += '<style>';
+		html += '.wudt-auto-recovery .wudt-section { margin-bottom: 30px; }';
+		html += '.wudt-auto-recovery .wudt-section h3 { margin-bottom: 16px; font-size: 1.1rem; }';
+		html += '.wudt-auto-recovery .wudt-section-desc { color: var(--wudt-gray-600); margin-bottom: 12px; }';
+		html += '.wudt-alert { display: flex; gap: 16px; padding: 16px; border-radius: 8px; margin-bottom: 16px; }';
+		html += '.wudt-alert--warning { background: #fff3cd; border: 1px solid #ffc107; }';
+		html += '.wudt-alert--success { background: #d4edda; border: 1px solid #28a745; }';
+		html += '.wudt-alert__icon { font-size: 24px; }';
+		html += '.wudt-alert__content p { margin: 8px 0 0; }';
+		html += '.wudt-list { border: 1px solid var(--wudt-gray-200); border-radius: 8px; overflow: hidden; }';
+		html += '.wudt-list-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--wudt-gray-200); }';
+		html += '.wudt-list-item:last-child { border-bottom: none; }';
+		html += '.wudt-list-item__info { flex: 1; }';
+		html += '.wudt-list-item__title { font-family: monospace; font-size: 0.9rem; }';
+		html += '.wudt-list-item__subtitle { font-size: 0.875rem; color: #d63638; margin-top: 4px; }';
+		html += '.wudt-list-item__meta { font-size: 0.75rem; color: var(--wudt-gray-600); margin-top: 4px; }';
+		html += '.wudt-log { border: 1px solid var(--wudt-gray-200); border-radius: 8px; overflow: hidden; max-height: 300px; overflow-y: auto; }';
+		html += '.wudt-log-entry { padding: 12px 16px; border-bottom: 1px solid var(--wudt-gray-200); font-size: 0.875rem; }';
+		html += '.wudt-log-entry:last-child { border-bottom: none; }';
+		html += '.wudt-log-entry__time { font-size: 0.75rem; color: var(--wudt-gray-600); }';
+		html += '.wudt-log-entry__action { font-weight: 600; margin: 4px 0; }';
+		html += '.wudt-log-entry__target { font-family: monospace; font-size: 0.8rem; color: var(--wudt-gray-700); }';
+		html += '.wudt-log-entry__message { color: #d63638; font-size: 0.8rem; margin-top: 4px; }';
+		html += '</style>';
+		
+		html += '</div>';
+		return html;
 	}
 
 	function renderDataObject(data, level = 0) {
@@ -358,6 +554,81 @@
 			showFooter: true,
 			confirmText: 'Got it'
 		});
+	}
+
+	// ============================================
+	// Auto Recovery Functions
+	// ============================================
+	function restorePlugin(plugin) {
+		WUDTUI.Modal.confirm(
+			`Are you sure you want to restore plugin: ${plugin}? This may cause the site to crash again if the error persists.`,
+			{
+				title: 'Restore Plugin',
+				confirmText: 'Restore',
+				confirmClass: 'wudt-btn--primary',
+				onConfirm: function() {
+					WUDTUI.Ajax.post('wudt_restore_plugin', { plugin: plugin }).done(function(response) {
+						if (response.success) {
+							WUDTUI.Toast.success(response.data.message || 'Plugin restored successfully');
+							// Reload auto_recovery tab to update the list
+							if (state.currentTab === 'auto_recovery') {
+								loadTabData('auto_recovery');
+							}
+						} else {
+							WUDTUI.Toast.error(response.data?.message || 'Failed to restore plugin');
+						}
+					});
+				}
+			}
+		);
+	}
+
+	function restoreTheme() {
+		WUDTUI.Modal.confirm(
+			'Are you sure you want to restore the previous theme? This may cause the site to crash again if the error persists.',
+			{
+				title: 'Restore Theme',
+				confirmText: 'Restore',
+				confirmClass: 'wudt-btn--primary',
+				onConfirm: function() {
+					WUDTUI.Ajax.post('wudt_restore_theme', {}).done(function(response) {
+						if (response.success) {
+							WUDTUI.Toast.success(response.data.message || 'Theme restored successfully');
+							// Reload auto_recovery tab
+							if (state.currentTab === 'auto_recovery') {
+								loadTabData('auto_recovery');
+							}
+						} else {
+							WUDTUI.Toast.error(response.data?.message || 'Failed to restore theme');
+						}
+					});
+				}
+			}
+		);
+	}
+
+	function disableSafeMode() {
+		WUDTUI.Modal.confirm(
+			'Are you sure you want to exit Safe Mode? This will re-enable all WUDT advanced features.',
+			{
+				title: 'Exit Safe Mode',
+				confirmText: 'Exit Safe Mode',
+				confirmClass: 'wudt-btn--primary',
+				onConfirm: function() {
+					WUDTUI.Ajax.post('wudt_disable_safe_mode', {}).done(function(response) {
+						if (response.success) {
+							WUDTUI.Toast.success(response.data.message || 'Safe mode disabled');
+							// Reload auto_recovery tab
+							if (state.currentTab === 'auto_recovery') {
+								loadTabData('auto_recovery');
+							}
+						} else {
+							WUDTUI.Toast.error(response.data?.message || 'Failed to disable safe mode');
+						}
+					});
+				}
+			}
+		);
 	}
 
 	// ============================================

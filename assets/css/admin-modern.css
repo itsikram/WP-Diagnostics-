@@ -1553,6 +1553,21 @@
 	background: linear-gradient(180deg, var(--wudt-gray-50) 0%, #fff 100%);
 }
 
+.wudt-ai-fullscreen .wudt-ai-msg.status {
+	background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+	border-left: 4px solid #3b82f6;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg.error {
+	background: linear-gradient(180deg, #fef2f2 0%, #fff 100%);
+	border-left: 4px solid #ef4444;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg.completion {
+	background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%);
+	border-left: 4px solid #22c55e;
+}
+
 .wudt-ai-fullscreen .wudt-ai-msg-avatar {
 	width: 36px;
 	height: 36px;
@@ -1574,6 +1589,21 @@
 	color: #fff;
 }
 
+.wudt-ai-fullscreen .wudt-ai-msg.status .wudt-ai-msg-avatar {
+	background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+	color: #fff;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg.error .wudt-ai-msg-avatar {
+	background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+	color: #fff;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg.completion .wudt-ai-msg-avatar {
+	background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+	color: #fff;
+}
+
 .wudt-ai-fullscreen .wudt-ai-msg-avatar svg {
 	width: 20px;
 	height: 20px;
@@ -1585,6 +1615,23 @@
 	font-size: 15px;
 	line-height: 1.7;
 	color: var(--wudt-gray-800);
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg-content.status-msg {
+	font-size: 14px;
+	color: #1e40af;
+	font-style: italic;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg-content.error-msg {
+	font-size: 14px;
+	color: #b91c1c;
+}
+
+.wudt-ai-fullscreen .wudt-ai-msg-content.completion-msg {
+	font-size: 15px;
+	color: #166534;
+	font-weight: 500;
 }
 
 .wudt-ai-fullscreen .wudt-ai-msg-content p {
@@ -1765,6 +1812,27 @@
 	border-top: 1px solid var(--wudt-gray-200);
 }
 
+.wudt-ai-fullscreen .wudt-ai-executing-status {
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-2);
+	padding: var(--wudt-space-2) var(--wudt-space-3);
+	margin-bottom: var(--wudt-space-3);
+	background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+	border-left: 4px solid #3b82f6;
+	border-radius: var(--wudt-radius-md);
+	font-size: 14px;
+	color: #1e40af;
+	font-weight: 600;
+}
+
+.wudt-ai-fullscreen .wudt-ai-executing-status svg {
+	width: 18px;
+	height: 18px;
+	color: #3b82f6;
+	animation: wudtPulse 2s infinite;
+}
+
 .wudt-ai-fullscreen .wudt-ai-input-wrapper {
 	position: relative;
 	border: 2px solid var(--wudt-gray-200);
@@ -1797,6 +1865,12 @@
 
 .wudt-ai-fullscreen .wudt-ai-textarea::placeholder {
 	color: var(--wudt-gray-400);
+}
+
+.wudt-ai-fullscreen .wudt-ai-textarea:disabled {
+	background: var(--wudt-gray-100);
+	cursor: not-allowed;
+	opacity: 0.7;
 }
 
 .wudt-ai-fullscreen .wudt-ai-send-btn {
@@ -1975,6 +2049,16 @@
 
 .wudt-ai-action-item button.is-warning {
 	background: linear-gradient(135deg, var(--wudt-warning) 0%, #a16207 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-success {
+	background: linear-gradient(135deg, var(--wudt-success) 0%, #16a34a 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-primary {
+	background: linear-gradient(135deg, var(--wudt-primary) 0%, var(--wudt-primary-dark) 100%);
 	color: #fff;
 }
 

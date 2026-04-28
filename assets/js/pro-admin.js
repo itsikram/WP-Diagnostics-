@@ -79,6 +79,8 @@
 		ai: {
 			history: [],
 			typing: false,
+			executing: false,
+			executionStatus: '',
 			buffer: '',
 			lastAction: null,
 			lastActions: [],
@@ -912,6 +914,7 @@
 		var iconArrowLeft = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>';
 		var iconFile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
 		var iconDatabase = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>';
+		var iconDownload = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 
 		// Sidebar threads with more items
 		var threads = '<div class="wudt-ai-thread-list">'
@@ -939,11 +942,21 @@
 			for (var i = 0; i < messages.length; i++) {
 				var m = messages[i];
 				var isUser = m.role === 'user';
+				var isStatus = m.isStatus;
+				var isError = m.isError;
+				var isCompletion = m.isCompletion;
 				var cls = isUser ? 'wudt-ai-msg user' : 'wudt-ai-msg ai';
-				var avatar = isUser ? iconUser : iconBot;
+				if (isStatus) { cls += ' status'; }
+				if (isError) { cls += ' error'; }
+				if (isCompletion) { cls += ' completion'; }
+				var avatar = isUser ? iconUser : (isStatus || isCompletion ? iconSparkles : iconBot);
+				var contentClass = 'wudt-ai-msg-content';
+				if (isStatus) { contentClass += ' status-msg'; }
+				if (isError) { contentClass += ' error-msg'; }
+				if (isCompletion) { contentClass += ' completion-msg'; }
 				bubble += '<div class="' + cls + '">'
 					+ '<div class="wudt-ai-msg-avatar">' + avatar + '</div>'
-					+ '<div class="wudt-ai-msg-content">' + renderMarkdownLite(m.content || '') + ''
+					+ '<div class="' + contentClass + '">' + renderMarkdownLite(m.content || '') + ''
 					+ (isUser ? '' : '<div class="wudt-ai-msg-actions"><button class="wudt-ai-msg-action wudt-ai-copy" data-copy-index="' + i + '">' + iconCopy + ' Copy</button></div>')
 					+ '</div>'
 					+ '</div>';
@@ -1011,6 +1024,17 @@
 						icon = iconWarning;
 						label = 'Disable Plugin: ' + (act.plugin || 'Plugin');
 						btnClass += ' is-warning';
+						break;
+					case 'activate_plugin':
+						icon = iconSparkles;
+						label = 'Activate Plugin: ' + (act.plugin || 'Plugin');
+						btnClass += ' is-success';
+						break;
+					case 'install_plugin':
+						icon = iconDownload;
+						label = 'Install Plugin: ' + (act.plugin_slug || act.plugin || 'Plugin');
+						if (act.activate) label += ' (+activate)';
+						btnClass += ' is-primary';
 						break;
 				}
 				
@@ -1086,9 +1110,10 @@
 			+ '</div>'
 			// Input area
 			+ '<div class="wudt-ai-input-area">'
+			+ (state.ai.executing ? '<div class="wudt-ai-executing-status">' + iconSparkles + ' <span>' + esc(state.ai.executionStatus || 'Executing tasks...') + '</span></div>' : '')
 			+ '<div class="wudt-ai-input-wrapper">'
-			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Ask anything about your WordPress site... (Shift+Enter for new line)" rows="1"></textarea>'
-			+ '<button class="wudt-ai-send-btn" id="wudt-ai-send" ' + (state.ai.typing ? 'disabled' : '') + '>' + iconSend + '</button>'
+			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Ask anything about your WordPress site... (Shift+Enter for new line)" rows="1" ' + (state.ai.executing ? 'disabled' : '') + '></textarea>'
+			+ '<button class="wudt-ai-send-btn" id="wudt-ai-send" ' + (state.ai.typing || state.ai.executing ? 'disabled' : '') + '>' + iconSend + '</button>'
 			+ '</div>'
 			+ '</div>'
 			+ '</section></div>';
@@ -1717,7 +1742,111 @@
 	}
 
 	/**
-	 * Execute an AI action with confirmation
+	 * Auto-execute multiple AI actions and get completion status
+	 */
+	function autoExecuteAIActions(actions, originalPrompt) {
+		if (!actions || actions.length === 0) { return; }
+		
+		var executionId = 'exec_' + Date.now();
+		
+		// Set executing state to disable input
+		state.ai.executing = true;
+		state.ai.executionStatus = 'Executing ' + actions.length + ' task(s)...';
+		
+		// Add status message to chat
+		state.ai.history.push({ 
+			role: 'assistant', 
+			content: 'Executing ' + actions.length + ' task(s) automatically...',
+			isStatus: true
+		});
+		render();
+		scrollAIToBottom();
+		
+		// Execute batch
+		post('diagnostics_ai_execute_batch', {
+			actions: JSON.stringify(actions),
+			execution_id: executionId
+		}).done(function (r) {
+			if (r && r.success && r.data) {
+				// Update status
+				state.ai.history.push({ 
+					role: 'assistant', 
+					content: 'Tasks executed: ' + r.data.completed + '/' + r.data.total + ' completed.\n\n' + (r.data.summary || ''),
+					isStatus: true
+				});
+				
+				// Clear executing state to re-enable input
+				state.ai.executing = false;
+				state.ai.executionStatus = '';
+				
+				render();
+				scrollAIToBottom();
+				
+				// Clear the action buttons since we auto-executed
+				state.ai.lastActions = [];
+				state.ai.lastAction = null;
+				
+				// Get AI completion message
+				getAICompletionMessage(executionId, originalPrompt);
+			} else {
+				var errMsg = 'Task execution failed.';
+				if (r && r.data && r.data.message) {
+					errMsg += ' ' + r.data.message;
+				}
+				state.ai.history.push({ 
+					role: 'assistant', 
+					content: errMsg,
+					isError: true
+				});
+				
+				// Clear executing state to re-enable input
+				state.ai.executing = false;
+				state.ai.executionStatus = '';
+				
+				render();
+			}
+		}).fail(function (xhr) {
+			var err = xhr && xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data.message : 'Server error';
+			state.ai.history.push({ 
+				role: 'assistant', 
+				content: 'Execution failed: ' + err,
+				isError: true
+			});
+			
+			// Clear executing state to re-enable input
+			state.ai.executing = false;
+			state.ai.executionStatus = '';
+			
+			render();
+		});
+	}
+
+	/**
+	 * Get AI completion message after task execution
+	 */
+	function getAICompletionMessage(executionId, originalPrompt) {
+		post('diagnostics_ai_task_status', {
+			execution_id: executionId,
+			get_completion: true,
+			original_prompt: originalPrompt
+		}).done(function (r) {
+			if (r && r.success && r.data && r.data.ai_completion) {
+				// Add the AI's completion message as a proper response
+				state.ai.history.push({ 
+					role: 'assistant', 
+					content: r.data.ai_completion,
+					isCompletion: true
+				});
+				render();
+				scrollAIToBottom();
+			}
+		}).fail(function () {
+			// Silent fail - we already showed execution status
+		});
+	}
+
+	/**
+	 * Execute an AI action with confirmation (manual mode)
 	 */
 	function executeAIAction(action, idx) {
 		if (!action || !action.action) { return; }
@@ -1746,6 +1875,15 @@
 			case 'read_file':
 				extraInfo = '\n\nFile: ' + (action.path || 'N/A');
 				confirmMsg = 'Read file contents?' + extraInfo;
+				break;
+			case 'install_plugin':
+				extraInfo = '\n\nPlugin: ' + (action.plugin_slug || action.plugin || 'N/A');
+				if (action.activate) extraInfo += ' (and activate)';
+				confirmMsg = 'Install plugin?' + extraInfo;
+				break;
+			case 'activate_plugin':
+				extraInfo = '\n\nPlugin: ' + (action.plugin || 'N/A');
+				confirmMsg = 'Activate plugin?' + extraInfo;
 				break;
 			case 'disable_plugin':
 				extraInfo = '\n\nPlugin: ' + (action.plugin || 'N/A');
@@ -2562,12 +2700,20 @@
 								state.ai.history[aiIndex].content = aiText;
 							} else if (evt.type === 'done' && mode === 'agent') {
 							// Support both single action and multiple actions
+							var actionsToExecute = [];
 							if (evt.actions && Array.isArray(evt.actions) && evt.actions.length > 0) {
+								actionsToExecute = evt.actions;
 								state.ai.lastActions = evt.actions;
-								state.ai.lastAction = evt.actions[0]; // Backward compatibility
+								state.ai.lastAction = evt.actions[0];
 							} else if (evt.action && evt.action.action) {
+								actionsToExecute = [evt.action];
 								state.ai.lastAction = evt.action;
 								state.ai.lastActions = [evt.action];
+							}
+							
+							// Auto-execute actions in agent mode
+							if (actionsToExecute.length > 0) {
+								autoExecuteAIActions(actionsToExecute, prompt);
 							}
 						}
 					} catch (e) {}
@@ -3205,6 +3351,21 @@
 
 	$(function () {
 		render();
+		
+		// Auto-collapse WordPress sidebar on AI assistant page
+		if (window.location.href.indexOf('page=wudt-ai-assistant') !== -1) {
+			// Add folded class to body to collapse sidebar
+			$('body').addClass('folded');
+			// Also collapse the menu if not already folded
+			if (typeof setUserSetting === 'function') {
+				setUserSetting('mfold', 'o'); // 'o' = folded/collapsed
+			}
+			// Trigger WordPress menu toggle if available
+			if ($('#collapse-menu').length) {
+				$('#collapse-menu').trigger('click');
+			}
+		}
+		
 		// Load initial tab data if not dashboard or if no data exists
 		var initialTab = state.tab;
 		var hasTabData = false;

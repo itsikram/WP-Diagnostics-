@@ -34,7 +34,7 @@ class AI_Service {
 	 */
 	private function get_api_endpoint(string $model_setting): string {
 
-		return "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k";
+		return "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM";
 		switch ($model_setting) {
 			case 'gemini-2.5-flash':
 			case 'gemini':
@@ -81,22 +81,42 @@ class AI_Service {
 		$system_prompt = 'You are an expert WordPress administrator and developer assistant. You have full access to the WordPress database and file system.';
 		if ('agent' === $mode) {
 			$system_prompt .= "\n\n=== AGENT MODE ENABLED ===\n";
-			$system_prompt .= "You can execute these action types:\n";
-			$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE)\n";
-			$system_prompt .= "- edit_file: Modify existing files\n";
-			$system_prompt .= "- create_file: Create new files\n";
-			$system_prompt .= "- delete_file: Delete files\n";
-			$system_prompt .= "- read_file: Read file contents\n";
-			$system_prompt .= "- disable_plugin: Deactivate plugins\n";
-			$system_prompt .= "\nIMPORTANT: When you want to perform an action, you MUST include a JSON block in your response like this:\n";
+			$system_prompt .= "You are a DYNAMIC AI AGENT that can automatically fix WordPress issues.\n\n";
+			$system_prompt .= "AVAILABLE ACTION TYPES:\n";
+			$system_prompt .= "- install_plugin: INSTALL plugins from WordPress.org (requires 'plugin_slug' like 'elementor', optional 'activate': true)\n";
+			$system_prompt .= "- activate_plugin: ACTIVATE already installed plugins using WordPress API (requires 'plugin' - the plugin file path like 'elementor/elementor.php')\n";
+			$system_prompt .= "- disable_plugin: DEACTIVATE plugins using WordPress API (requires 'plugin' - the plugin file path)\n";
+			$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE) - ONLY for database data, NEVER for plugin activation\n";
+			$system_prompt .= "- edit_file: Modify existing files (requires 'path' and 'content')\n";
+			$system_prompt .= "- create_file: Create new files (requires 'path' and 'content')\n";
+			$system_prompt .= "- delete_file: Delete files (requires 'path')\n";
+			$system_prompt .= "- read_file: Read file contents (requires 'path')\n";
+			$system_prompt .= "\n=== CRITICAL RULES ===\n";
+			$system_prompt .= "- ALWAYS use 'activate_plugin' action to activate plugins - NEVER use SQL for plugin activation\n";
+			$system_prompt .= "- ALWAYS use 'disable_plugin' action to deactivate plugins - NEVER use SQL for plugin deactivation\n";
+			$system_prompt .= "- SQL is ONLY for reading/updating database content like posts, users, options (not plugin status)\n";
+			$system_prompt .= "- For plugin operations, the 'plugin' parameter must be the relative path from wp-content/plugins/ (e.g., 'elementor/elementor.php')\n";
+			$system_prompt .= "\n=== AUTOMATIC EXECUTION PROTOCOL ===\n";
+			$system_prompt .= "When the user asks you to fix, repair, solve, update, change, modify, install, configure, optimize, activate, deactivate, enable, disable, or clean ANYTHING:\n";
+			$system_prompt .= "1. First, analyze the problem using read_file or run_sql to gather information\n";
+			$system_prompt .= "2. Then output the COMPLETE FIX as a JSON action block\n";
+			$system_prompt .= "3. The system will AUTOMATICALLY execute your actions - no user confirmation needed\n";
+			$system_prompt .= "4. After execution, you will receive the results and should confirm completion\n\n";
+			$system_prompt .= "=== JSON ACTION FORMAT ===\n";
+			$system_prompt .= "Single action:\n";
 			$system_prompt .= "```json\n";
-			$system_prompt .= '{"action":"run_sql","sql":"SELECT option_name, option_value FROM wp_options WHERE option_name=\"active_plugins\"","description":"Get active plugins"}' . "\n";
+			$system_prompt .= '{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}' . "\n";
 			$system_prompt .= "```\n";
-			$system_prompt .= "\nOr for multiple actions:\n";
+			$system_prompt .= "\nMultiple actions (array):\n";
 			$system_prompt .= "```json\n";
-			$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"run_sql","sql":"SELECT * FROM wp_users LIMIT 5","description":"List users"}]' . "\n";
+			$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}]' . "\n";
 			$system_prompt .= "```\n";
-			$system_prompt .= "\nAlways explain your plan first, then include the JSON action block.";
+			$system_prompt .= "\n=== RESPONSE FLOW ===\n";
+			$system_prompt .= "1. Explain what you found (diagnosis)\n";
+			$system_prompt .= "2. Include JSON action block(s) to fix the issue\n";
+			$system_prompt .= "3. System auto-executes actions\n";
+			$system_prompt .= "4. You receive execution results\n";
+			$system_prompt .= "5. Confirm task completion with summary\n";
 		} else {
 			$system_prompt .= ' Ask mode: Explain clearly and suggest steps, but do NOT output JSON action blocks.';
 		}
@@ -119,7 +139,7 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
-		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k"; //$this->get_api_endpoint($model_setting);
+		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM"; //$this->get_api_endpoint($model_setting);
 		
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {

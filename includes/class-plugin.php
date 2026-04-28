@@ -37,6 +37,7 @@ use WUDT\Modules\Backup\Backup_Module;
 use WUDT\Modules\Restore\Restore_Module;
 use WUDT\Modules\Malware\Enterprise_Malware_Module;
 use WUDT\Modules\Recovery\Crash_Recovery_Module;
+use WUDT\Modules\AutoRecovery\Auto_Recovery_Module;
 use WUDT\Modules\State\State_Module;
 use WUDT\Modules\AIAssistant\AI_Controller;
 use WUDT\Modules\ProgressMonitor\Progress_Monitor_Module;
@@ -87,6 +88,7 @@ class Plugin {
 				Backup_Module::class,
 				Restore_Module::class,
 				Crash_Recovery_Module::class,
+				Auto_Recovery_Module::class,
 				State_Module::class,
 				AI_Controller::class,
 				Pro_Logs_Module::class,

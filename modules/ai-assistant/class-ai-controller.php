@@ -33,6 +33,8 @@ class AI_Controller extends Module_Base {
 		add_action('wp_ajax_diagnostics_ai_history', array($this, 'ajax_history'));
 		add_action('wp_ajax_diagnostics_ai_clear_history', array($this, 'ajax_clear_history'));
 		add_action('wp_ajax_diagnostics_ai_apply_fix', array($this, 'ajax_apply_fix'));
+		add_action('wp_ajax_diagnostics_ai_execute_batch', array($this, 'ajax_execute_batch'));
+		add_action('wp_ajax_diagnostics_ai_task_status', array($this, 'ajax_task_status'));
 		add_action('wp_ajax_diagnostics_ai_autodebug', array($this, 'ajax_autodebug'));
 		add_action('wp_ajax_diagnostics_ai_models', array($this, 'ajax_models'));
 		add_action('wp_ajax_diagnostics_ai_test_api', array($this, 'ajax_test_api'));
@@ -176,6 +178,12 @@ class AI_Controller extends Module_Base {
 		$result = array('applied' => false, 'message' => '', 'data' => null);
 
 		switch ($action) {
+			case 'activate_plugin':
+				$result = $this->action_activate_plugin($params);
+				break;
+			case 'install_plugin':
+				$result = $this->action_install_plugin($params);
+				break;
 			case 'disable_plugin':
 				$result = $this->action_disable_plugin($params);
 				break;
@@ -205,6 +213,142 @@ class AI_Controller extends Module_Base {
 		} else {
 			wp_send_json_error($result);
 		}
+	}
+
+	/**
+	 * Activate a plugin action
+	 */
+	private function action_activate_plugin(array $params): array {
+		if (empty($params['plugin'])) {
+			return array('applied' => false, 'message' => 'Plugin parameter missing');
+		}
+		$plugin = sanitize_text_field((string) $params['plugin']);
+		
+		// Check if plugin file exists
+		$plugin_path = WP_PLUGIN_DIR . '/' . $plugin;
+		if (!file_exists($plugin_path)) {
+			return array('applied' => false, 'message' => 'Plugin file not found: ' . $plugin);
+		}
+		
+		// Check if already active
+		if (is_plugin_active($plugin)) {
+			return array('applied' => true, 'message' => 'Plugin already active: ' . $plugin);
+		}
+		
+		// Include plugin.php if not already included
+		if (!function_exists('activate_plugins')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		
+		// Activate the plugin
+		$result = activate_plugin($plugin);
+		if (is_wp_error($result)) {
+			return array('applied' => false, 'message' => 'Activation failed: ' . $result->get_error_message());
+		}
+		
+		return array('applied' => true, 'message' => 'Plugin activated: ' . $plugin);
+	}
+
+	/**
+	 * Install a plugin action
+	 */
+	private function action_install_plugin(array $params): array {
+		if (empty($params['plugin_slug']) && empty($params['plugin'])) {
+			return array('applied' => false, 'message' => 'Plugin slug or name missing');
+		}
+		
+		$plugin_slug = sanitize_key((string) ($params['plugin_slug'] ?? $params['plugin']));
+		$activate = !empty($params['activate']) && $params['activate'] === true;
+		
+		// Check if already installed
+		$plugin_file = $this->find_plugin_file($plugin_slug);
+		if ($plugin_file) {
+			// Already installed, maybe activate it
+			if ($activate && !is_plugin_active($plugin_file)) {
+				$result = activate_plugin($plugin_file);
+				if (is_wp_error($result)) {
+					return array('applied' => false, 'message' => 'Plugin installed but activation failed: ' . $result->get_error_message());
+				}
+				return array('applied' => true, 'message' => 'Plugin already installed and now activated: ' . $plugin_slug, 'data' => array('plugin_file' => $plugin_file));
+			}
+			return array('applied' => true, 'message' => 'Plugin already installed: ' . $plugin_slug, 'data' => array('plugin_file' => $plugin_file));
+		}
+		
+		// Include required files for plugin installation
+		if (!function_exists('plugins_api')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin-install.php';
+		}
+		if (!function_exists('wp_upgrader')) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		}
+		if (!function_exists('Plugin_Upgrader')) {
+			require_once ABSPATH . 'wp-admin/includes/class-plugin-upgrader.php';
+		}
+		if (!function_exists('Plugin_Installer_Skin')) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader-skin.php';
+		}
+		
+		// Get plugin info from WordPress.org
+		$api = plugins_api('plugin_information', array(
+			'slug'   => $plugin_slug,
+			'fields' => array('sections' => false),
+		));
+		
+		if (is_wp_error($api)) {
+			return array('applied' => false, 'message' => 'Plugin not found on WordPress.org: ' . $plugin_slug);
+		}
+		
+		// Install the plugin
+		$upgrader = new \Plugin_Upgrader(new \WP_Ajax_Upgrader_Skin());
+		$result = $upgrader->install($api->download_link);
+		
+		if (is_wp_error($result) || !$result) {
+			return array('applied' => false, 'message' => 'Installation failed: ' . (is_wp_error($result) ? $result->get_error_message() : 'Unknown error'));
+		}
+		
+		// Find the installed plugin file
+		$plugin_file = $this->find_plugin_file($plugin_slug);
+		
+		if (!$plugin_file) {
+			return array('applied' => true, 'message' => 'Plugin installed but could not determine plugin file: ' . $plugin_slug);
+		}
+		
+		// Activate if requested
+		if ($activate) {
+			$result = activate_plugin($plugin_file);
+			if (is_wp_error($result)) {
+				return array('applied' => true, 'message' => 'Plugin installed but activation failed: ' . $result->get_error_message(), 'data' => array('plugin_file' => $plugin_file));
+			}
+			return array('applied' => true, 'message' => 'Plugin installed and activated: ' . $plugin_slug, 'data' => array('plugin_file' => $plugin_file));
+		}
+		
+		return array('applied' => true, 'message' => 'Plugin installed successfully: ' . $plugin_slug, 'data' => array('plugin_file' => $plugin_file));
+	}
+	
+	/**
+	 * Find plugin file by slug
+	 */
+	private function find_plugin_file(string $plugin_slug): ?string {
+		if (!function_exists('get_plugins')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		
+		$all_plugins = get_plugins();
+		
+		// Direct match
+		if (isset($all_plugins[$plugin_slug . '/' . $plugin_slug . '.php'])) {
+			return $plugin_slug . '/' . $plugin_slug . '.php';
+		}
+		
+		// Search for plugin folder matching slug
+		foreach ($all_plugins as $plugin_file => $plugin_data) {
+			$parts = explode('/', $plugin_file);
+			if (strtolower($parts[0]) === strtolower($plugin_slug)) {
+				return $plugin_file;
+			}
+		}
+		
+		return null;
 	}
 
 	/**
@@ -517,6 +661,171 @@ class AI_Controller extends Module_Base {
 	/**
 	 * Test API connection and return diagnostic info
 	 */
+	/**
+	 * Execute batch of AI actions automatically
+	 */
+	public function ajax_execute_batch(): void {
+		Security_Guard::assert_ajax_admin();
+		$actions = isset($_POST['actions']) ? (array) json_decode((string) wp_unslash($_POST['actions']), true) : array();
+		$execution_id = sanitize_key((string) wp_unslash($_POST['execution_id'] ?? uniqid('exec_')));
+		
+		if (empty($actions)) {
+			wp_send_json_error(array('message' => 'No actions provided'));
+			return;
+		}
+
+		$results = array();
+		$all_success = true;
+		$completed_count = 0;
+
+		foreach ($actions as $index => $action) {
+			if (!is_array($action) || empty($action['action'])) {
+				$results[] = array(
+					'index' => $index,
+					'success' => false,
+					'message' => 'Invalid action format',
+				);
+				$all_success = false;
+				continue;
+			}
+
+			$action_type = sanitize_key((string) $action['action']);
+			$result = $this->execute_single_action($action_type, $action);
+			
+			$results[] = array(
+				'index' => $index,
+				'action' => $action_type,
+				'success' => $result['applied'] ?? false,
+				'message' => $result['message'] ?? '',
+				'data' => $result['data'] ?? null,
+			);
+
+			if (!($result['applied'] ?? false)) {
+				$all_success = false;
+			} else {
+				$completed_count++;
+			}
+		}
+
+		// Store execution results for status tracking
+		set_transient('wudt_ai_exec_' . $execution_id, array(
+			'execution_id' => $execution_id,
+			'total' => count($actions),
+			'completed' => $completed_count,
+			'success' => $all_success,
+			'results' => $results,
+			'timestamp' => time(),
+		), HOUR_IN_SECONDS);
+
+		Operation_Logger::log('ai', 'AI batch execution completed', array(
+			'execution_id' => $execution_id,
+			'total' => count($actions),
+			'completed' => $completed_count,
+		));
+
+		wp_send_json_success(array(
+			'execution_id' => $execution_id,
+			'total' => count($actions),
+			'completed' => $completed_count,
+			'all_success' => $all_success,
+			'results' => $results,
+			'summary' => $this->build_execution_summary($results),
+		));
+	}
+
+	/**
+	 * Get task status and optionally send to AI for completion message
+	 */
+	public function ajax_task_status(): void {
+		Security_Guard::assert_ajax_admin();
+		$execution_id = sanitize_key((string) wp_unslash($_POST['execution_id'] ?? ''));
+		$get_completion = !empty($_POST['get_completion']);
+		$original_prompt = sanitize_textarea_field((string) wp_unslash($_POST['original_prompt'] ?? ''));
+		
+		if (empty($execution_id)) {
+			wp_send_json_error(array('message' => 'Execution ID required'));
+			return;
+		}
+
+		$status = get_transient('wudt_ai_exec_' . $execution_id);
+		if (empty($status)) {
+			wp_send_json_error(array('message' => 'Execution not found or expired'));
+			return;
+		}
+
+		// If user wants AI completion message
+		if ($get_completion && !empty($original_prompt)) {
+			$summary = $this->build_execution_summary($status['results'] ?? array());
+			$completion_prompt = "Task execution completed.\n\n";
+			$completion_prompt .= "Original request: " . $original_prompt . "\n\n";
+			$completion_prompt .= "Execution Summary:\n" . $summary . "\n\n";
+			$completion_prompt .= "Please provide a brief status message confirming what was done and if any issues occurred.";
+			
+			$context = array('execution_results' => $status);
+			$history = $this->get_history(5);
+			$result = $this->service->complete($completion_prompt, $context, $history, array('mode' => 'ask'));
+			
+			$status['ai_completion'] = $result['content'] ?? 'Task completed.';
+			
+			// Store completion message
+			$this->push_history('assistant', $status['ai_completion'], array(
+				'type' => 'task_completion',
+				'execution_id' => $execution_id,
+			));
+		}
+
+		wp_send_json_success($status);
+	}
+
+	/**
+	 * Execute a single action
+	 */
+	private function execute_single_action(string $action_type, array $params): array {
+		switch ($action_type) {
+			case 'activate_plugin':
+				return $this->action_activate_plugin($params);
+			case 'install_plugin':
+				return $this->action_install_plugin($params);
+			case 'disable_plugin':
+				return $this->action_disable_plugin($params);
+			case 'run_sql':
+				return $this->action_run_sql($params);
+			case 'edit_file':
+				return $this->action_edit_file($params);
+			case 'create_file':
+				return $this->action_create_file($params);
+			case 'delete_file':
+				return $this->action_delete_file($params);
+			case 'read_file':
+				return $this->action_read_file($params);
+			default:
+				return array('applied' => false, 'message' => 'Unknown action: ' . $action_type);
+		}
+	}
+
+	/**
+	 * Build human-readable execution summary
+	 */
+	private function build_execution_summary(array $results): string {
+		$lines = array();
+		$success_count = 0;
+		$fail_count = 0;
+
+		foreach ($results as $result) {
+			if ($result['success'] ?? false) {
+				$success_count++;
+				$lines[] = '✓ ' . ($result['action'] ?? 'action') . ': ' . ($result['message'] ?? 'Success');
+			} else {
+				$fail_count++;
+				$lines[] = '✗ ' . ($result['action'] ?? 'action') . ': ' . ($result['message'] ?? 'Failed');
+			}
+		}
+
+		$summary = "Results: {$success_count} succeeded, {$fail_count} failed\n";
+		$summary .= "Details:\n" . implode("\n", $lines);
+		return $summary;
+	}
+
 	public function ajax_test_api(): void {
 		Security_Guard::assert_ajax_admin();
 		
@@ -536,7 +845,7 @@ class AI_Controller extends Module_Base {
 		$endpoint = '';
 		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
 			$model_to_use = $model ?: 'gemini-2.5-flash';
-			$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCDWEvjG6Og0-Is_bfWfsPEz1VbvsaNd4k';
+			$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM';
 			// $endpoint = 'https://generativelanguage.googleapis.com/v1/models/' . $model_to_use . ':generateContent?key=' . $api_key;
 		} else {
 			wp_send_json_error(array('message' => 'Test only supports Gemini currently'));
