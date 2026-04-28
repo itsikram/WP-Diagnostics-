@@ -64,7 +64,45 @@ class Auto_Recovery_Module extends Module_Base {
 			'recovery_log' => $this->get_recovery_log(),
 			'disabled_plugins' => get_option(self::OPTION_DISABLED_PLUGINS, array()),
 			'disabled_theme' => get_option(self::OPTION_DISABLED_THEME, ''),
+			'permission_errors' => $this->get_permission_errors(),
+			'bootstrap_errors' => $this->get_bootstrap_errors(),
 		);
+	}
+
+	/**
+	 * Get permission errors from both main plugin and early recovery
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function get_permission_errors(): array {
+		$main_errors = (array) get_option('wudt_permission_errors', array());
+		$silent_errors = (array) get_option('wudt_silent_errors', array());
+		$early_errors = (array) get_option('wudt_early_permission_errors', array());
+		
+		// Convert early errors timestamps to match format
+		foreach ($early_errors as &$error) {
+			if (isset($error['time']) && is_int($error['time'])) {
+				$error['time'] = date('Y-m-d H:i:s', $error['time']);
+			}
+		}
+		
+		// Merge and sort by time
+		$all = array_merge($main_errors, $silent_errors, $early_errors);
+		
+		usort($all, function ($a, $b) {
+			$time_a = $a['time'] ?? '1970-01-01';
+			$time_b = $b['time'] ?? '1970-01-01';
+			return strtotime($time_b) <=> strtotime($time_a);
+		});
+		
+		return array_slice($all, 0, 20);
+	}
+
+	/**
+	 * Get bootstrap errors
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function get_bootstrap_errors(): array {
+		return (array) get_option('wudt_bootstrap_errors', array());
 	}
 
 	/**

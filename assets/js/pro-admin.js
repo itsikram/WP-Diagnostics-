@@ -81,6 +81,7 @@
 			typing: false,
 			executing: false,
 			executionStatus: '',
+			executionStarted: false,
 			buffer: '',
 			lastAction: null,
 			lastActions: [],
@@ -1036,6 +1037,11 @@
 						if (act.activate) label += ' (+activate)';
 						btnClass += ' is-primary';
 						break;
+					case 'toggle_wp_debug':
+						icon = iconSettings;
+						label = (act.enable ? 'Enable' : 'Disable') + ' WP_DEBUG' + (act.enable_log ? ' + LOG' : '');
+						btnClass += act.enable ? ' is-warning' : ' is-success';
+						break;
 				}
 				
 				actionButtons += '<div class="wudt-ai-action-item" data-action-idx="' + ai + '">'
@@ -1876,6 +1882,11 @@
 				extraInfo = '\n\nFile: ' + (action.path || 'N/A');
 				confirmMsg = 'Read file contents?' + extraInfo;
 				break;
+			case 'toggle_wp_debug':
+				var debugState = action.enable ? 'ENABLE' : 'DISABLE';
+				extraInfo = '\n\nAction: ' + debugState + ' WP_DEBUG' + (action.enable_log ? ' and WP_DEBUG_LOG' : '');
+				confirmMsg = debugState + ' WordPress debug mode?' + extraInfo;
+				break;
 			case 'install_plugin':
 				extraInfo = '\n\nPlugin: ' + (action.plugin_slug || action.plugin || 'N/A');
 				if (action.activate) extraInfo += ' (and activate)';
@@ -2656,6 +2667,7 @@
 		if (mode !== 'agent') { state.ai.lastAction = null; }
 		state.ai.history.push({ role: 'user', content: prompt });
 		state.ai.typing = true;
+		state.ai.executionStarted = false; // Reset for new execution
 		render();
 		var payload = new URLSearchParams();
 		payload.append('action', 'diagnostics_ai_chat_stream');
@@ -2698,7 +2710,10 @@
 							} else if (evt.type === 'debug') {
 								aiText += '\n\n---\n\n' + (evt.content || '');
 								state.ai.history[aiIndex].content = aiText;
-							} else if (evt.type === 'done' && mode === 'agent') {
+							} else if (evt.type === 'done' && mode === 'agent' && !state.ai.executionStarted) {
+							// Prevent double execution - only run once per response
+							state.ai.executionStarted = true;
+							
 							// Support both single action and multiple actions
 							var actionsToExecute = [];
 							if (evt.actions && Array.isArray(evt.actions) && evt.actions.length > 0) {

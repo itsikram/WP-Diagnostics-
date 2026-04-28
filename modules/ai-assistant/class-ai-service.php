@@ -87,10 +87,11 @@ class AI_Service {
 			$system_prompt .= "- activate_plugin: ACTIVATE already installed plugins using WordPress API (requires 'plugin' - the plugin file path like 'elementor/elementor.php')\n";
 			$system_prompt .= "- disable_plugin: DEACTIVATE plugins using WordPress API (requires 'plugin' - the plugin file path)\n";
 			$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE) - ONLY for database data, NEVER for plugin activation\n";
-			$system_prompt .= "- edit_file: Modify existing files (requires 'path' and 'content')\n";
+			$system_prompt .= "- read_file: Read file contents FIRST before editing (requires 'path' - relative to WordPress root like 'wp-config.php')\n";
+			$system_prompt .= "- edit_file: Write/modify files AFTER reading them (requires 'path' and full 'content')\n";
 			$system_prompt .= "- create_file: Create new files (requires 'path' and 'content')\n";
 			$system_prompt .= "- delete_file: Delete files (requires 'path')\n";
-			$system_prompt .= "- read_file: Read file contents (requires 'path')\n";
+			$system_prompt .= "- toggle_wp_debug: Toggle WP_DEBUG and WP_DEBUG_LOG in wp-config.php (requires 'enable': true/false, optional 'enable_log': true/false)\n";
 			$system_prompt .= "\n=== CRITICAL RULES ===\n";
 			$system_prompt .= "- ALWAYS use 'activate_plugin' action to activate plugins - NEVER use SQL for plugin activation\n";
 			$system_prompt .= "- ALWAYS use 'disable_plugin' action to deactivate plugins - NEVER use SQL for plugin deactivation\n";

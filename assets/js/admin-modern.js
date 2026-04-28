@@ -306,6 +306,40 @@
 		}
 		html += '</div>';
 		
+		// Permission Errors
+		const permissionErrors = data.permission_errors || [];
+		html += '<div class="wudt-section">';
+		html += '<h3>Permission Errors (Silenced)</h3>';
+		if (permissionErrors.length > 0) {
+			html += '<div class="wudt-alert wudt-alert--info">';
+			html += '<span class="wudt-alert__icon">🔒</span>';
+			html += '<div class="wudt-alert__content">';
+			html += '<strong>Permission issues detected</strong>';
+			html += '<p>These errors were handled silently to prevent 500 errors. Consider fixing file permissions.</p>';
+			html += '</div></div>';
+			html += '<div class="wudt-log wudt-permission-log">';
+			for (const entry of permissionErrors.slice(0, 10)) {
+				html += '<div class="wudt-log-entry wudt-log-entry--permission">';
+				html += `<div class="wudt-log-entry__time">${escapeHtml(entry.time || 'Unknown')}</div>`;
+				html += `<div class="wudt-log-entry__type">${escapeHtml(entry.type || 'Permission Error')}</div>`;
+				if (entry.target) {
+					html += `<div class="wudt-log-entry__target">${escapeHtml(entry.target)}</div>`;
+				}
+				if (entry.message || entry.error_message) {
+					const msg = entry.message || entry.error_message;
+					html += `<div class="wudt-log-entry__message">${escapeHtml(msg)}</div>`;
+				}
+				html += '</div>';
+			}
+			html += '</div>';
+		} else {
+			html += '<div class="wudt-empty">';
+			html += '<div class="wudt-empty__icon">🔒</div>';
+			html += '<div class="wudt-empty__message">No permission errors. File operations are working correctly.</div>';
+			html += '</div>';
+		}
+		html += '</div>';
+		
 		// Recovery Log
 		const recoveryLog = data.recovery_log || [];
 		html += '<div class="wudt-section">';
@@ -342,6 +376,7 @@
 		html += '.wudt-alert { display: flex; gap: 16px; padding: 16px; border-radius: 8px; margin-bottom: 16px; }';
 		html += '.wudt-alert--warning { background: #fff3cd; border: 1px solid #ffc107; }';
 		html += '.wudt-alert--success { background: #d4edda; border: 1px solid #28a745; }';
+		html += '.wudt-alert--info { background: #d1ecf1; border: 1px solid #17a2b8; }';
 		html += '.wudt-alert__icon { font-size: 24px; }';
 		html += '.wudt-alert__content p { margin: 8px 0 0; }';
 		html += '.wudt-list { border: 1px solid var(--wudt-gray-200); border-radius: 8px; overflow: hidden; }';
@@ -354,10 +389,13 @@
 		html += '.wudt-log { border: 1px solid var(--wudt-gray-200); border-radius: 8px; overflow: hidden; max-height: 300px; overflow-y: auto; }';
 		html += '.wudt-log-entry { padding: 12px 16px; border-bottom: 1px solid var(--wudt-gray-200); font-size: 0.875rem; }';
 		html += '.wudt-log-entry:last-child { border-bottom: none; }';
+		html += '.wudt-log-entry--permission { background: #f8f9fa; }';
 		html += '.wudt-log-entry__time { font-size: 0.75rem; color: var(--wudt-gray-600); }';
 		html += '.wudt-log-entry__action { font-weight: 600; margin: 4px 0; }';
+		html += '.wudt-log-entry__type { font-weight: 600; color: #17a2b8; margin: 4px 0; }';
 		html += '.wudt-log-entry__target { font-family: monospace; font-size: 0.8rem; color: var(--wudt-gray-700); }';
 		html += '.wudt-log-entry__message { color: #d63638; font-size: 0.8rem; margin-top: 4px; }';
+		html += '.wudt-permission-log { border-color: #17a2b8; }';
 		html += '</style>';
 		
 		html += '</div>';

@@ -202,6 +202,9 @@ class AI_Controller extends Module_Base {
 			case 'read_file':
 				$result = $this->action_read_file($params);
 				break;
+			case 'toggle_wp_debug':
+				$result = $this->action_toggle_wp_debug($params);
+				break;
 			default:
 				$result['message'] = 'Unknown action: ' . $action;
 				break;
@@ -548,6 +551,93 @@ class AI_Controller extends Module_Base {
 	}
 
 	/**
+	 * Toggle WP_DEBUG action - specifically for wp-config.php
+	 */
+	private function action_toggle_wp_debug(array $params): array {
+		$wp_config_path = ABSPATH . 'wp-config.php';
+		
+		if (!file_exists($wp_config_path)) {
+			return array('applied' => false, 'message' => 'wp-config.php not found');
+		}
+		
+		if (!is_readable($wp_config_path)) {
+			return array('applied' => false, 'message' => 'wp-config.php is not readable');
+		}
+		
+		if (!is_writable($wp_config_path)) {
+			return array('applied' => false, 'message' => 'wp-config.php is not writable - check file permissions');
+		}
+		
+		$content = file_get_contents($wp_config_path);
+		if ($content === false) {
+			return array('applied' => false, 'message' => 'Failed to read wp-config.php');
+		}
+		
+		$enable = !empty($params['enable']);
+		$enable_log = isset($params['enable_log']) ? !empty($params['enable_log']) : $enable;
+		$changes = array();
+		
+		// Handle WP_DEBUG
+		if ($enable) {
+			// Enable WP_DEBUG
+			if (preg_match("/define\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|1|false|0)\s*\)/i", $content)) {
+				$content = preg_replace("/define\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|1|false|0)\s*\)/i", "define( 'WP_DEBUG', true )", $content);
+			} else {
+				// Add WP_DEBUG before /* That's all, stop editing! */
+				$content = str_replace("/* That's all, stop editing! */", "define( 'WP_DEBUG', true );\n\n/* That's all, stop editing! */", $content);
+			}
+			$changes[] = 'WP_DEBUG enabled';
+		} else {
+			// Disable WP_DEBUG
+			$content = preg_replace("/define\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|1)\s*\)/i", "define( 'WP_DEBUG', false )", $content);
+			$changes[] = 'WP_DEBUG disabled';
+		}
+		
+		// Handle WP_DEBUG_LOG
+		if ($enable_log && $enable) {
+			// Enable WP_DEBUG_LOG
+			if (preg_match("/define\(\s*['\"]WP_DEBUG_LOG['\"]\s*,\s*(true|1|false|0)\s*\)/i", $content)) {
+				$content = preg_replace("/define\(\s*['\"]WP_DEBUG_LOG['\"]\s*,\s*(true|1|false|0)\s*\)/i", "define( 'WP_DEBUG_LOG', true )", $content);
+			} else {
+				// Add after WP_DEBUG
+				$content = preg_replace("/define\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|1)\s*\)/i", "define( 'WP_DEBUG', true );\ndefine( 'WP_DEBUG_LOG', true )", $content);
+			}
+			$changes[] = 'WP_DEBUG_LOG enabled';
+		} else {
+			// Disable WP_DEBUG_LOG
+			$content = preg_replace("/define\(\s*['\"]WP_DEBUG_LOG['\"]\s*,\s*(true|1)\s*\)/i", "define( 'WP_DEBUG_LOG', false )", $content);
+			if (!$enable) {
+				$changes[] = 'WP_DEBUG_LOG disabled';
+			}
+		}
+		
+		// Handle WP_DEBUG_DISPLAY (disable display in production)
+		if (!$enable) {
+			$content = preg_replace("/define\(\s*['\"]WP_DEBUG_DISPLAY['\"]\s*,\s*(true|1)\s*\)/i", "define( 'WP_DEBUG_DISPLAY', false )", $content);
+		}
+		
+		// Create backup
+		$backup_path = $wp_config_path . '.backup.' . time();
+		copy($wp_config_path, $backup_path);
+		
+		$result = file_put_contents($wp_config_path, $content, LOCK_EX);
+		if ($result === false) {
+			return array('applied' => false, 'message' => 'Failed to write wp-config.php');
+		}
+		
+		return array(
+			'applied' => true,
+			'message' => 'wp-config.php updated: ' . implode(', ', $changes),
+			'data' => array(
+				'changes' => $changes,
+				'backup_path' => $backup_path,
+				'wp_debug_enabled' => $enable,
+				'wp_debug_log_enabled' => $enable_log
+			)
+		);
+	}
+
+	/**
 	 * Read file action
 	 */
 	private function action_read_file(array $params): array {
@@ -798,6 +888,8 @@ class AI_Controller extends Module_Base {
 				return $this->action_delete_file($params);
 			case 'read_file':
 				return $this->action_read_file($params);
+			case 'toggle_wp_debug':
+				return $this->action_toggle_wp_debug($params);
 			default:
 				return array('applied' => false, 'message' => 'Unknown action: ' . $action_type);
 		}

@@ -34,9 +34,24 @@ function safe_require(string $relative_path): void {
 	try {
 		require_once $file;
 	} catch (\Throwable $e) {
-		error_log('[WUDT bootstrap] Failed loading ' . $relative_path . ': ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		// Silently log to WUDT internal log only (not debug.log)
+		$errors = (array) get_option('wudt_bootstrap_errors', array());
+		$errors[] = array(
+			'time' => current_time('mysql'),
+			'file' => $relative_path,
+			'error' => $e->getMessage(),
+		);
+		if (count($errors) > 50) {
+			$errors = array_slice($errors, -50);
+		}
+		update_option('wudt_bootstrap_errors', $errors, false);
 	}
 }
+
+/**
+ * Load permission handler first to catch permission errors early
+ */
+safe_require('includes/class-permission-handler.php');
 
 safe_require('includes/class-module-base.php');
 safe_require('includes/class-operation-logger.php');
