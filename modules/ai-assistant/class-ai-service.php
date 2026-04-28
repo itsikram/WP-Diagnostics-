@@ -33,8 +33,6 @@ class AI_Service {
 	 * Get API endpoint based on selected model.
 	 */
 	private function get_api_endpoint(string $model_setting): string {
-
-		return "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM";
 		switch ($model_setting) {
 			case 'gemini-2.5-flash':
 			case 'gemini':
@@ -86,6 +84,8 @@ class AI_Service {
 			$system_prompt .= "- install_plugin: INSTALL plugins from WordPress.org (requires 'plugin_slug' like 'elementor', optional 'activate': true)\n";
 			$system_prompt .= "- activate_plugin: ACTIVATE already installed plugins using WordPress API (requires 'plugin' - the plugin file path like 'elementor/elementor.php')\n";
 			$system_prompt .= "- disable_plugin: DEACTIVATE plugins using WordPress API (requires 'plugin' - the plugin file path)\n";
+			$system_prompt .= "- install_theme: INSTALL themes from WordPress.org (requires 'theme_slug' like 'astra', optional 'activate': true to switch to it)\n";
+			$system_prompt .= "- activate_theme: SWITCH active theme (requires 'theme_slug' like 'astra' or 'twentytwentyfour')\n";
 			$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE) - ONLY for database data, NEVER for plugin activation\n";
 			$system_prompt .= "- read_file: Read file contents FIRST before editing (requires 'path' - relative to WordPress root like 'wp-config.php')\n";
 			$system_prompt .= "- edit_file: Write/modify files AFTER reading them (requires 'path' and full 'content')\n";
@@ -140,7 +140,7 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
-		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM"; //$this->get_api_endpoint($model_setting);
+		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU"; //$this->get_api_endpoint($model_setting);
 		
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -319,7 +319,7 @@ class AI_Service {
 		}
 
 		// Try to fetch models from the selected provider's API
-		$endpoint = 'https://api.openai.com/v1/models';
+		$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU';
 		if ($model_setting === 'gemini') {
 			return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
 		} elseif (in_array($model_setting, array('sonnet', 'opus', 'haiku'), true)) {

@@ -1042,6 +1042,17 @@
 						label = (act.enable ? 'Enable' : 'Disable') + ' WP_DEBUG' + (act.enable_log ? ' + LOG' : '');
 						btnClass += act.enable ? ' is-warning' : ' is-success';
 						break;
+					case 'install_theme':
+						icon = iconDownload;
+						label = 'Install Theme: ' + (act.theme_slug || 'Theme');
+						if (act.activate) label += ' (+activate)';
+						btnClass += ' is-primary';
+						break;
+					case 'activate_theme':
+						icon = iconSettings;
+						label = 'Switch Theme: ' + (act.theme_slug || 'Theme');
+						btnClass += ' is-warning';
+						break;
 				}
 				
 				actionButtons += '<div class="wudt-ai-action-item" data-action-idx="' + ai + '">'
@@ -1899,6 +1910,15 @@
 			case 'disable_plugin':
 				extraInfo = '\n\nPlugin: ' + (action.plugin || 'N/A');
 				confirmMsg = 'Disable plugin?' + extraInfo;
+				break;
+			case 'install_theme':
+				extraInfo = '\n\nTheme: ' + (action.theme_slug || 'N/A');
+				if (action.activate) extraInfo += ' (and activate)';
+				confirmMsg = 'Install theme?' + extraInfo;
+				break;
+			case 'activate_theme':
+				extraInfo = '\n\nTheme: ' + (action.theme_slug || 'N/A');
+				confirmMsg = 'Switch to theme?' + extraInfo;
 				break;
 		}
 		

@@ -18,10 +18,18 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
-define('WUDT_VERSION', '1.5.0');
-define('WUDT_PLUGIN_FILE', __FILE__);
-define('WUDT_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('WUDT_PLUGIN_URL', plugin_dir_url(__FILE__));
+if (! defined('WUDT_VERSION')) {
+	define('WUDT_VERSION', '1.5.0');
+}
+if (! defined('WUDT_PLUGIN_FILE')) {
+	define('WUDT_PLUGIN_FILE', __FILE__);
+}
+if (! defined('WUDT_PLUGIN_DIR')) {
+	define('WUDT_PLUGIN_DIR', plugin_dir_path(__FILE__));
+}
+if (! defined('WUDT_PLUGIN_URL')) {
+	define('WUDT_PLUGIN_URL', plugin_dir_url(__FILE__));
+}
 
 /**
  * Load a file without crashing plugin bootstrap.

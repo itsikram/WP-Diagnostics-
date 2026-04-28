@@ -184,6 +184,12 @@ class AI_Controller extends Module_Base {
 			case 'install_plugin':
 				$result = $this->action_install_plugin($params);
 				break;
+			case 'install_theme':
+				$result = $this->action_install_theme($params);
+				break;
+			case 'activate_theme':
+				$result = $this->action_activate_theme($params);
+				break;
 			case 'disable_plugin':
 				$result = $this->action_disable_plugin($params);
 				break;
@@ -352,6 +358,100 @@ class AI_Controller extends Module_Base {
 		}
 		
 		return null;
+	}
+
+	/**
+	 * Install theme action - downloads and installs from WordPress.org
+	 */
+	private function action_install_theme(array $params): array {
+		if (empty($params['theme_slug'])) {
+			return array('applied' => false, 'message' => 'Theme slug missing');
+		}
+		
+		$theme_slug = sanitize_text_field((string) $params['theme_slug']);
+		$activate = !empty($params['activate']);
+		
+		// Check if theme is already installed
+		$theme = wp_get_theme($theme_slug);
+		if ($theme->exists()) {
+			// Theme exists, activate if requested
+			if ($activate) {
+				switch_theme($theme_slug);
+				return array('applied' => true, 'message' => 'Theme already installed and now activated: ' . $theme_slug);
+			}
+			return array('applied' => true, 'message' => 'Theme already installed: ' . $theme_slug);
+		}
+		
+		// Include required files for theme installation
+		if (!function_exists('themes_api')) {
+			require_once ABSPATH . 'wp-admin/includes/theme.php';
+		}
+		if (!function_exists('wp_upgrader')) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		}
+		if (!class_exists('Theme_Upgrader')) {
+			require_once ABSPATH . 'wp-admin/includes/class-theme-upgrader.php';
+		}
+		
+		// Get theme info from WordPress.org
+		$api = themes_api('theme_information', array(
+			'slug'   => $theme_slug,
+			'fields' => array('sections' => false),
+		));
+		
+		if (is_wp_error($api)) {
+			return array('applied' => false, 'message' => 'Theme not found on WordPress.org: ' . $theme_slug);
+		}
+		
+		// Install the theme
+		$upgrader = new \Theme_Upgrader(new \WP_Ajax_Upgrader_Skin());
+		$result = $upgrader->install($api->download_link);
+		
+		if (is_wp_error($result) || !$result) {
+			return array('applied' => false, 'message' => 'Theme installation failed: ' . (is_wp_error($result) ? $result->get_error_message() : 'Unknown error'));
+		}
+		
+		// Activate if requested
+		if ($activate) {
+			switch_theme($theme_slug);
+			return array('applied' => true, 'message' => 'Theme installed and activated: ' . $theme_slug);
+		}
+		
+		return array('applied' => true, 'message' => 'Theme installed successfully: ' . $theme_slug);
+	}
+
+	/**
+	 * Activate theme action - switch active theme
+	 */
+	private function action_activate_theme(array $params): array {
+		if (empty($params['theme_slug'])) {
+			return array('applied' => false, 'message' => 'Theme slug missing');
+		}
+		
+		$theme_slug = sanitize_text_field((string) $params['theme_slug']);
+		
+		// Check if theme exists
+		$theme = wp_get_theme($theme_slug);
+		if (!$theme->exists()) {
+			return array('applied' => false, 'message' => 'Theme not found: ' . $theme_slug . '. Please install it first.');
+		}
+		
+		// Check if already active
+		$current_theme = wp_get_theme();
+		if ($current_theme->get_stylesheet() === $theme_slug) {
+			return array('applied' => false, 'message' => 'Theme is already active: ' . $theme_slug);
+		}
+		
+		// Switch theme
+		switch_theme($theme_slug);
+		
+		// Verify switch
+		$new_theme = wp_get_theme();
+		if ($new_theme->get_stylesheet() === $theme_slug) {
+			return array('applied' => true, 'message' => 'Theme activated successfully: ' . $theme->get('Name') . ' (' . $theme_slug . ')');
+		}
+		
+		return array('applied' => false, 'message' => 'Failed to activate theme: ' . $theme_slug);
 	}
 
 	/**
@@ -876,6 +976,10 @@ class AI_Controller extends Module_Base {
 				return $this->action_activate_plugin($params);
 			case 'install_plugin':
 				return $this->action_install_plugin($params);
+			case 'install_theme':
+				return $this->action_install_theme($params);
+			case 'activate_theme':
+				return $this->action_activate_theme($params);
 			case 'disable_plugin':
 				return $this->action_disable_plugin($params);
 			case 'run_sql':
@@ -922,27 +1026,27 @@ class AI_Controller extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		
 		$api_key = $this->service->api_key();
-		$model_setting = 'gemini-2.5-flash';//\WUDT\Admin\Settings_Page::get_ai_model();
-		$model =  "gemini-2.5-flash"; //sanitize_text_field((string) ($_POST['model'] ?? ''));
+		$model_setting = \WUDT\Admin\Settings_Page::get_ai_model();
+		$model = sanitize_text_field((string) ($_POST['model'] ?? ''));
 		
 		if ('' === $api_key) {
-			wp_send_json_error(array('message' => 'API key not configured'));
+			wp_send_json_error(array('message' => 'API key not configured. Please set it in WP Diagnostics → Settings.'));
 			return;
 		}
 		
 		// Test with a simple prompt
 		$test_prompt = 'Say "API connection successful" and nothing else.';
 		
-		// Build endpoint manually for testing
-		$endpoint = '';
-		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
-			$model_to_use = $model ?: 'gemini-2.5-flash';
-			$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyD2d7kTyxbr2IV8Q0mml5DhqHqBcyBphyM';
-			// $endpoint = 'https://generativelanguage.googleapis.com/v1/models/' . $model_to_use . ':generateContent?key=' . $api_key;
-		} else {
-			wp_send_json_error(array('message' => 'Test only supports Gemini currently'));
-			return;
-		}
+		// Build endpoint dynamically from settings
+		$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU';
+
+		// if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
+		// 	$model_to_use = $model ?: 'gemini-2.5-flash';
+		// 	$endpoint = 'https://generativelanguage.googleapis.com/v1/models/' . $model_to_use . ':generateContent?key=' . $api_key;
+		// } else {
+		// 	// For OpenAI-compatible endpoints
+		// 	$endpoint = 'https://api.openai.com/v1/chat/completions';
+		// }
 		
 		// Make direct test request
 		$request_body = array(
