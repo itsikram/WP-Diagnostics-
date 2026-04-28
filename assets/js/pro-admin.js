@@ -81,6 +81,7 @@
 			typing: false,
 			buffer: '',
 			lastAction: null,
+			lastActions: [],
 			mode: 'ask',
 			model: '',
 			models: [],
@@ -971,10 +972,65 @@
 
 		// Action box for suggested fixes
 		var actionBox = '';
-		if (state.ai.lastAction && state.ai.lastAction.action) {
+		if (state.ai.lastActions && state.ai.lastActions.length > 0) {
+			var actionButtons = '';
+			for (var ai = 0; ai < state.ai.lastActions.length; ai++) {
+				var act = state.ai.lastActions[ai];
+				var btnClass = 'wudt-ai-apply-action';
+				var icon = iconWarning;
+				var label = act.action;
+				
+				// Customize based on action type
+				switch (act.action) {
+					case 'run_sql':
+						icon = iconDatabase;
+						label = 'Run SQL: ' + (act.description || 'Query');
+						btnClass += ' is-sql';
+						break;
+					case 'edit_file':
+						icon = iconFile;
+						label = 'Edit File: ' + (act.path ? act.path.split('/').pop() : 'File');
+						btnClass += ' is-file';
+						break;
+					case 'create_file':
+						icon = iconFile;
+						label = 'Create File: ' + (act.path ? act.path.split('/').pop() : 'File');
+						btnClass += ' is-file';
+						break;
+					case 'delete_file':
+						icon = iconWarning;
+						label = 'Delete File: ' + (act.path ? act.path.split('/').pop() : 'File');
+						btnClass += ' is-danger';
+						break;
+					case 'read_file':
+						icon = iconFile;
+						label = 'Read File: ' + (act.path ? act.path.split('/').pop() : 'File');
+						btnClass += ' is-info';
+						break;
+					case 'disable_plugin':
+						icon = iconWarning;
+						label = 'Disable Plugin: ' + (act.plugin || 'Plugin');
+						btnClass += ' is-warning';
+						break;
+				}
+				
+				actionButtons += '<div class="wudt-ai-action-item" data-action-idx="' + ai + '">'
+					+ '<div class="wudt-ai-action-content">' + icon + '<span>' + esc(label) + '</span></div>'
+					+ '<button class="' + btnClass + ' button button-primary" data-action-idx="' + ai + '">Execute</button>'
+					+ '</div>';
+			}
+			
+			actionBox = '<div class="wudt-ai-action-panel">'
+				+ '<h4>🤖 AI Proposed Actions</h4>'
+				+ '<p class="wudt-ai-action-desc">The AI has suggested the following actions. Review before executing:</p>'
+				+ actionButtons
+				+ '<button id="wudt-ai-dismiss-actions" class="button">Dismiss All</button>'
+				+ '</div>';
+		} else if (state.ai.lastAction && state.ai.lastAction.action) {
+			// Backward compatibility - single action
 			actionBox = '<div class="wudt-ai-action">'
 				+ '<div class="wudt-ai-action-content">' + iconWarning + '<span>Suggested action: <strong>' + esc(state.ai.lastAction.action) + '</strong></span></div>'
-				+ '<button id="wudt-ai-apply-fix">Apply Fix</button>'
+				+ '<button id="wudt-ai-apply-fix" class="button button-primary">Apply Fix</button>'
 				+ '</div>';
 		}
 
@@ -1631,13 +1687,125 @@
 		});
 		$('#wudt-ai-apply-fix').on('click', function () {
 			if (!state.ai.lastAction || !state.ai.lastAction.action) { return; }
-			post('diagnostics_ai_apply_fix', {
-				action_type: state.ai.lastAction.action,
-				params: JSON.stringify(state.ai.lastAction)
-			}).done(function (r) {
-				alert(r && r.success && r.data && r.data.applied ? 'Fix applied.' : 'Could not apply fix automatically.');
-			});
+			executeAIAction(state.ai.lastAction, 0);
 		});
+		
+		// Handle individual action execution
+		$(document).off('click', '.wudt-ai-apply-action').on('click', '.wudt-ai-apply-action', function () {
+			var idx = parseInt($(this).attr('data-action-idx'), 10);
+			if (state.ai.lastActions && state.ai.lastActions[idx]) {
+				executeAIAction(state.ai.lastActions[idx], idx);
+			}
+		});
+		
+		// Dismiss all actions
+		$(document).off('click', '#wudt-ai-dismiss-actions').on('click', '#wudt-ai-dismiss-actions', function () {
+			state.ai.lastActions = [];
+			state.ai.lastAction = null;
+			render();
+		});
+		
+		// Legacy single action button (backward compatibility)
+		$('#wudt-ai-apply-fix').on('click', function () {
+			if (state.ai.lastAction && state.ai.lastAction.action) {
+				executeAIAction(state.ai.lastAction, 0);
+			}
+		});
+		
+		// Bind AI assistant specific handlers
+		bindAIAssistant();
+	}
+
+	/**
+	 * Execute an AI action with confirmation
+	 */
+	function executeAIAction(action, idx) {
+		if (!action || !action.action) { return; }
+		
+		var confirmMsg = 'Execute action: ' + action.action + '?';
+		var extraInfo = '';
+		
+		// Build confirmation message based on action type
+		switch (action.action) {
+			case 'run_sql':
+				extraInfo = '\n\nSQL Query:\n' + (action.sql || action.query || 'N/A');
+				confirmMsg = 'Execute SQL query?' + extraInfo;
+				break;
+			case 'edit_file':
+				extraInfo = '\n\nFile: ' + (action.path || 'N/A') + '\n(Backup will be created)';
+				confirmMsg = 'Edit file?' + extraInfo;
+				break;
+			case 'create_file':
+				extraInfo = '\n\nFile: ' + (action.path || 'N/A');
+				confirmMsg = 'Create new file?' + extraInfo;
+				break;
+			case 'delete_file':
+				extraInfo = '\n\nFile: ' + (action.path || 'N/A') + '\n\n⚠️ This cannot be undone!';
+				confirmMsg = 'Delete file?' + extraInfo;
+				break;
+			case 'read_file':
+				extraInfo = '\n\nFile: ' + (action.path || 'N/A');
+				confirmMsg = 'Read file contents?' + extraInfo;
+				break;
+			case 'disable_plugin':
+				extraInfo = '\n\nPlugin: ' + (action.plugin || 'N/A');
+				confirmMsg = 'Disable plugin?' + extraInfo;
+				break;
+		}
+		
+		if (!confirm(confirmMsg)) { return; }
+		
+		post('diagnostics_ai_apply_fix', {
+			action_type: action.action,
+			params: JSON.stringify(action)
+		}).done(function (r) {
+			if (r && r.success && r.data && r.data.applied) {
+				// Show result with data if available
+				var msg = 'Action executed successfully!\n\n' + r.data.message;
+				if (r.data.data) {
+					if (r.data.data.rows) {
+						msg += '\n\nResults (' + r.data.data.row_count + ' rows):\n' + JSON.stringify(r.data.data.rows.slice(0, 5), null, 2);
+						if (r.data.data.row_count > 5) {
+							msg += '\n... and ' + (r.data.data.row_count - 5) + ' more rows';
+						}
+					}
+					if (r.data.data.content) {
+						msg += '\n\nFile Content:\n' + r.data.data.content.substring(0, 500);
+						if (r.data.data.content.length > 500) {
+							msg += '\n... (truncated)';
+						}
+					}
+					if (r.data.data.backup_path) {
+						msg += '\n\nBackup created: ' + r.data.data.backup_path;
+					}
+				}
+				alert(msg);
+				
+				// Remove executed action from list
+				if (state.ai.lastActions && state.ai.lastActions.length > 0) {
+					state.ai.lastActions.splice(idx, 1);
+					if (state.ai.lastActions.length === 0) {
+						state.ai.lastActions = [];
+						state.ai.lastAction = null;
+					} else {
+						state.ai.lastAction = state.ai.lastActions[0];
+					}
+					render();
+				}
+			} else {
+				var errMsg = 'Action failed.';
+				if (r && r.data && r.data.message) {
+					errMsg += '\n\n' + r.data.message;
+				}
+				alert(errMsg);
+			}
+		}).fail(function (xhr) {
+			var err = xhr && xhr.responseJSON && xhr.responseJSON.data ? xhr.responseJSON.data.message : 'Server error';
+			alert('Action failed: ' + err);
+		});
+	}
+	
+	function bindAIAssistant() {
 		// Sidebar quick action links
 		$(document).off('click', '#wudt-ai-file-manager-link').on('click', '#wudt-ai-file-manager-link', function () {
 			state.tab = 'file_manager';
@@ -2392,18 +2560,25 @@
 							} else if (evt.type === 'debug') {
 								aiText += '\n\n---\n\n' + (evt.content || '');
 								state.ai.history[aiIndex].content = aiText;
-							} else if (evt.type === 'done' && evt.action && evt.action.action && mode === 'agent') {
+							} else if (evt.type === 'done' && mode === 'agent') {
+							// Support both single action and multiple actions
+							if (evt.actions && Array.isArray(evt.actions) && evt.actions.length > 0) {
+								state.ai.lastActions = evt.actions;
+								state.ai.lastAction = evt.actions[0]; // Backward compatibility
+							} else if (evt.action && evt.action.action) {
 								state.ai.lastAction = evt.action;
+								state.ai.lastActions = [evt.action];
 							}
-						} catch (e) {}
-					}
-					render();
-					scrollAIToBottom();
-					return pump();
-				});
-			}
-			return pump();
-		}).catch(function () {
+						}
+					} catch (e) {}
+				}
+				render();
+				scrollAIToBottom();
+				return pump();
+			});
+		}
+		return pump();
+	}).catch(function () {
 			state.ai.typing = false;
 			state.ai.history.push({ role: 'assistant', content: 'AI streaming failed. Try again.' });
 			render();

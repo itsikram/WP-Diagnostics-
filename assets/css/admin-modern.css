@@ -1896,6 +1896,105 @@
 	box-shadow: var(--wudt-shadow-md);
 }
 
+/* AI Action Panel - Multiple Actions */
+.wudt-ai-action-panel {
+	margin: var(--wudt-space-4) var(--wudt-space-6);
+	padding: var(--wudt-space-4);
+	background: var(--wudt-gray-50);
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-lg);
+	box-shadow: var(--wudt-shadow-md);
+}
+
+.wudt-ai-action-panel h4 {
+	margin: 0 0 var(--wudt-space-3);
+	color: var(--wudt-gray-800);
+	font-size: 1rem;
+	font-weight: 600;
+}
+
+.wudt-ai-action-desc {
+	margin: 0 0 var(--wudt-space-3);
+	color: var(--wudt-gray-600);
+	font-size: 0.875rem;
+}
+
+.wudt-ai-action-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--wudt-space-3);
+	margin-bottom: var(--wudt-space-2);
+	background: #fff;
+	border: 1px solid var(--wudt-gray-200);
+	border-radius: var(--wudt-radius-md);
+	transition: all var(--wudt-transition-fast);
+}
+
+.wudt-ai-action-item:hover {
+	border-color: var(--wudt-primary);
+	box-shadow: var(--wudt-shadow-sm);
+}
+
+.wudt-ai-action-item .wudt-ai-action-content {
+	display: flex;
+	align-items: center;
+	gap: var(--wudt-space-3);
+	color: var(--wudt-gray-700);
+	font-size: 0.875rem;
+}
+
+.wudt-ai-action-item .wudt-ai-action-content svg {
+	width: 20px;
+	height: 20px;
+	flex-shrink: 0;
+}
+
+.wudt-ai-action-item button {
+	padding: var(--wudt-space-1) var(--wudt-space-3);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	border-radius: var(--wudt-radius-sm);
+	transition: all var(--wudt-transition-fast);
+}
+
+.wudt-ai-action-item button.is-sql {
+	background: linear-gradient(135deg, var(--wudt-info) 0%, #1a5a8c 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-file {
+	background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-danger {
+	background: linear-gradient(135deg, var(--wudt-error) 0%, #b91c1c 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-warning {
+	background: linear-gradient(135deg, var(--wudt-warning) 0%, #a16207 100%);
+	color: #fff;
+}
+
+.wudt-ai-action-item button.is-info {
+	background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+	color: #fff;
+}
+
+#wudt-ai-dismiss-actions {
+	margin-top: var(--wudt-space-3);
+	background: transparent;
+	color: var(--wudt-gray-600);
+	border: 1px solid var(--wudt-gray-300);
+}
+
+#wudt-ai-dismiss-actions:hover {
+	background: var(--wudt-gray-100);
+	color: var(--wudt-gray-800);
+}
+
 /* Message Actions */
 .wudt-ai-fullscreen .wudt-ai-msg-actions {
 	display: flex;

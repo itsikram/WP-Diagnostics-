@@ -175,14 +175,37 @@ class Settings_Page {
 		$config_content = $this->update_wp_config_constant($config_content, 'WP_CACHE', $wp_cache ? 'true' : 'false');
 		
 		// Write updated config
-		if (false === file_put_contents($config_file, $config_content)) {
+		$write_result = file_put_contents($config_file, $config_content);
+		if (false === $write_result) {
 			// Restore backup on failure
-			file_put_contents($config_file, file_get_contents($backup_file));
-			return new \WP_Error('config_write_failed', __('Failed to write wp-config.php.', 'wp-ultimate-diagnostics-toolkit'));
+			$backup_content = file_get_contents($backup_file);
+			if (false !== $backup_content) {
+				file_put_contents($config_file, $backup_content);
+			}
+			return new \WP_Error('config_write_failed', __('Failed to write wp-config.php. Check file permissions.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		
-		// Delete backup on success (optional - keep for safety)
-		// unlink($backup_file);
+		// Verify the write was successful by re-reading the file
+		$verify_content = file_get_contents($config_file);
+		if (false === $verify_content) {
+			return new \WP_Error('config_verify_failed', __('Could not verify wp-config.php changes.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Check if the constants were actually written
+		$debug_pattern = "/define\s*\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|false)\s*\)\s*;/i";
+		if (! preg_match($debug_pattern, $verify_content, $matches)) {
+			return new \WP_Error('config_constant_missing', __('WP_DEBUG constant not found in wp-config.php after update.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Verify the value matches what we intended
+		$expected_value = $wp_debug ? 'true' : 'false';
+		if (strtolower($matches[1]) !== $expected_value) {
+			return new \WP_Error('config_value_mismatch', sprintf(
+				__('WP_DEBUG value mismatch: expected %s but found %s.', 'wp-ultimate-diagnostics-toolkit'),
+				$expected_value,
+				$matches[1]
+			));
+		}
 		
 		return true;
 	}

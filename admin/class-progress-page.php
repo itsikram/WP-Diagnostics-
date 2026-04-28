@@ -164,6 +164,22 @@ class Progress_Page {
 				border-bottom: 1px solid #c3c4c7;
 				padding-bottom: 10px;
 			}
+			.wudt-module-status-link {
+				color: #1d2327;
+				text-decoration: none;
+				transition: all 0.2s ease;
+				display: inline-block;
+			}
+			.wudt-module-status-link:hover {
+				color: #2271b1;
+			}
+			.wudt-module-status-link:hover .dashicons {
+				color: #2271b1;
+				transform: translateX(2px);
+			}
+			.wudt-module-status-link .dashicons {
+				transition: transform 0.2s ease;
+			}
 			.wudt-status-grid {
 				display: grid;
 				grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

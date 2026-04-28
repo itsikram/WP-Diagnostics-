@@ -78,11 +78,27 @@ class AI_Service {
 		$mode     = sanitize_key((string) ($options['mode'] ?? 'ask'));
 		$temperature = Settings_Page::get_temperature();
 		$max_tokens = Settings_Page::get_max_tokens();
-		$system_prompt = 'You are an expert WordPress debugging assistant. Use provided diagnostics context. Keep suggestions safe and practical.';
+		$system_prompt = 'You are an expert WordPress administrator and developer assistant. You have full access to the WordPress database and file system.';
 		if ('agent' === $mode) {
-			$system_prompt .= ' Agent mode is enabled: propose concrete, executable remediation steps. If a safe action is possible, include a JSON object with keys action and parameters.';
+			$system_prompt .= "\n\n=== AGENT MODE ENABLED ===\n";
+			$system_prompt .= "You can execute these action types:\n";
+			$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE)\n";
+			$system_prompt .= "- edit_file: Modify existing files\n";
+			$system_prompt .= "- create_file: Create new files\n";
+			$system_prompt .= "- delete_file: Delete files\n";
+			$system_prompt .= "- read_file: Read file contents\n";
+			$system_prompt .= "- disable_plugin: Deactivate plugins\n";
+			$system_prompt .= "\nIMPORTANT: When you want to perform an action, you MUST include a JSON block in your response like this:\n";
+			$system_prompt .= "```json\n";
+			$system_prompt .= '{"action":"run_sql","sql":"SELECT option_name, option_value FROM wp_options WHERE option_name=\"active_plugins\"","description":"Get active plugins"}' . "\n";
+			$system_prompt .= "```\n";
+			$system_prompt .= "\nOr for multiple actions:\n";
+			$system_prompt .= "```json\n";
+			$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"run_sql","sql":"SELECT * FROM wp_users LIMIT 5","description":"List users"}]' . "\n";
+			$system_prompt .= "```\n";
+			$system_prompt .= "\nAlways explain your plan first, then include the JSON action block.";
 		} else {
-			$system_prompt .= ' Ask mode is enabled: explain clearly and suggest steps, but do not output automation actions.';
+			$system_prompt .= ' Ask mode: Explain clearly and suggest steps, but do NOT output JSON action blocks.';
 		}
 		$messages = array(
 			array(
@@ -119,12 +135,23 @@ class AI_Service {
 
 		// Gemini API uses a different format
 		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
-			// $endpoint .= '?key=' . $api_key;
+			// Build content for Gemini - combine system and user messages properly
+			$gemini_content = '';
+			foreach ($messages as $msg) {
+				if ($msg['role'] === 'system') {
+					$gemini_content .= "System instructions:\n" . $msg['content'] . "\n\n";
+				} elseif ($msg['role'] === 'user') {
+					$gemini_content .= "User request:\n" . $msg['content'] . "\n\n";
+				} elseif ($msg['role'] === 'assistant') {
+					$gemini_content .= "Previous response:\n" . $msg['content'] . "\n\n";
+				}
+			}
+			
 			$request_body = array(
 				'contents' => array(
 					array(
 						'parts' => array(
-							array('text' => $messages[0]['content'] . "\n\n" . $messages[count($messages) - 1]['content']),
+							array('text' => $gemini_content),
 						),
 					),
 				),

@@ -149,7 +149,11 @@ class AI_Controller extends Module_Base {
 			@ob_flush();
 			@flush();
 		}
-		echo wp_json_encode(array('type' => 'done', 'action' => $parsed['action'] ?? array())) . "\n";
+		echo wp_json_encode(array(
+			'type'     => 'done',
+			'action'   => $parsed['action'] ?? array(),
+			'actions'  => $parsed['actions'] ?? array()
+		)) . "\n";
 		exit;
 	}
 
@@ -169,18 +173,277 @@ class AI_Controller extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		$action = sanitize_key((string) wp_unslash($_POST['action_type'] ?? ''));
 		$params = isset($_POST['params']) ? (array) json_decode((string) wp_unslash($_POST['params']), true) : array();
-		$applied = false;
+		$result = array('applied' => false, 'message' => '', 'data' => null);
 
-		if ('disable_plugin' === $action && ! empty($params['plugin'])) {
-			$plugin = sanitize_text_field((string) $params['plugin']);
-			$protected = array('akismet/akismet.php');
-			if (! in_array($plugin, $protected, true)) {
-				deactivate_plugins($plugin, true);
-				$applied = true;
-				Operation_Logger::log('ai', 'AI auto-fix applied: plugin disabled', array('plugin' => $plugin));
+		switch ($action) {
+			case 'disable_plugin':
+				$result = $this->action_disable_plugin($params);
+				break;
+			case 'run_sql':
+				$result = $this->action_run_sql($params);
+				break;
+			case 'edit_file':
+				$result = $this->action_edit_file($params);
+				break;
+			case 'create_file':
+				$result = $this->action_create_file($params);
+				break;
+			case 'delete_file':
+				$result = $this->action_delete_file($params);
+				break;
+			case 'read_file':
+				$result = $this->action_read_file($params);
+				break;
+			default:
+				$result['message'] = 'Unknown action: ' . $action;
+				break;
+		}
+
+		if ($result['applied']) {
+			Operation_Logger::log('ai', 'AI action applied: ' . $action, array('params' => $params));
+			wp_send_json_success($result);
+		} else {
+			wp_send_json_error($result);
+		}
+	}
+
+	/**
+	 * Disable a plugin action
+	 */
+	private function action_disable_plugin(array $params): array {
+		if (empty($params['plugin'])) {
+			return array('applied' => false, 'message' => 'Plugin parameter missing');
+		}
+		$plugin = sanitize_text_field((string) $params['plugin']);
+		$protected = array('wp-ultimate-diagnostics-toolkit/wp-ultimate-diagnostics-toolkit.php');
+		if (in_array($plugin, $protected, true)) {
+			return array('applied' => false, 'message' => 'Cannot disable this plugin');
+		}
+		if (!is_plugin_active($plugin)) {
+			return array('applied' => false, 'message' => 'Plugin is not active');
+		}
+		deactivate_plugins($plugin, true);
+		return array('applied' => true, 'message' => 'Plugin disabled: ' . $plugin);
+	}
+
+	/**
+	 * Run SQL query action
+	 */
+	private function action_run_sql(array $params): array {
+		global $wpdb;
+		if (empty($params['sql'])) {
+			return array('applied' => false, 'message' => 'SQL query missing');
+		}
+		$sql = sanitize_textarea_field((string) $params['sql']);
+		$readonly = !empty($params['readonly']);
+
+		// Block dangerous queries
+		$dangerous = array('DROP DATABASE', 'TRUNCATE DATABASE', 'ALTER DATABASE', 'CREATE DATABASE', 'GRANT', 'REVOKE');
+		$sql_upper = strtoupper($sql);
+		foreach ($dangerous as $word) {
+			if (strpos($sql_upper, $word) !== false) {
+				return array('applied' => false, 'message' => 'Query contains blocked keyword: ' . $word);
 			}
 		}
-		wp_send_json_success(array('applied' => $applied));
+
+		// Determine query type
+		$is_select = strpos($sql_upper, 'SELECT') === 0 || strpos($sql_upper, 'SHOW') === 0 || strpos($sql_upper, 'DESCRIBE') === 0;
+		$is_write = !$is_select && (strpos($sql_upper, 'INSERT') === 0 || strpos($sql_upper, 'UPDATE') === 0 || strpos($sql_upper, 'DELETE') === 0);
+
+		if ($readonly && $is_write) {
+			return array('applied' => false, 'message' => 'Write operations not allowed in readonly mode');
+		}
+
+		// Replace wp_ prefix placeholder
+		$sql = str_replace('wp_', $wpdb->prefix, $sql);
+
+		$wpdb->suppress_errors = true;
+		if ($is_select) {
+			$rows = $wpdb->get_results($sql, ARRAY_A);
+			if ($wpdb->last_error) {
+				return array('applied' => false, 'message' => 'SQL Error: ' . $wpdb->last_error);
+			}
+			return array(
+				'applied' => true,
+				'message' => 'Query executed successfully. Rows: ' . count($rows),
+				'data' => array('rows' => $rows, 'row_count' => count($rows))
+			);
+		} else {
+			$rows_affected = $wpdb->query($sql);
+			if ($wpdb->last_error) {
+				return array('applied' => false, 'message' => 'SQL Error: ' . $wpdb->last_error);
+			}
+			return array(
+				'applied' => true,
+				'message' => 'Query executed. Rows affected: ' . $rows_affected,
+				'data' => array('rows_affected' => $rows_affected)
+			);
+		}
+	}
+
+	/**
+	 * Edit file action
+	 */
+	private function action_edit_file(array $params): array {
+		if (empty($params['path']) || !isset($params['content'])) {
+			return array('applied' => false, 'message' => 'File path or content missing');
+		}
+		$path = sanitize_text_field((string) $params['path']);
+		$content = (string) wp_unslash($params['content']);
+
+		// Validate path is within WordPress
+		$abspath = realpath(ABSPATH);
+		$fullpath = realpath($path);
+		if (!$fullpath) {
+			// File doesn't exist yet, try to resolve parent
+			$fullpath = $path;
+		}
+		if (strpos($fullpath, $abspath) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+		}
+
+		if (!file_exists($fullpath)) {
+			return array('applied' => false, 'message' => 'File does not exist: ' . $path);
+		}
+
+		// Check if writable
+		if (!is_writable($fullpath)) {
+			return array('applied' => false, 'message' => 'File is not writable: ' . $path);
+		}
+
+		// Create backup before editing
+		$backup_path = $fullpath . '.backup.' . time();
+		copy($fullpath, $backup_path);
+
+		$result = file_put_contents($fullpath, $content, LOCK_EX);
+		if ($result === false) {
+			return array('applied' => false, 'message' => 'Failed to write file: ' . $path);
+		}
+
+		return array(
+			'applied' => true,
+			'message' => 'File edited successfully: ' . $path,
+			'data' => array('bytes_written' => $result, 'backup_path' => $backup_path)
+		);
+	}
+
+	/**
+	 * Create file action
+	 */
+	private function action_create_file(array $params): array {
+		if (empty($params['path']) || !isset($params['content'])) {
+			return array('applied' => false, 'message' => 'File path or content missing');
+		}
+		$path = sanitize_text_field((string) $params['path']);
+		$content = (string) wp_unslash($params['content']);
+
+		// Validate path is within WordPress
+		$abspath = realpath(ABSPATH);
+		if (strpos($path, $abspath) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+		}
+
+		if (file_exists($path)) {
+			return array('applied' => false, 'message' => 'File already exists: ' . $path);
+		}
+
+		// Ensure directory exists
+		$dir = dirname($path);
+		if (!file_exists($dir)) {
+			wp_mkdir_p($dir);
+		}
+
+		$result = file_put_contents($path, $content, LOCK_EX);
+		if ($result === false) {
+			return array('applied' => false, 'message' => 'Failed to create file: ' . $path);
+		}
+
+		return array(
+			'applied' => true,
+			'message' => 'File created successfully: ' . $path,
+			'data' => array('bytes_written' => $result)
+		);
+	}
+
+	/**
+	 * Delete file action
+	 */
+	private function action_delete_file(array $params): array {
+		if (empty($params['path'])) {
+			return array('applied' => false, 'message' => 'File path missing');
+		}
+		$path = sanitize_text_field((string) $params['path']);
+
+		// Validate path is within WordPress
+		$abspath = realpath(ABSPATH);
+		$fullpath = realpath($path);
+		if (!$fullpath || strpos($fullpath, $abspath) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid file path');
+		}
+
+		// Block deletion of critical files
+		$protected_files = array('wp-config.php', 'wp-settings.php', 'wp-load.php', 'wp-blog-header.php');
+		$basename = basename($fullpath);
+		if (in_array($basename, $protected_files, true)) {
+			return array('applied' => false, 'message' => 'Cannot delete critical WordPress file: ' . $basename);
+		}
+
+		if (!file_exists($fullpath)) {
+			return array('applied' => false, 'message' => 'File does not exist: ' . $path);
+		}
+
+		if (!is_writable($fullpath)) {
+			return array('applied' => false, 'message' => 'File is not deletable: ' . $path);
+		}
+
+		if (unlink($fullpath)) {
+			return array('applied' => true, 'message' => 'File deleted: ' . $path);
+		} else {
+			return array('applied' => false, 'message' => 'Failed to delete file: ' . $path);
+		}
+	}
+
+	/**
+	 * Read file action
+	 */
+	private function action_read_file(array $params): array {
+		if (empty($params['path'])) {
+			return array('applied' => false, 'message' => 'File path missing');
+		}
+		$path = sanitize_text_field((string) $params['path']);
+
+		// Validate path is within WordPress
+		$abspath = realpath(ABSPATH);
+		$fullpath = realpath($path);
+		if (!$fullpath || strpos($fullpath, $abspath) !== 0) {
+			return array('applied' => false, 'message' => 'Invalid file path');
+		}
+
+		if (!file_exists($fullpath) || !is_readable($fullpath)) {
+			return array('applied' => false, 'message' => 'File does not exist or is not readable: ' . $path);
+		}
+
+		// Limit file size to prevent memory issues
+		$max_size = 1024 * 1024; // 1MB
+		$size = filesize($fullpath);
+		if ($size > $max_size) {
+			return array('applied' => false, 'message' => 'File too large to read (>1MB)');
+		}
+
+		$content = file_get_contents($fullpath);
+		if ($content === false) {
+			return array('applied' => false, 'message' => 'Failed to read file: ' . $path);
+		}
+
+		return array(
+			'applied' => true,
+			'message' => 'File read successfully: ' . $path,
+			'data' => array(
+				'content' => $content,
+				'size' => $size,
+				'modified' => date('Y-m-d H:i:s', filemtime($fullpath))
+			)
+		);
 	}
 
 	public function ajax_autodebug(): void {
