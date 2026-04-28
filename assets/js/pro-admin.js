@@ -3615,9 +3615,17 @@
 				html += '</div>';
 				html += '<div class="wudt-migration-site-actions">';
 				html += '<button class="button wudt-migration-test" data-site-id="' + esc(site.id) + '">Test Connection</button>';
-				html += '<button class="button wudt-migration-pull" data-site-id="' + esc(site.id) + '">⬇️ Pull (Download)</button>';
-				html += '<button class="button wudt-migration-push" data-site-id="' + esc(site.id) + '">⬆️ Push (Upload)</button>';
+				html += '<button class="button wudt-migration-pull" data-site-id="' + esc(site.id) + '">⬇️ Pull</button>';
+				html += '<button class="button wudt-migration-push" data-site-id="' + esc(site.id) + '">⬆️ Push</button>';
 				html += '<button class="button button-link-delete wudt-migration-delete-site" data-site-id="' + esc(site.id) + '">🗑️</button>';
+				html += '</div>';
+				// Component selection for this site
+				html += '<div class="wudt-migration-components">';
+				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-database" data-site-id="' + esc(site.id) + '" checked> <strong>Database</strong></label>';
+				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-plugins" data-site-id="' + esc(site.id) + '" checked> Plugins</label>';
+				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-themes" data-site-id="' + esc(site.id) + '" checked> Themes</label>';
+				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-uploads" data-site-id="' + esc(site.id) + '" checked> Uploads</label>';
+				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-core" data-site-id="' + esc(site.id) + '"> Core Files</label>';
 				html += '</div>';
 				html += '</div>';
 			}
@@ -3899,19 +3907,40 @@
 
 		$(document).on('click', '.wudt-migration-pull', function () {
 			var siteId = $(this).data('site-id');
-			if (!confirm('Start pull migration (download from remote)?\n\nThis will download and restore the remote site to this server.')) {
+			var components = getSelectedComponents(siteId);
+			if (components.length === 0) {
+				alert('Please select at least one component to migrate.');
 				return;
 			}
-			startMigration(siteId, 'pull');
+			if (!confirm('Start pull migration (download from remote)?\n\nComponents: ' + components.join(', ') + '\n\nThis will download and restore the remote site to this server.')) {
+				return;
+			}
+			startMigration(siteId, 'pull', components);
 		});
 
 		$(document).on('click', '.wudt-migration-push', function () {
 			var siteId = $(this).data('site-id');
-			if (!confirm('Start push migration (upload to remote)?\n\nThis will backup and send this site to the remote server.')) {
+			var components = getSelectedComponents(siteId);
+			if (components.length === 0) {
+				alert('Please select at least one component to migrate.');
 				return;
 			}
-			startMigration(siteId, 'push');
+			if (!confirm('Start push migration (upload to remote)?\n\nComponents: ' + components.join(', ') + '\n\nThis will backup and send this site to the remote server.')) {
+				return;
+			}
+			startMigration(siteId, 'push', components);
 		});
+
+		function getSelectedComponents(siteId) {
+			var components = [];
+			var $site = $('.wudt-migration-site[data-site-id="' + siteId + '"]');
+			if ($site.find('.wudt-comp-database').is(':checked')) components.push('database');
+			if ($site.find('.wudt-comp-plugins').is(':checked')) components.push('plugins');
+			if ($site.find('.wudt-comp-themes').is(':checked')) components.push('themes');
+			if ($site.find('.wudt-comp-uploads').is(':checked')) components.push('uploads');
+			if ($site.find('.wudt-comp-core').is(':checked')) components.push('core');
+			return components;
+		}
 
 		$(document).on('click', '.wudt-migration-delete-site', function () {
 			var siteId = $(this).data('site-id');
@@ -3957,8 +3986,8 @@
 			});
 		});
 
-		function startMigration(siteId, direction) {
-			var components = ['database', 'plugins', 'themes', 'uploads']; // Default components
+		function startMigration(siteId, direction, components) {
+			components = components || ['database', 'plugins', 'themes', 'uploads']; // Default components
 			post('wudt_migration_start', {
 				site_id: siteId,
 				direction: direction,
