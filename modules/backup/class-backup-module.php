@@ -320,7 +320,8 @@ class Backup_Module extends Module_Base {
 		}
 		if (in_array('core', $components, true)) {
 			$this->set_progress('running', $progress, __('Copying WordPress core files...', 'wp-ultimate-diagnostics-toolkit'));
-			$this->copy_tree(ABSPATH, $work_dir . 'wp-core/', array('wp-content', '.git'));
+			// Exclude wp-content (contains plugins, themes, uploads), .git, and other non-core directories
+			$this->copy_tree(ABSPATH, $work_dir . 'wp-core/', array('wp-content', '.git', 'wp-content/plugins', 'wp-content/themes', 'wp-content/uploads', 'wp-content/upgrade', 'wp-content/backup-db', 'wp-content/cache', 'wp-content/et-cache', 'wp-content/wflog'));
 			$progress += $progress_step;
 		}
 		if (in_array('plugins', $components, true)) {
@@ -335,7 +336,8 @@ class Backup_Module extends Module_Base {
 		}
 		if (in_array('uploads', $components, true)) {
 			$this->set_progress('running', $progress, __('Copying uploads...', 'wp-ultimate-diagnostics-toolkit'));
-			$this->copy_tree(WP_CONTENT_DIR . '/uploads', $work_dir . 'uploads/');
+			// Exclude wudt-backups folder to avoid backing up backup files (prevents recursion)
+			$this->copy_tree(WP_CONTENT_DIR . '/uploads', $work_dir . 'uploads/', array('wudt-backups'));
 			$progress += $progress_step;
 		}
 
@@ -458,6 +460,8 @@ class Backup_Module extends Module_Base {
 		$items = array();
 		foreach ($all_files as $item) {
 			$name = $item['name'];
+			$path = $item['path'];
+			$file_obj = $item['file'];
 			$base_name = preg_replace('/\.zip(\.gz)?$/', '', $name);
 			if (isset($seen[$base_name])) {
 				// Prefer .zip.gz over .zip
@@ -469,7 +473,7 @@ class Backup_Module extends Module_Base {
 			}
 			$seen[$base_name] = true;
 
-			$mtime = (int) $item['file']->getMTime();
+			$mtime = (int) $file_obj->getMTime();
 
 			// Parse time from filename: site_url-hh-mm_dd-mm-yy-unique.zip
 			$time_formatted = gmdate('H:i d-m-Y', $mtime);
@@ -483,7 +487,7 @@ class Backup_Module extends Module_Base {
 				'name'           => $name,
 				'path'           => $path,
 				'url'            => str_replace($paths['basedir'], $paths['baseurl'], $path),
-				'size'           => (int) $file->getSize(),
+				'size'           => (int) $file_obj->getSize(),
 				'time'           => gmdate('Y-m-d H:i:s', $mtime),
 				'time_formatted' => $time_formatted,
 			);
@@ -558,60 +562,108 @@ class Backup_Module extends Module_Base {
 			return;
 		}
 
+		// CRITICAL SAFETY: Never allow source to be inside destination (prevents infinite recursion)
+		$dest_real = realpath($dest);
+		$source_normalized = wp_normalize_path($source);
+		if ($dest_real && strpos($source_normalized, wp_normalize_path($dest_real)) === 0) {
+			throw new \RuntimeException('CRITICAL: Source cannot be inside destination directory');
+		}
+
 		wp_mkdir_p($dest);
 
-		// Normalize exclude roots for consistent comparison
+		// Normalize exclude roots for consistent comparison (lowercase, forward slashes, no trailing slash)
 		$normalized_excludes = array();
 		foreach ($exclude_roots as $root) {
-			$normalized_excludes[] = str_replace('\\', '/', strtolower($root));
+			$normalized_excludes[] = rtrim(str_replace('\\', '/', strtolower($root)), '/');
 		}
+		
+		// Log exclusions for debugging
+		Operation_Logger::log('backup', 'copy_tree exclusions', array(
+			'excludes' => $normalized_excludes,
+			'source' => $source,
+			'dest' => $dest
+		));
 
-		// Create a filter callback to exclude directories
-		$filter_callback = function ($current, $key, $iterator) use ($source, $normalized_excludes) {
-			$relative_path = substr($current->getPathname(), strlen($source) + 1);
-			$relative_path_normalized = str_replace('\\', '/', strtolower($relative_path));
+		$copied_count = 0;
+		$excluded_count = 0;
+		
+		// Manual stack-based traversal for better control on Windows
+		$stack = array(array('src' => $source, 'dst' => $dest, 'rel' => ''));
+		
+		while (!empty($stack)) {
+			$current = array_pop($stack);
+			$src_dir = $current['src'];
+			$dst_dir = $current['dst'];
+			$rel_path = $current['rel'];
 			
-			// Check if this item or any of its parent directories are excluded
-			foreach ($normalized_excludes as $exclude_root) {
-				// Check if this is the excluded directory itself
-				if ($relative_path_normalized === $exclude_root) {
-					return false; // Exclude this directory
-				}
-				// Check if this is inside an excluded directory
-				if (strpos($relative_path_normalized, $exclude_root . '/') === 0) {
-					return false; // Exclude items inside excluded directory
-				}
+			if (!is_dir($src_dir)) {
+				continue;
 			}
 			
-			return true; // Include this item
-		};
-
-		// Use RecursiveCallbackFilterIterator to exclude directories and their children
-		$directory_iterator = new \RecursiveDirectoryIterator($source, \RecursiveDirectoryIterator::SKIP_DOTS);
-		$filtered_iterator = new \RecursiveCallbackFilterIterator($directory_iterator, $filter_callback);
-		
-		$iterator = new \RecursiveIteratorIterator(
-			$filtered_iterator,
-			\RecursiveIteratorIterator::SELF_FIRST
-		);
-
-		foreach ($iterator as $item) {
-			$relative_path = substr($item->getPathname(), strlen($source) + 1);
-			$target = $dest . '/' . $relative_path;
-
-			if ($item->isDir()) {
-				wp_mkdir_p($target);
-			} else {
-				// Skip large zip files (>25MB) to avoid memory issues
-				if (preg_match('/\.zip(\.gz)?$/i', $item->getFilename())) {
-					$file_size = filesize($item->getPathname());
-					if ($file_size === false || $file_size > (25 * 1024 * 1024)) {
-						continue;
+			$handle = @opendir($src_dir);
+			if (!$handle) {
+				continue;
+			}
+			
+			while (false !== ($entry = readdir($handle))) {
+				if ($entry === '.' || $entry === '..') {
+					continue;
+				}
+				
+				$src_path = $src_dir . '/' . $entry;
+				$dst_path = $dst_dir . '/' . $entry;
+				$new_rel = $rel_path === '' ? $entry : $rel_path . '/' . $entry;
+				$new_rel_normalized = str_replace('\\', '/', strtolower($new_rel));
+				
+				// Check if this item should be excluded
+				$is_excluded = false;
+				foreach ($normalized_excludes as $exclude_root) {
+					// Exact match or starts with exclude_root/
+					if ($new_rel_normalized === $exclude_root || strpos($new_rel_normalized, $exclude_root . '/') === 0) {
+						$is_excluded = true;
+						$excluded_count++;
+						break;
 					}
 				}
-				copy($item->getPathname(), $target);
+				
+				if ($is_excluded) {
+					continue;
+				}
+				
+				// Double-check: never copy from destination to itself (prevent recursion)
+				if (strpos(wp_normalize_path($src_path), wp_normalize_path($dest)) === 0) {
+					closedir($handle);
+					throw new \RuntimeException('CRITICAL: Attempted to copy from destination: ' . $src_path);
+				}
+				
+				if (is_dir($src_path)) {
+					// Create directory and add to stack for traversal
+					wp_mkdir_p($dst_path);
+					$stack[] = array('src' => $src_path, 'dst' => $dst_path, 'rel' => $new_rel);
+				} else {
+					// Copy file
+					// Skip large zip files (>25MB) to avoid memory issues
+					if (preg_match('/\.zip(\.gz)?$/i', $entry)) {
+						$file_size = filesize($src_path);
+						if ($file_size === false || $file_size > (25 * 1024 * 1024)) {
+							continue;
+						}
+					}
+					if (@copy($src_path, $dst_path)) {
+						$copied_count++;
+					}
+				}
 			}
+			
+			closedir($handle);
 		}
+		
+		Operation_Logger::log('backup', 'copy_tree completed', array(
+			'copied' => $copied_count,
+			'excluded' => $excluded_count,
+			'source' => $source,
+			'dest' => $dest
+		));
 	}
 
 	private function create_zip_archive(string $source_dir, string $zip_file, string $password = ''): void {
