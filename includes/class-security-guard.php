@@ -21,67 +21,56 @@ class Security_Guard {
 
 	public static function normalize_inside_wp(string $path): string {
 		$normalized = wp_normalize_path((string) $path);
-		
-		// Try to resolve real path, but if it doesn't exist, use the normalized path
-		// This is important for backup files that are being created
-		$real = @realpath($normalized);
 		$root = rtrim(wp_normalize_path(ABSPATH), '/') . '/';
 		
-		if (false === $real) {
-			// Path doesn't exist yet, check if parent directory is inside WordPress root
-			$parent_dir = dirname($normalized);
-			$parent_real = @realpath($parent_dir);
-			
-			// Debug logging
-			if (function_exists('WUDT\Includes\Operation_Logger::log')) {
-				Operation_Logger::log('security', 'normalize_inside_wp - path does not exist', array(
-					'path' => $path,
-					'normalized' => $normalized,
-					'parent_dir' => $parent_dir,
-					'parent_real' => $parent_real,
-					'root' => $root,
-				));
-			}
-			
-			if (false !== $parent_real) {
-				$parent_resolved = wp_normalize_path($parent_real) . '/';
-				$parent_lower = strtolower($parent_resolved);
-				$root_lower = strtolower($root);
-				
-				if (0 === strpos($parent_lower, $root_lower)) {
-					// Parent is inside WordPress root, path is valid
-					return $normalized;
-				}
-			}
-			
-			// Check grandparent if parent doesn't exist
-			$grandparent_dir = dirname($parent_dir);
-			$grandparent_real = @realpath($grandparent_dir);
-			if (false !== $grandparent_real) {
-				$grandparent_resolved = wp_normalize_path($grandparent_real) . '/';
-				$grandparent_lower = strtolower($grandparent_resolved);
-				$root_lower = strtolower($root);
-				
-				if (0 === strpos($grandparent_lower, $root_lower)) {
-					// Grandparent is inside WordPress root, path is valid
-					return $normalized;
-				}
-			}
-			
-			// If we get here, the path is outside WordPress root
-			throw new \RuntimeException('Path outside WordPress root. Path: ' . $path . ', Normalized: ' . $normalized . ', Root: ' . $root);
-		}
+		// Try to resolve real path
+		$real = @realpath($normalized);
 		
-		$resolved = wp_normalize_path($real);
-		
-		// On Windows, make case-insensitive comparison
-		$resolved_lower = strtolower($resolved . '/');
-		$root_lower     = strtolower($root);
-		
-		if (0 !== strpos($resolved_lower, $root_lower) && rtrim($resolved, '/') !== rtrim($root, '/')) {
+		if (false !== $real) {
+			// Path exists - validate it's inside WordPress root
+			$resolved = wp_normalize_path($real);
+			$resolved_lower = strtolower($resolved . '/');
+			$root_lower = strtolower($root);
+			
+			if (0 === strpos($resolved_lower, $root_lower) || rtrim($resolved, '/') === rtrim($root, '/')) {
+				return $resolved;
+			}
 			throw new \RuntimeException('Path outside WordPress root. Resolved: ' . $resolved . ', Root: ' . $root);
 		}
-		return $resolved;
+		
+		// Path doesn't exist yet - traverse up the tree to find an existing parent
+		$current_dir = dirname($normalized);
+		$max_depth = 20; // Prevent infinite loops
+		$depth = 0;
+		
+		while ($depth < $max_depth && $current_dir !== '/' && $current_dir !== '.' && $current_dir !== '') {
+			$current_real = @realpath($current_dir);
+			
+			if (false !== $current_real) {
+				$current_resolved = wp_normalize_path($current_real) . '/';
+				$current_lower = strtolower($current_resolved);
+				$root_lower = strtolower($root);
+				
+				// Check if this existing directory is inside WordPress root
+				if (0 === strpos($current_lower, $root_lower)) {
+					return $normalized;
+				} else {
+					// Found an existing directory but it's outside WordPress root
+					throw new \RuntimeException('Path outside WordPress root. Path: ' . $path . ', Existing parent: ' . $current_resolved . ', Root: ' . $root);
+				}
+			}
+			
+			// Move up one level
+			$parent_dir = dirname($current_dir);
+			if ($parent_dir === $current_dir) {
+				break; // Reached root of filesystem
+			}
+			$current_dir = $parent_dir;
+			$depth++;
+		}
+		
+		// If we get here, we couldn't find an existing parent directory inside WordPress root
+		throw new \RuntimeException('Path outside WordPress root. Path: ' . $path . ', Normalized: ' . $normalized . ', Root: ' . $root);
 	}
 
 	public static function safe_zip_entry_name(string $name): string {

@@ -251,15 +251,27 @@ class Restore_Module extends Module_Base {
 			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
 		}
 		
-		try {
-			$safe = Security_Guard::normalize_inside_wp($path);
-		} catch (\RuntimeException $e) {
-			wp_send_json_error(array('message' => $e->getMessage()), 400);
-			return;
+		// Validate path is within backup directory
+		$upload_dir = wp_get_upload_dir();
+		$backup_base = trailingslashit($upload_dir['basedir']) . 'wudt-backups/';
+		$normalized_path = wp_normalize_path($path);
+		$normalized_backup_base = wp_normalize_path($backup_base);
+		
+		if (strpos(strtolower($normalized_path), strtolower($normalized_backup_base)) !== 0) {
+			try {
+				$safe = Security_Guard::normalize_inside_wp($path);
+			} catch (\RuntimeException $e) {
+				Operation_Logger::log('restore', 'Preview path rejected', array('path' => $path));
+				wp_send_json_error(array('message' => __('Invalid backup path.', 'wp-ultimate-diagnostics-toolkit')), 400);
+				return;
+			}
+			$normalized_path = $safe;
 		}
 		
-		if (! file_exists($safe)) {
-			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
+		$safe = $normalized_path;
+		
+		if (! file_exists($safe) || ! is_readable($safe)) {
+			wp_send_json_error(array('message' => __('Backup file not found or not readable.', 'wp-ultimate-diagnostics-toolkit')), 404);
 			return;
 		}
 		
@@ -290,18 +302,31 @@ class Restore_Module extends Module_Base {
 		
 		if (empty($path)) {
 			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
 		}
 		
 		$options     = isset($_POST['restore_options']) ? (array) json_decode((string) wp_unslash($_POST['restore_options']), true) : array();
 		$safe_mode   = isset($_POST['safe_mode']) && '1' === (string) wp_unslash($_POST['safe_mode']);
 		$media_base  = isset($_POST['media_base']) ? sanitize_text_field((string) wp_unslash($_POST['media_base'])) : '';
 		
-		try {
-			$archive = Security_Guard::normalize_inside_wp($path);
-		} catch (\RuntimeException $e) {
-			wp_send_json_error(array('message' => $e->getMessage()), 400);
-			return;
+		// Validate path is within backup directory
+		$upload_dir = wp_get_upload_dir();
+		$backup_base = trailingslashit($upload_dir['basedir']) . 'wudt-backups/';
+		$normalized_path = wp_normalize_path($path);
+		$normalized_backup_base = wp_normalize_path($backup_base);
+		
+		if (strpos(strtolower($normalized_path), strtolower($normalized_backup_base)) !== 0) {
+			try {
+				$archive = Security_Guard::normalize_inside_wp($path);
+			} catch (\RuntimeException $e) {
+				Operation_Logger::log('restore', 'Restore path rejected', array('path' => $path));
+				wp_send_json_error(array('message' => __('Invalid backup path.', 'wp-ultimate-diagnostics-toolkit')), 400);
+				return;
+			}
+			$normalized_path = $archive;
 		}
+		
+		$archive = $normalized_path;
 		
 		if (! file_exists($archive)) {
 			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
