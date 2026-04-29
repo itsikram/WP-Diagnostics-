@@ -35,7 +35,7 @@ class AI_Service {
 	private function get_api_endpoint(string $provider): string {
 		switch ($provider) {
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+				return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 			case 'anthropic':
 				return 'https://api.anthropic.com/v1/messages';
 			case 'openrouter':
@@ -352,7 +352,7 @@ class AI_Service {
 		// Return default models based on selected provider
 		switch ($provider) {
 			case 'gemini':
-				return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
+				return array('gemini-2.5-flash');
 			case 'anthropic':
 				return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
 			case 'openrouter':

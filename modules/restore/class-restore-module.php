@@ -388,17 +388,26 @@ class Restore_Module extends Module_Base {
 			throw new \RuntimeException(__('Failed to create temporary directory for restore', 'wp-ultimate-diagnostics-toolkit'));
 		}
 
-		// Create safety backup if requested
+		// Create safety backup if requested OR if database restore is selected (mandatory)
 		$safety_backup = null;
-		if ($safe_mode) {
+		$database_restore_selected = in_array('database', $restore_options, true);
+		$needs_safety_backup = $safe_mode || $database_restore_selected;
+		
+		if ($needs_safety_backup) {
 			$this->set_progress('safety_backup', 8, __('Creating safety backup first...', 'wp-ultimate-diagnostics-toolkit'));
 			try {
 				$backup = new Backup_Module();
 				$safety_backup = $backup->create_backup_package(array('database', 'plugins', 'themes'), false, '');
 				Operation_Logger::log('restore', 'Safety backup created', $safety_backup);
 			} catch (\Throwable $e) {
-				// Safety backup failed but continue anyway
-				Operation_Logger::log('restore', 'Safety backup failed', array('error' => $e->getMessage()));
+				// If database restore is selected, safety backup is CRITICAL - abort
+				if ($database_restore_selected) {
+					throw new \RuntimeException(
+						__('Safety backup creation failed. Cannot proceed with database restore without a safety backup. Error: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage()
+					);
+				}
+				// If only files are being restored, continue but log the failure
+				Operation_Logger::log('restore', 'Safety backup failed (non-critical for file-only restore)', array('error' => $e->getMessage()));
 			}
 		}
 
@@ -498,6 +507,33 @@ class Restore_Module extends Module_Base {
 				$this->restore_database_complete($temp . 'database.sql');
 				$done[] = 'database';
 				Operation_Logger::log('restore', 'Database restored');
+				
+				// Ensure site settings from backup are applied
+				// The database restore should have already done this via wp_options table
+				// But we verify and explicitly update if needed
+				if (isset($config['site_url']) && $config['site_url']) {
+					$backup_site_url = $config['site_url'];
+					$current_site_url = home_url('/');
+					$db_site_url = get_option('siteurl');
+					$db_home_url = get_option('home');
+					
+					Operation_Logger::log('restore', 'Site URL verification', array(
+						'backup_site_url' => $backup_site_url,
+						'current_site_url' => $current_site_url,
+						'site_url_in_db' => $db_site_url,
+						'home_url_in_db' => $db_home_url
+					));
+					
+					// Explicitly update siteurl and home to match backup
+					// This ensures the site settings from the backup are applied
+					update_option('siteurl', $backup_site_url);
+					update_option('home', $backup_site_url);
+					
+					Operation_Logger::log('restore', 'Site URL updated to match backup', array(
+						'updated_siteurl' => $backup_site_url,
+						'updated_home' => $backup_site_url
+					));
+				}
 			} catch (\Throwable $e) {
 				$errors[] = 'database: ' . $e->getMessage();
 				Operation_Logger::log('restore', 'Database restore failed', array('error' => $e->getMessage()));
@@ -514,7 +550,13 @@ class Restore_Module extends Module_Base {
 		// Clean up temp directory
 		$this->delete_recursive($temp);
 		
-		// Clear WordPress object cache
+		// Clear all WordPress caches to ensure new settings take effect
+		wp_cache_flush();
+		
+		// Flush rewrite rules to ensure permalinks and other settings are updated
+		flush_rewrite_rules();
+		
+		// Clear object cache again after rewrite rules flush
 		wp_cache_flush();
 		
 		// Restore original limits
@@ -1028,9 +1070,19 @@ class Restore_Module extends Module_Base {
 	private function restore_database_complete(string $sql_file): void {
 		global $wpdb;
 		
-		// Verify SQL file exists
+		// Verify SQL file exists and is readable
 		if (! is_file($sql_file)) {
 			throw new \RuntimeException(__('SQL file not found: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+		}
+		
+		if (! is_readable($sql_file)) {
+			throw new \RuntimeException(__('SQL file is not readable: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+		}
+		
+		// Verify SQL file has content
+		$file_size = filesize($sql_file);
+		if ($file_size === false || $file_size === 0) {
+			throw new \RuntimeException(__('SQL file is empty: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
 		}
 		
 		// Get list of tables that will be created from the SQL file
@@ -1050,14 +1102,31 @@ class Restore_Module extends Module_Base {
 		preg_match_all('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\']?(\w+)[`\']?/i', $sql_content, $matches);
 		$tables_in_sql = $matches[1] ?? array();
 		
+		if (empty($tables_in_sql)) {
+			throw new \RuntimeException(__('SQL file does not contain any CREATE TABLE statements. The file may be corrupted or in an invalid format.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
+		// Get current tables BEFORE dropping anything
+		$existing_tables = $wpdb->get_col('SHOW TABLES');
+		
+		if (empty($existing_tables)) {
+			throw new \RuntimeException(__('Database has no tables. This is unusual - cannot proceed with restore.', 'wp-ultimate-diagnostics-toolkit'));
+		}
+		
 		// Disable foreign key checks for the operation
 		$wpdb->query('SET FOREIGN_KEY_CHECKS = 0');
 		
-		// Get current tables
-		$existing_tables = $wpdb->get_col('SHOW TABLES');
-		
 		// Drop tables that will be replaced (intersection of existing and SQL tables)
 		$tables_to_drop = array_intersect($existing_tables, $tables_in_sql);
+		
+		if (empty($tables_to_drop)) {
+			// No tables to drop - this means the SQL has different table names than current DB
+			// This is suspicious - log it but proceed
+			Operation_Logger::log('restore', 'Warning: No matching tables found between backup and current database', array(
+				'sql_tables' => $tables_in_sql,
+				'existing_tables' => $existing_tables
+			));
+		}
 		
 		$this->set_progress('restoring_database', 91, __('Dropping existing tables...', 'wp-ultimate-diagnostics-toolkit'));
 		
@@ -1069,16 +1138,44 @@ class Restore_Module extends Module_Base {
 			$wpdb->query("DROP TABLE IF EXISTS `{$table_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
 		
-		// Import the SQL file
+		// Import the SQL file - this is the critical step
 		$this->set_progress('restoring_database', 93, __('Importing database tables...', 'wp-ultimate-diagnostics-toolkit'));
-		$this->import_sql_file_chunked($sql_file);
+		
+		try {
+			$this->import_sql_file_chunked($sql_file);
+		} catch (\Throwable $e) {
+			// CRITICAL: Import failed - database is now in broken state
+			// Re-enable foreign key checks first
+			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
+			
+			// Log the failure
+			Operation_Logger::log('restore', 'CRITICAL: Database import failed after dropping tables', array(
+				'error' => $e->getMessage(),
+				'dropped_tables' => $tables_to_drop
+			));
+			
+			// Throw with helpful message
+			throw new \RuntimeException(
+				__('Database import failed after dropping tables. Your database is now in a broken state. ', 'wp-ultimate-diagnostics-toolkit') .
+				__('You need to restore from your safety backup or manually restore the database. Error: ', 'wp-ultimate-diagnostics-toolkit') .
+				$e->getMessage()
+			);
+		}
+		
+		// Verify tables were actually created
+		$new_tables = $wpdb->get_col('SHOW TABLES');
+		if (empty($new_tables)) {
+			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
+			throw new \RuntimeException(__('Database import completed but no tables were found. The SQL file may be corrupted.', 'wp-ultimate-diagnostics-toolkit'));
+		}
 		
 		// Re-enable foreign key checks
 		$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
 		
 		Operation_Logger::log('restore', 'Database restore complete', array(
 			'tables_dropped' => count($tables_to_drop),
-			'tables_created' => count($tables_in_sql)
+			'tables_created' => count($tables_in_sql),
+			'tables_after_restore' => count($new_tables)
 		));
 	}
 
