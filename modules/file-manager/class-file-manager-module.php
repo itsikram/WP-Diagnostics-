@@ -365,8 +365,12 @@ class File_Manager_Module extends Module_Base {
 		// Path doesn't start with WordPress root - try to resolve and check
 		$real_path = @realpath($path);
 		if (false === $real_path) {
-			// Cannot resolve and path doesn't start with WordPress root
-			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			// Cannot resolve and path doesn't start with WordPress root - fallback to ABSPATH
+			Operation_Logger::log('file', 'Path outside WordPress root, falling back to ABSPATH', array(
+				'path' => $path,
+				'abspath' => $abs_path,
+			));
+			return $abs_path;
 		}
 		
 		$full = wp_normalize_path($real_path);
@@ -374,7 +378,13 @@ class File_Manager_Module extends Module_Base {
 		$abs_lower = strtolower(trailingslashit($abs_path));
 
 		if (0 !== strpos($full_lower, $abs_lower)) {
-			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			// Path is outside WordPress root - fallback to ABSPATH
+			Operation_Logger::log('file', 'Path outside WordPress root, falling back to ABSPATH', array(
+				'path' => $path,
+				'resolved' => $full,
+				'abspath' => $abs_path,
+			));
+			return $abs_path;
 		}
 		
 		return $full;
@@ -406,7 +416,8 @@ class File_Manager_Module extends Module_Base {
 		// Path doesn't start with WordPress root - try to resolve and check
 		$real_path = @realpath($normalized);
 		if (false === $real_path) {
-			throw new \RuntimeException('Path outside WordPress root.');
+			// Cannot resolve - fallback to ABSPATH
+			return $abs_path;
 		}
 		
 		$full = wp_normalize_path($real_path);
@@ -414,7 +425,8 @@ class File_Manager_Module extends Module_Base {
 		$abs_lower = strtolower(trailingslashit($abs_path));
 		
 		if (0 !== strpos($full_lower, $abs_lower)) {
-			throw new \RuntimeException('Path outside WordPress root.');
+			// Path is outside WordPress root - fallback to ABSPATH
+			return $abs_path;
 		}
 		
 		return $full;
