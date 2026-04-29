@@ -89,14 +89,38 @@ class Backup_Module extends Module_Base {
 	public function ajax_delete_backup(): void {
 		Security_Guard::assert_ajax_admin();
 
-		$path = isset($_POST['path']) ? (string) wp_unslash($_POST['path']) : '';
+		$path = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
 
-		try {
-			$safe = Security_Guard::normalize_inside_wp($path);
-		} catch (\RuntimeException $e) {
-			wp_send_json_error(array('message' => $e->getMessage()), 403);
+		if (empty($path)) {
+			wp_send_json_error(array('message' => __('No backup path specified.', 'wp-ultimate-diagnostics-toolkit')), 400);
 			return;
 		}
+
+		// For backup deletions, validate the path is within uploads/wudt-backups directory
+		$upload_dir = wp_get_upload_dir();
+		$backup_base = trailingslashit($upload_dir['basedir']) . 'wudt-backups/';
+		
+		$normalized_path = wp_normalize_path($path);
+		$normalized_backup_base = wp_normalize_path($backup_base);
+		
+		// Check if path is within backup directory (case-insensitive for Windows)
+		if (strpos(strtolower($normalized_path), strtolower($normalized_backup_base)) !== 0) {
+			// Try using Security_Guard as fallback
+			try {
+				$safe = Security_Guard::normalize_inside_wp($path);
+			} catch (\RuntimeException $e) {
+				Operation_Logger::log('backup', 'Delete path rejected', array(
+					'path' => $path,
+					'normalized' => $normalized_path,
+					'backup_base' => $normalized_backup_base,
+				));
+				wp_send_json_error(array('message' => __('Invalid backup file path.', 'wp-ultimate-diagnostics-toolkit')), 403);
+				return;
+			}
+			$normalized_path = $safe;
+		}
+		
+		$safe = $normalized_path;
 
 		if (! file_exists($safe)) {
 			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
@@ -141,12 +165,31 @@ class Backup_Module extends Module_Base {
 
 		$path = isset($_GET['file']) ? (string) wp_unslash($_GET['file']) : '';
 
-		try {
-			$safe = Security_Guard::normalize_inside_wp($path);
-		} catch (\RuntimeException $e) {
-			wp_send_json_error(array('message' => $e->getMessage()), 403);
-			return;
+		// For backup downloads, validate the path is within uploads/wudt-backups directory
+		$upload_dir = wp_get_upload_dir();
+		$backup_base = trailingslashit($upload_dir['basedir']) . 'wudt-backups/';
+		
+		$normalized_path = wp_normalize_path($path);
+		$normalized_backup_base = wp_normalize_path($backup_base);
+		
+		// Check if path is within backup directory
+		if (strpos(strtolower($normalized_path), strtolower($normalized_backup_base)) !== 0) {
+			// Try using Security_Guard as fallback
+			try {
+				$safe = Security_Guard::normalize_inside_wp($path);
+			} catch (\RuntimeException $e) {
+				Operation_Logger::log('backup', 'Download path rejected', array(
+					'path' => $path,
+					'normalized' => $normalized_path,
+					'backup_base' => $normalized_backup_base,
+				));
+				wp_send_json_error(array('message' => __('Invalid backup file path.', 'wp-ultimate-diagnostics-toolkit')), 403);
+				return;
+			}
+			$normalized_path = $safe;
 		}
+		
+		$safe = $normalized_path;
 
 		if (! file_exists($safe)) {
 			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
@@ -757,6 +800,51 @@ class Backup_Module extends Module_Base {
 	}
 
 	private function delete_recursive(string $path): void {
+		$normalized_path = wp_normalize_path($path);
+		$basename = basename($normalized_path);
+		
+		// Check: only delete paths that contain 'tmp-' or 'wudt' or 'backup-'
+		// This ensures we only delete our own temporary/work directories
+		$is_safe_temp = (strpos($basename, 'tmp-') === 0 || 
+		           strpos($basename, 'wudt') !== false || 
+		           strpos($basename, 'backup-') === 0 ||
+		           strpos($normalized_path, 'wudt-backups') !== false);
+		
+		// CRITICAL SAFETY: Never delete WordPress core directories
+		// But allow temp directories inside wp-content/uploads
+		$protected_paths = array(
+			wp_normalize_path(ABSPATH),
+			wp_normalize_path(ABSPATH . 'wp-admin'),
+			wp_normalize_path(ABSPATH . 'wp-includes'),
+			wp_normalize_path(ABSPATH . 'wp-content'),
+			wp_normalize_path(ABSPATH . 'wp-content/plugins'),
+			wp_normalize_path(ABSPATH . 'wp-content/themes'),
+		);
+		
+		foreach ($protected_paths as $protected) {
+			if ($normalized_path === $protected || strpos($normalized_path, $protected . '/') === 0) {
+				// If it's a temp directory, allow deletion (for cleanup)
+				if ($is_safe_temp) {
+					break;
+				}
+				Operation_Logger::log('backup', 'CRITICAL: Attempted to delete protected path', array(
+					'path' => $path,
+					'normalized' => $normalized_path,
+					'protected_match' => $protected,
+				));
+				throw new \RuntimeException('CRITICAL: Cannot delete protected path: ' . $path);
+			}
+		}
+		
+		// Additional safety: ensure we're only deleting temp directories
+		if (!$is_safe_temp && is_dir($path)) {
+			Operation_Logger::log('backup', 'CRITICAL: Attempted to delete non-temp directory', array(
+				'path' => $path,
+				'basename' => $basename,
+			));
+			throw new \RuntimeException('CRITICAL: Can only delete temporary directories: ' . $path);
+		}
+		
 		if (! is_dir($path)) {
 			if (file_exists($path)) {
 				@unlink($path);

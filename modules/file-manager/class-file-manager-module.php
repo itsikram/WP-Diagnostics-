@@ -412,6 +412,25 @@ class File_Manager_Module extends Module_Base {
 	}
 
 	private function delete_recursive(string $path): void {
+		// CRITICAL SAFETY: Never delete WordPress core directories
+		$protected_paths = array(
+			wp_normalize_path(ABSPATH),
+			wp_normalize_path(ABSPATH . 'wp-admin'),
+			wp_normalize_path(ABSPATH . 'wp-includes'),
+			wp_normalize_path(ABSPATH . 'wp-content'),
+		);
+		
+		$normalized_path = wp_normalize_path($path);
+		foreach ($protected_paths as $protected) {
+			if ($normalized_path === $protected || strpos($normalized_path, $protected . '/') === 0) {
+				Operation_Logger::log('file', 'CRITICAL: Attempted to delete protected path', array(
+					'path' => $path,
+					'protected_match' => $protected,
+				));
+				throw new \RuntimeException('Cannot delete protected path: ' . $path);
+			}
+		}
+		
 		if (is_file($path)) {
 			unlink($path);
 			return;
