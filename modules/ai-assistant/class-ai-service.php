@@ -30,19 +30,17 @@ class AI_Service {
 	}
 
 	/**
-	 * Get API endpoint based on selected model.
+	 * Get API endpoint based on selected provider.
 	 */
-	private function get_api_endpoint(string $model_setting): string {
-		switch ($model_setting) {
-			case 'gemini-2.5-flash':
+	private function get_api_endpoint(string $provider): string {
+		switch ($provider) {
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1/models/' . $this->get_model_mapping()['gemini-2.5-flash'] . ':generateContent';
-			case 'sonnet':
-			case 'opus':
-			case 'haiku':
+				return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+			case 'anthropic':
 				return 'https://api.anthropic.com/v1/messages';
-			case 'gpt4':
-			case 'gpt35':
+			case 'openrouter':
+				return 'https://openrouter.ai/api/v1/chat/completions';
+			case 'openai':
 			default:
 				return 'https://api.openai.com/v1/chat/completions';
 		}
@@ -62,13 +60,14 @@ class AI_Service {
 			);
 		}
 
+		$provider = Settings_Page::get_ai_provider();
 		$model_setting = Settings_Page::get_ai_model();
-		$model_mapping = $this->get_model_mapping();
-		$model = sanitize_text_field((string) ($options['model'] ?? ($model_mapping[$model_setting] ?? 'gpt-4o-mini')));
+		$model = sanitize_text_field((string) ($options['model'] ?? $model_setting));
 
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {
 			error_log('[WUDT AI] === REQUEST START ===');
+			error_log('[WUDT AI] Provider: ' . $provider);
 			error_log('[WUDT AI] Model Setting: ' . $model_setting);
 			error_log('[WUDT AI] Model Name: ' . $model);
 			error_log('[WUDT AI] API Key (first 10 chars): ' . substr($api_key, 0, 10) . '...');
@@ -159,7 +158,9 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
-		$endpoint = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU"; //$this->get_api_endpoint($model_setting);
+		$endpoint = $this->get_api_endpoint($provider);
+		$is_gemini = 'gemini' === $provider;
+		$is_openrouter = 'openrouter' === $provider;
 		
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -173,9 +174,8 @@ class AI_Service {
 			'max_tokens'  => $max_tokens,
 		);
 
-		// Gemini API uses a different format
-		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
-			// Build content for Gemini - combine system and user messages properly
+		if ($is_gemini) {
+			// Gemini API uses a different format
 			$gemini_content = '';
 			foreach ($messages as $msg) {
 				if ($msg['role'] === 'system') {
@@ -201,11 +201,34 @@ class AI_Service {
 				),
 			);
 			
+			// Append API key to Gemini endpoint
+			$endpoint = add_query_arg('key', $api_key, $endpoint);
+			
 			// DEBUG LOGGING
 			if (defined('WP_DEBUG') && WP_DEBUG) {
 				error_log('[WUDT AI] Gemini Endpoint with key: ' . str_replace($api_key, '***API_KEY***', $endpoint));
 				error_log('[WUDT AI] Gemini Request Body: ' . wp_json_encode($request_body));
 			}
+		} elseif ('anthropic' === $provider) {
+			// Anthropic uses 'model', 'messages', 'max_tokens', and 'system' as top-level param
+			$system_message = '';
+			$anthropic_messages = array();
+			foreach ($messages as $msg) {
+				if ($msg['role'] === 'system') {
+					$system_message = $msg['content'];
+				} else {
+					$anthropic_messages[] = array(
+						'role' => $msg['role'],
+						'content' => $msg['content'],
+					);
+				}
+			}
+			$request_body = array(
+				'model' => $model,
+				'messages' => $anthropic_messages,
+				'max_tokens' => $max_tokens,
+				'system' => $system_message,
+			);
 		}
 
 		$request_args = array(
@@ -216,9 +239,15 @@ class AI_Service {
 			'body' => wp_json_encode($request_body),
 		);
 
-		// Gemini uses API key in query param, not Authorization header
-		if ($model_setting !== 'gemini' && $model_setting !== 'gemini-2.5-flash') {
+		// Gemini uses API key in query param; others use Authorization header
+		if (! $is_gemini) {
 			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+		}
+
+		// OpenRouter requires additional headers
+		if ($is_openrouter) {
+			$request_args['headers']['HTTP-Referer'] = get_site_url();
+			$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
 		}
 
 		$response = wp_remote_post($endpoint, $request_args);
@@ -261,12 +290,12 @@ class AI_Service {
 					error_log('[WUDT AI] Error Details Full: ' . wp_json_encode($data['error']['details']));
 				}
 			}
-			return array('content' => 'AI API error (' . $model_setting . '): ' . $error_msg, 'model' => $model, 'raw' => $data);
+			return array('content' => 'AI API error (' . $provider . '): ' . $error_msg, 'model' => $model, 'raw' => $data);
 		}
 
 		// Parse response based on provider format
 		$content = '';
-		if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
+		if ($is_gemini) {
 			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
 				$content = (string) $data['candidates'][0]['content']['parts'][0]['text'];
 				if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -318,52 +347,20 @@ class AI_Service {
 	 * @return array<int,string>
 	 */
 	public function list_models(): array {
-		$api_key = $this->api_key();
-		$model_setting = Settings_Page::get_ai_model();
+		$provider = Settings_Page::get_ai_provider();
 
-		if ('' === $api_key) {
-			// Return default models based on selected provider
-			switch ($model_setting) {
-				case 'gemini':
-					return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
-				case 'sonnet':
-				case 'opus':
-				case 'haiku':
-					return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
-				case 'gpt4':
-				case 'gpt35':
-				default:
-					return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
-			}
+		// Return default models based on selected provider
+		switch ($provider) {
+			case 'gemini':
+				return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
+			case 'anthropic':
+				return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
+			case 'openrouter':
+				return array('google/gemini-2.5-flash-preview', 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet');
+			case 'openai':
+			default:
+				return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
 		}
-
-		// Try to fetch models from the selected provider's API
-		$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU';
-		if ($model_setting === 'gemini') {
-			return array('gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-1.0-pro-latest');
-		} elseif (in_array($model_setting, array('sonnet', 'opus', 'haiku'), true)) {
-			return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
-		}
-
-		$response = wp_remote_get(
-			$endpoint,
-			array(
-				'timeout' => 30,
-				'headers' => array('Authorization' => 'Bearer ' . $api_key),
-			)
-		);
-		if (is_wp_error($response)) {
-			return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
-		}
-		$data = json_decode((string) wp_remote_retrieve_body($response), true);
-		$models = array();
-		foreach ((array) ($data['data'] ?? array()) as $item) {
-			if (! empty($item['id'])) {
-				$models[] = (string) $item['id'];
-			}
-		}
-		sort($models);
-		return array_slice($models, 0, 300);
 	}
 
 	public function api_key(): string {

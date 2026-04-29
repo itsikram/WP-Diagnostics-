@@ -1084,70 +1084,108 @@ class AI_Controller extends Module_Base {
 
 	public function ajax_test_api(): void {
 		Security_Guard::assert_ajax_admin();
-		
+
 		$api_key = $this->service->api_key();
+		$provider = \WUDT\Admin\Settings_Page::get_ai_provider();
 		$model_setting = \WUDT\Admin\Settings_Page::get_ai_model();
-		$model = sanitize_text_field((string) ($_POST['model'] ?? ''));
-		
+		$model = sanitize_text_field((string) ($_POST['model'] ?? $model_setting));
+
 		if ('' === $api_key) {
 			wp_send_json_error(array('message' => 'API key not configured. Please set it in WP Diagnostics → Settings.'));
 			return;
 		}
-		
+
 		// Test with a simple prompt
 		$test_prompt = 'Say "API connection successful" and nothing else.';
-		
-		// Build endpoint dynamically from settings
-		$endpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=AIzaSyCytvZhcZnqhJCh4u5cDkaShukSnmO1KFU';
 
-		// if ($model_setting === 'gemini' || $model_setting === 'gemini-2.5-flash') {
-		// 	$model_to_use = $model ?: 'gemini-2.5-flash';
-		// 	$endpoint = 'https://generativelanguage.googleapis.com/v1/models/' . $model_to_use . ':generateContent?key=' . $api_key;
-		// } else {
-		// 	// For OpenAI-compatible endpoints
-		// 	$endpoint = 'https://api.openai.com/v1/chat/completions';
-		// }
-		
-		// Make direct test request
-		$request_body = array(
-			'contents' => array(
-				array(
-					'parts' => array(
-						array('text' => $test_prompt),
+		// Build endpoint based on provider
+		$is_gemini = 'gemini' === $provider;
+		$is_openrouter = 'openrouter' === $provider;
+
+		switch ($provider) {
+			case 'gemini':
+				$endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
+				$endpoint = add_query_arg('key', $api_key, $endpoint);
+				break;
+			case 'anthropic':
+				$endpoint = 'https://api.anthropic.com/v1/messages';
+				break;
+			case 'openrouter':
+				$endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+				break;
+			case 'openai':
+			default:
+				$endpoint = 'https://api.openai.com/v1/chat/completions';
+				break;
+		}
+
+		// Build request body based on provider format
+		if ($is_gemini) {
+			$request_body = array(
+				'contents' => array(
+					array(
+						'parts' => array(
+							array('text' => $test_prompt),
+						),
 					),
 				),
-			),
-			'generationConfig' => array(
+				'generationConfig' => array(
+					'temperature' => 0.1,
+					'maxOutputTokens' => 50,
+				),
+			);
+		} else {
+			$request_body = array(
+				'model' => $model,
+				'messages' => array(
+					array('role' => 'user', 'content' => $test_prompt),
+				),
 				'temperature' => 0.1,
-				'maxOutputTokens' => 50,
-			),
+				'max_tokens' => 50,
+			);
+		}
+
+		$request_args = array(
+			'timeout' => 30,
+			'headers' => array('Content-Type' => 'application/json'),
+			'body' => wp_json_encode($request_body),
 		);
-		
-		$response = wp_remote_post(
-			$endpoint,
-			array(
-				'timeout' => 30,
-				'headers' => array('Content-Type' => 'application/json'),
-				'body' => wp_json_encode($request_body),
-			)
-		);
-		
+
+		if (! $is_gemini) {
+			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+		}
+
+		if ($is_openrouter) {
+			$request_args['headers']['HTTP-Referer'] = get_site_url();
+			$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
+		}
+
+		$response = wp_remote_post($endpoint, $request_args);
+
 		$status_code = wp_remote_retrieve_response_code($response);
 		$body = wp_remote_retrieve_body($response);
 		$data = json_decode((string) $body, true);
-		
+
 		$result = array(
-			'model_setting' =>   $model_setting,
-			'model_used' => $model ?: 'gemini-2.5-flash',
+			'provider' => $provider,
+			'model_setting' => $model_setting,
+			'model_used' => $model,
 			'endpoint' => str_replace($api_key, '***', $endpoint),
 			'status_code' => $status_code,
 			'raw_response' => $data,
 		);
-		
+
 		if ($status_code >= 200 && $status_code < 300) {
-			if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+			$response_text = '';
+			if ($is_gemini && isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+				$response_text = $data['candidates'][0]['content']['parts'][0]['text'];
+			} elseif (isset($data['choices'][0]['message']['content'])) {
+				$response_text = $data['choices'][0]['message']['content'];
+			}
+
+			if (! empty($response_text)) {
 				$result['success'] = true;
-				$result['response_text'] = $data['candidates'][0]['content']['parts'][0]['text'];
+				$result['response_text'] = $response_text;
 				wp_send_json_success($result);
 			} else {
 				$result['success'] = false;

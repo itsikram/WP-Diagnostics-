@@ -1268,6 +1268,12 @@
 	width: 100%;
 }
 
+/* Hide toolbar and tabs on AI Assistant fullscreen page */
+.wudt-ai-fullscreen .wudt-toolbar,
+.wudt-ai-fullscreen .wudt-tabs {
+	display: none !important;
+}
+
 /* Fullscreen AI Layout */
 .wudt-ai-fullscreen .wudt-ai-layout {
 	display: grid;

@@ -44,11 +44,12 @@ class Migration_Module extends Module_Base {
 		add_action('wp_ajax_wudt_migration_delete_job', array($this, 'ajax_delete_job'));
 		add_action('wp_ajax_wudt_migration_regenerate_key', array($this, 'ajax_regenerate_key'));
 
+		// Async job handlers.
+		add_action('wudt_migration_process_job', array($this, 'process_migration_job'), 10, 1);
+		add_action('wudt_migration_create_remote_backup', array($this, 'handle_create_remote_backup'), 10, 2);
+
 		// REST API endpoints for remote server communication
 		add_action('rest_api_init', array($this, 'register_rest_routes'));
-
-		// Background job processing
-		add_action('wudt_migration_process_job', array($this, 'process_migration_job'), 10, 1);
 	}
 
 	public function get_key(): string {
@@ -520,6 +521,88 @@ class Migration_Module extends Module_Base {
 		} else {
 			$this->process_push_migration($job);
 		}
+	}
+
+	/**
+	 * Handle creating remote backup when requested via REST API.
+	 * This is called via wp_schedule_single_event from rest_initiate_backup.
+	 */
+	public function handle_create_remote_backup(string $job_id, array $components): void {
+		try {
+			// Set initial progress
+			set_transient(self::TRANSIENT_PREFIX . $job_id, array(
+				'status' => 'in_progress',
+				'percent' => 10,
+				'message' => __('Initializing backup creation...', 'wp-ultimate-diagnostics-toolkit'),
+			), HOUR_IN_SECONDS);
+
+			// Use the backup module to create a backup
+			$backup_module = $this->get_backup_module();
+			if (!$backup_module) {
+				throw new \RuntimeException(__('Backup module not available', 'wp-ultimate-diagnostics-toolkit'));
+			}
+
+			// Update progress
+			set_transient(self::TRANSIENT_PREFIX . $job_id, array(
+				'status' => 'in_progress',
+				'percent' => 30,
+				'message' => __('Creating backup archive...', 'wp-ultimate-diagnostics-toolkit'),
+			), HOUR_IN_SECONDS);
+
+			// Create the backup
+			$backup_result = $backup_module->create_backup_package($components, false, '');
+
+			if (is_wp_error($backup_result)) {
+				throw new \RuntimeException($backup_result->get_error_message());
+			}
+
+			// Store backup file path in transient for download
+			$backup_path = $backup_result['file'] ?? '';
+			set_transient(self::TRANSIENT_PREFIX . $job_id . '_file', $backup_path, HOUR_IN_SECONDS);
+
+			// Mark as complete
+			set_transient(self::TRANSIENT_PREFIX . $job_id, array(
+				'status' => 'complete',
+				'percent' => 100,
+				'message' => __('Backup created successfully', 'wp-ultimate-diagnostics-toolkit'),
+				'file_size' => $backup_result['size'] ?? 0,
+				'file_name' => basename($backup_path),
+			), HOUR_IN_SECONDS);
+
+			Operation_Logger::log('migration', 'Remote backup created', array(
+				'job_id' => $job_id,
+				'components' => $components,
+			));
+
+		} catch (\Exception $e) {
+			set_transient(self::TRANSIENT_PREFIX . $job_id, array(
+				'status' => 'failed',
+				'percent' => 0,
+				'message' => $e->getMessage(),
+			), HOUR_IN_SECONDS);
+
+			Operation_Logger::log('migration', 'Remote backup failed', array(
+				'job_id' => $job_id,
+				'error' => $e->getMessage(),
+			));
+		}
+	}
+
+	/**
+	 * Get the backup module instance.
+	 */
+	private function get_backup_module() {
+		// Try to get from plugin registry
+		if (function_exists('wudt')) {
+			$plugin = wudt();
+			if ($plugin && method_exists($plugin, 'get_module')) {
+				$module = $plugin->get_module('backup_suite');
+				if ($module && method_exists($module, 'create_backup_package')) {
+					return $module;
+				}
+			}
+		}
+		return null;
 	}
 
 	/**

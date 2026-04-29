@@ -12,6 +12,7 @@ if (! defined('ABSPATH')) {
 }
 
 class Settings_Page {
+	private const OPTION_AI_PROVIDER = 'wudt_ai_provider';
 	private const OPTION_AI_MODEL = 'wudt_ai_model';
 	private const OPTION_AI_API_KEY = 'wudt_ai_api_key';
 	private const OPTION_AI_TEMPERATURE = 'wudt_ai_temperature';
@@ -65,6 +66,9 @@ class Settings_Page {
 
 	public function handle_save_settings(): void {
 		$this->authorize_action('wudt_save_settings');
+
+		$ai_provider = sanitize_text_field((string) wp_unslash($_POST['ai_provider'] ?? 'gemini'));
+		update_option(self::OPTION_AI_PROVIDER, $ai_provider, false);
 
 		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
 		update_option(self::OPTION_AI_MODEL, $ai_model, false);
@@ -338,6 +342,9 @@ class Settings_Page {
 			return;
 		}
 
+		$ai_provider = sanitize_text_field((string) wp_unslash($_POST['ai_provider'] ?? 'gemini'));
+		update_option(self::OPTION_AI_PROVIDER, $ai_provider, false);
+
 		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
 		update_option(self::OPTION_AI_MODEL, $ai_model, false);
 
@@ -446,6 +453,7 @@ class Settings_Page {
 			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 
+		$ai_provider = get_option(self::OPTION_AI_PROVIDER, 'gemini');
 		$ai_model = get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
 		$ai_api_key = get_option(self::OPTION_AI_API_KEY, '');
 		$ai_temperature = (float) get_option(self::OPTION_AI_TEMPERATURE, 0.7);
@@ -498,32 +506,25 @@ class Settings_Page {
 						<tbody>
 							<tr>
 								<th scope="row">
+									<label for="ai_provider"><?php esc_html_e('AI Provider', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<select name="ai_provider" id="ai_provider" class="regular-text">
+										<option value="gemini" <?php selected($ai_provider, 'gemini'); ?>>Google Gemini</option>
+										<option value="openai" <?php selected($ai_provider, 'openai'); ?>>OpenAI</option>
+										<option value="anthropic" <?php selected($ai_provider, 'anthropic'); ?>>Anthropic (Claude)</option>
+										<option value="openrouter" <?php selected($ai_provider, 'openrouter'); ?>>OpenRouter</option>
+									</select>
+									<p class="description">Select the AI provider to use.</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
 									<label for="ai_model"><?php esc_html_e('AI Model', 'wp-ultimate-diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
-									<select name="ai_model" id="ai_model" class="regular-text">
-										<option value="gemini-2.5-flash" <?php selected($ai_model, 'gemini-2.5-flash'); ?>>
-											<?php esc_html_e('Google Gemini 2.5 Flash', 'wp-ultimate-diagnostics-toolkit'); ?> (<?php esc_html_e('Recommended', 'wp-ultimate-diagnostics-toolkit'); ?>)
-										</option>
-										<option value="gpt4" <?php selected($ai_model, 'gpt4'); ?>>
-											<?php esc_html_e('OpenAI GPT-4', 'wp-ultimate-diagnostics-toolkit'); ?>
-										</option>
-										<option value="gpt35" <?php selected($ai_model, 'gpt35'); ?>>
-											<?php esc_html_e('OpenAI GPT-3.5 Turbo', 'wp-ultimate-diagnostics-toolkit'); ?>
-										</option>
-										<option value="sonnet" <?php selected($ai_model, 'sonnet'); ?>>
-											<?php esc_html_e('Claude Sonnet', 'wp-ultimate-diagnostics-toolkit'); ?>
-										</option>
-										<option value="opus" <?php selected($ai_model, 'opus'); ?>>
-											<?php esc_html_e('Claude Opus', 'wp-ultimate-diagnostics-toolkit'); ?>
-										</option>
-										<option value="haiku" <?php selected($ai_model, 'haiku'); ?>>
-											<?php esc_html_e('Claude Haiku', 'wp-ultimate-diagnostics-toolkit'); ?>
-										</option>
-									</select>
-									<p class="description">
-										<?php esc_html_e('Select the AI model to use for the assistant.', 'wp-ultimate-diagnostics-toolkit'); ?>
-									</p>
+									<input type="text" name="ai_model" id="ai_model" class="regular-text" value="<?php echo esc_attr($ai_model); ?>" placeholder="e.g. gemini-2.5-flash-preview-05-20, gpt-4o, claude-3-sonnet" />
+									<p class="description">Enter the exact model name for the selected provider.</p>
 								</td>
 							</tr>
 
@@ -544,7 +545,8 @@ class Settings_Page {
 										<?php esc_html_e('Get your API key from:', 'wp-ultimate-diagnostics-toolkit'); ?>
 										<a href="https://makersuite.google.com/app/apikey" target="_blank"><?php esc_html_e('Google AI Studio', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
 										<a href="https://platform.openai.com/api-keys" target="_blank"><?php esc_html_e('OpenAI', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
-										<a href="https://console.anthropic.com/settings/keys" target="_blank"><?php esc_html_e('Anthropic', 'wp-ultimate-diagnostics-toolkit'); ?></a>
+										<a href="https://console.anthropic.com/settings/keys" target="_blank"><?php esc_html_e('Anthropic', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
+										<a href="https://openrouter.ai/keys" target="_blank"><?php esc_html_e('OpenRouter', 'wp-ultimate-diagnostics-toolkit'); ?></a>
 									</p>
 								</td>
 							</tr>
@@ -867,6 +869,13 @@ class Settings_Page {
 			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		check_admin_referer($nonce_action);
+	}
+
+	/**
+	 * Get the configured AI provider.
+	 */
+	public static function get_ai_provider(): string {
+		return get_option(self::OPTION_AI_PROVIDER, 'gemini');
 	}
 
 	/**

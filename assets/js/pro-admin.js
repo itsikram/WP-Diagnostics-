@@ -864,11 +864,12 @@
 			+ '</div>'
 			+ '<div class="wudt-card"><h3>Create New Backup</h3>'
 			+ progressHtml
+			+ '<p><strong>Components to Backup:</strong></p>'
 			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="core" checked> WordPress Core Files</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="plugins" checked> Plugin Files</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="themes" checked> Theme Files</label> '
-			+ '<label><input type="checkbox" class="wudt-backup-component" value="uploads" checked> Uploads Directory</label> '
 			+ '<label><input type="checkbox" class="wudt-backup-component" value="database" checked> Database</label></p>'
+			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="uploads"> <strong>Uploads Directory</strong> (⚠️ can be very large)</label></p>'
 			+ '<div class="wudt-toolbar"><label><input type="checkbox" id="wudt-backup-gzip"> GZIP Compression</label>'
 			+ '<label><input type="checkbox" id="wudt-backup-autodownload" checked> Auto Download after complete</label>'
 			+ '<input id="wudt-backup-password" class="wudt-input" placeholder="Optional archive password">'
@@ -887,22 +888,43 @@
 		if (backups.length === 0) {
 			backupListHtml += '<p class="wudt-fm-empty">No backups found. Create a backup first or click Refresh to load.</p>';
 		} else {
-			backupListHtml += '<table class="wudt-fm-table"><thead><tr><th>Select</th><th>Backup</th><th>Size</th><th>Path</th></tr></thead><tbody>';
+			backupListHtml += '<table class="wudt-fm-table"><thead><tr><th>Select</th><th>Backup</th><th>Size</th><th>Date</th></tr></thead><tbody>';
 			for (var i = 0; i < backups.length; i++) {
 				var b = backups[i];
 				var size = formatSize(b.size || 0);
 				var name = b.name || 'backup.zip';
 				var path = b.path || '';
+				var time = b.time_formatted || '';
 				backupListHtml += '<tr class="wudt-restore-backup-row" data-path="' + esc(path) + '">'
 					+ '<td><input type="radio" name="wudt-restore-select" class="wudt-restore-select" value="' + esc(path) + '"></td>'
 					+ '<td><strong>' + esc(name) + '</strong></td>'
 					+ '<td>' + esc(size) + '</td>'
-					+ '<td class="wudt-restore-path-cell">' + esc(path) + '</td>'
+					+ '<td>' + esc(time) + '</td>'
 					+ '</tr>';
 			}
 			backupListHtml += '</tbody></table>';
 		}
 		backupListHtml += '</div>';
+		
+		// Progress bar HTML with enhanced status
+		var progressHtml = '<div id="wudt-restore-progress" class="wudt-backup-progress" style="display:none;">'
+			+ '<div class="wudt-progress-bar-container"><div class="wudt-progress-bar" style="width:0%"></div></div>'
+			+ '<div class="wudt-progress-percent">0%</div>'
+			+ '<div class="wudt-progress-status"></div>'
+			+ '<div class="wudt-progress-details" style="font-size:11px;color:#666;margin-top:5px;"></div>'
+			+ '</div>';
+		
+		// Pre-restore checks section
+		var checksHtml = '<div id="wudt-restore-checks" class="wudt-restore-checks" style="display:none;margin:15px 0;padding:15px;background:#f0f6fc;border-radius:8px;">'
+			+ '<h4 style="margin:0 0 10px;">Pre-Restore System Checks</h4>'
+			+ '<div id="wudt-restore-checks-content"></div>'
+			+ '</div>';
+		
+		// Warnings section
+		var warningsHtml = '<div id="wudt-restore-warnings" class="wudt-restore-warnings" style="display:none;margin:15px 0;padding:15px;background:#fff3cd;border:1px solid #ffeaa7;border-radius:8px;color:#856404;">'
+			+ '<h4 style="margin:0 0 10px;">Warnings</h4>'
+			+ '<div id="wudt-restore-warnings-content"></div>'
+			+ '</div>';
 		
 		return ''
 			+ '<div class="wudt-card"><h3>Available Backups</h3>'
@@ -910,19 +932,41 @@
 			+ backupListHtml
 			+ '</div>'
 			+ '<div class="wudt-card"><h3>Restore Engine</h3>'
-			+ '<label class="wudt-label">Selected Backup Path:</label>'
+			+ '<div class="wudt-restore-notice" style="padding:12px 15px;background:#d63638;color:#fff;border-radius:6px;margin-bottom:15px;font-weight:500;">'
+			+ '⚠️ Warning: Restore will COMPLETELY REPLACE all selected components with backup versions. This action cannot be undone!'
+			+ '</div>'
+			+ '<label class="wudt-label">Selected Backup:</label>'
 			+ '<input id="wudt-restore-path" class="wudt-input" placeholder="Select a backup from the list above or enter absolute path">'
-			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-preview">Preview Contents</button>'
-			+ '<label><input type="checkbox" id="wudt-restore-safe" checked> Safe restore mode (auto-backup first)</label></div>'
+			+ checksHtml
+			+ warningsHtml
+			+ '<div class="wudt-toolbar">'
+			+ '<button class="button" id="wudt-restore-preview">Preview Contents</button>'
+			+ '<button class="button" id="wudt-restore-check-btn">Run Pre-Checks</button>'
+			+ '</div>'
+			+ '<div style="margin:15px 0;padding:12px;background:#f6f7f7;border-radius:6px;">'
+			+ '<label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;">'
+			+ '<input type="checkbox" id="wudt-restore-safe" checked style="width:18px;height:18px;">'
+			+ '<span>Safe Mode: Create automatic backup before restoring</span>'
+			+ '</label>'
+			+ '<label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;margin-top:8px;">'
+			+ '<input type="checkbox" id="wudt-restore-preserve-plugins" checked style="width:18px;height:18px;">'
+			+ '<span>Preserve current plugins (skip plugin restore)</span>'
+			+ '</label>'
+			+ '</div>'
 			+ '<h4>Components to Restore:</h4>'
-			+ '<p><label><input type="checkbox" class="wudt-restore-component" value="core"> Core</label> '
-			+ '<label><input type="checkbox" class="wudt-restore-component" value="plugins" checked> Plugins</label> '
-			+ '<label><input type="checkbox" class="wudt-restore-component" value="themes" checked> Themes</label> '
-			+ '<label><input type="checkbox" class="wudt-restore-component" value="uploads"> Uploads</label> '
-			+ '<label><input type="checkbox" class="wudt-restore-component" value="database" checked> Database</label></p>'
-			+ '<input id="wudt-restore-media-base" class="wudt-input" placeholder="Optional media CDN/domain fallback">'
-			+ '<div class="wudt-toolbar"><button class="button button-primary" id="wudt-restore-run">Run Restore</button></div>'
-			+ '<pre class="wudt-pre" id="wudt-restore-result"></pre></div>';
+			+ '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0;">'
+			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="core"> <strong>Core Files</strong></label>'
+			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="plugins" checked> <strong>Plugins</strong></label>'
+			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="themes" checked> <strong>Themes</strong></label>'
+			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#fff3cd;border-radius:6px;cursor:pointer;border:1px solid #ffeaa7;"><input type="checkbox" class="wudt-restore-component" value="uploads"> <strong>Uploads</strong> ⚠️</label>'
+			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#d63638;color:#fff;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="database" checked> <strong>Database</strong> ⚠️</label>'
+			+ '</div>'
+			+ '<input id="wudt-restore-media-base" class="wudt-input" placeholder="Optional: Media CDN/domain fallback URL" style="margin-top:10px;">'
+			+ '<div class="wudt-toolbar" style="margin-top:15px;">'
+			+ '<button class="button button-primary" id="wudt-restore-run" style="background:#d63638;border-color:#b32d2e;font-size:14px;padding:8px 20px;">🔄 Run Complete Restore</button>'
+			+ '</div>'
+			+ progressHtml
+			+ '<pre class="wudt-pre" id="wudt-restore-result" style="margin-top:15px;"></pre></div>';
 	}
 
 	function renderAIAssistant() {
@@ -2151,6 +2195,9 @@
 			var components = [];
 			$('.wudt-backup-component:checked').each(function () { components.push($(this).val()); });
 			
+			// CAPTURE auto-download state NOW before render() resets the DOM later
+			var autoDownload = $('#wudt-backup-autodownload').is(':checked');
+			
 			var $progress = $('#wudt-backup-progress');
 			var $bar = $progress.find('.wudt-progress-bar');
 			var $status = $progress.find('.wudt-progress-status');
@@ -2192,11 +2239,10 @@
 										}
 									}
 									render();
-									// Show success message and handle auto-download
+									// Show success message and handle auto-download (using pre-captured state)
 									var newBackup = p.backup || p;
 									if (newBackup && newBackup.file) {
 										var size = formatSize(newBackup.size || 0);
-										var autoDownload = $('#wudt-backup-autodownload').is(':checked');
 										
 										if (autoDownload && newBackup.file) {
 								// Use AJAX download endpoint instead of direct file URL
@@ -2314,20 +2360,244 @@
 			$(this).closest('tr').addClass('is-selected').siblings().removeClass('is-selected');
 		});
 		$('#wudt-restore-preview').off('click').on('click', function () {
-			post('wudt_restore_preview', { backup_path: $('#wudt-restore-path').val() }).done(function (r) {
-				$('#wudt-restore-result').text(JSON.stringify(r, null, 2));
+			var $btn = $(this);
+			var path = $('#wudt-restore-path').val();
+			
+			if (!path) {
+				showToast('Error', 'Please select a backup first', 'error', 4000);
+				return;
+			}
+			
+			$btn.prop('disabled', true).text('Loading...');
+			post('wudt_restore_preview', { backup_path: path }).done(function (r) {
+				$btn.prop('disabled', false).text('Preview Contents');
+				if (r && r.success) {
+					var content = 'Backup Contents:\n';
+					content += '- Database: ' + (r.data.contains.database ? 'Yes ✓' : 'No') + '\n';
+					content += '- Config: ' + (r.data.contains.config ? 'Yes ✓' : 'No') + '\n';
+					content += '- Files: ' + (r.data.files ? r.data.files.length : 0) + ' items\n\n';
+					content += 'First 20 files:\n' + (r.data.files ? r.data.files.slice(0, 20).join('\n') : 'None');
+					
+					if (r.data.pre_checks) {
+						displayPreRestoreChecks(r.data.pre_checks);
+					}
+					
+					$('#wudt-restore-result').text(content).show();
+				} else {
+					showToast('Error', (r && r.data && r.data.message) || 'Failed to preview backup', 'error', 5000);
+				}
+			}).fail(function () {
+				$btn.prop('disabled', false).text('Preview Contents');
+				showToast('Error', 'Failed to connect to server', 'error', 4000);
 			});
 		});
+		
+		// Pre-restore checks button
+		$('#wudt-restore-check-btn').off('click').on('click', function () {
+			var $btn = $(this);
+			$btn.prop('disabled', true).text('Running Checks...');
+			
+			post('wudt_restore_check').done(function (r) {
+				$btn.prop('disabled', false).text('Run Pre-Checks');
+				if (r && r.success) {
+					displayPreRestoreChecks(r.data);
+				} else {
+					showToast('Error', 'Failed to run pre-restore checks', 'error', 4000);
+				}
+			}).fail(function () {
+				$btn.prop('disabled', false).text('Run Pre-Checks');
+				showToast('Error', 'Failed to connect to server', 'error', 4000);
+			});
+		});
+		
+		// Display pre-restore checks
+		function displayPreRestoreChecks(data) {
+			var $checksDiv = $('#wudt-restore-checks');
+			var $content = $('#wudt-restore-checks-content');
+			var $warningsDiv = $('#wudt-restore-warnings');
+			var $warningsContent = $('#wudt-restore-warnings-content');
+			
+			var html = '<table style="width:100%;font-size:13px;">';
+			html += '<tr><th style="text-align:left;padding:4px;">Check</th><th style="text-align:left;padding:4px;">Status</th><th style="text-align:left;padding:4px;">Value</th></tr>';
+			
+			if (data.checks) {
+				for (var checkName in data.checks) {
+					if (checkName === 'can_restore') continue;
+					var check = data.checks[checkName];
+					var icon = check.pass ? '✅' : '❌';
+					var color = check.pass ? '#22c55e' : '#ef4444';
+					html += '<tr><td style="padding:4px;">' + esc(checkName) + '</td><td style="padding:4px;color:' + color + '">' + icon + ' ' + esc(check.message) + '</td><td style="padding:4px;">' + esc(check.value) + '</td></tr>';
+				}
+			}
+			html += '</table>';
+			
+			if (!data.can_restore) {
+				html += '<div style="margin-top:10px;padding:8px;background:#fef2f2;border:1px solid #ef4444;border-radius:4px;color:#991b1b;">⚠️ Pre-restore checks failed. Please fix the issues above before proceeding.</div>';
+			}
+			
+			$content.html(html);
+			$checksDiv.show();
+			
+			// Show warnings
+			if (data.warnings && data.warnings.length > 0) {
+				var warningsHtml = '<ul style="margin:0;padding-left:20px;">';
+				for (var i = 0; i < data.warnings.length; i++) {
+					warningsHtml += '<li style="margin:4px 0;">' + esc(data.warnings[i]) + '</li>';
+				}
+				warningsHtml += '</ul>';
+				$warningsContent.html(warningsHtml);
+				$warningsDiv.show();
+			}
+		}
+		
 		$('#wudt-restore-run').off('click').on('click', function () {
+			var $btn = $(this);
 			var components = [];
 			$('.wudt-restore-component:checked').each(function () { components.push($(this).val()); });
+			
+			if (components.length === 0) {
+				showToast('Restore Error', 'Please select at least one component to restore.', 'error', 5000);
+				return;
+			}
+			
+			var backupPath = $('#wudt-restore-path').val();
+			if (!backupPath) {
+				showToast('Restore Error', 'Please select a backup to restore from.', 'error', 5000);
+				return;
+			}
+			
+			// Check if database is selected - show extra warning
+			var hasDatabase = components.indexOf('database') !== -1;
+			var warningMessage = 'Are you sure you want to restore the following components?\n\n' + components.join(', ');
+			if (hasDatabase) {
+				warningMessage += '\n\n⚠️ WARNING: Restoring the database will COMPLETELY REPLACE your current database with the backup version. All changes made since the backup will be lost!';
+			}
+			warningMessage += '\n\nThis action cannot be undone. Are you sure you want to continue?';
+			
+			if (!confirm(warningMessage)) {
+				return;
+			}
+			
+			// Final confirmation for database restore
+			if (hasDatabase) {
+				if (!confirm('FINAL CONFIRMATION: You are about to replace your entire database. Type OK to proceed.')) {
+					return;
+				}
+			}
+			
+			var $progress = $('#wudt-restore-progress');
+			var $bar = $progress.find('.wudt-progress-bar');
+			var $status = $progress.find('.wudt-progress-status');
+			var $percent = $progress.find('.wudt-progress-percent');
+			var $details = $progress.find('.wudt-progress-details');
+			
+			$btn.prop('disabled', true).text('Running Restore...');
+			$progress.show();
+			$bar.css('width', '5%');
+			$percent.text('5%');
+			$status.text('Initializing restore...');
+			$details.text('');
+			
+			var progressInterval = null;
+			var statusMessages = {
+				'preparing': 'Preparing restore environment...',
+				'safety_backup': 'Creating safety backup (this may take a while)...',
+				'extracting': 'Extracting backup archive...',
+				'restoring_core': 'Replacing WordPress core files...',
+				'restoring_plugins': 'Replacing plugins...',
+				'restoring_themes': 'Replacing themes...',
+				'restoring_uploads': 'Replacing uploads...',
+				'restoring_database': 'Restoring database (do not close this window)...',
+				'finalizing': 'Finalizing and cleaning up...',
+				'complete': 'Restore complete!',
+				'error': 'Error during restore'
+			};
+			
+			// Start polling for progress
+			progressInterval = setInterval(function () {
+				post('wudt_restore_progress').done(function (r) {
+					if (r && r.success && r.data) {
+						var p = r.data;
+						$bar.css('width', p.percent + '%');
+						$percent.text(p.percent + '%');
+						$status.text(statusMessages[p.status] || p.message || p.status);
+						
+						if (p.result && p.result.restored) {
+							$details.text('Restored: ' + p.result.restored.join(', '));
+						}
+						
+						if (p.status === 'complete' || p.status === 'complete_with_errors') {
+							clearInterval(progressInterval);
+							$btn.prop('disabled', false).text('🔄 Run Complete Restore');
+							
+							if (p.status === 'complete') {
+								$bar.css('background', '#22c55e');
+								showToast('Restore Successful', 'All components restored successfully!', 'success', 5000);
+							} else {
+								$bar.css('background', '#f59e0b');
+								showToast('Restore Warning', 'Restore completed with some errors. Check the logs.', 'warning', 7000);
+							}
+							
+							// Refresh backup list after 2 seconds
+							setTimeout(function() {
+								post('wudt_backup_list').done(function (r2) {
+									if (r2 && r2.success && r2.data && r2.data.backups) {
+										var tabs = (state.data && state.data.tabs) ? state.data.tabs : [];
+										for (var i = 0; i < tabs.length; i++) {
+											if (tabs[i].key === 'backup_suite') {
+												tabs[i].data = tabs[i].data || {};
+												tabs[i].data.backups = r2.data.backups;
+												break;
+											}
+										}
+										render();
+									}
+								});
+							}, 2000);
+						} else if (p.status === 'error') {
+							clearInterval(progressInterval);
+							$btn.prop('disabled', false).text('🔄 Run Complete Restore');
+							$bar.css('background', '#ef4444');
+							showToast('Restore Failed', p.message || 'An error occurred during restore', 'error', 7000);
+						}
+					}
+				}).fail(function () {
+					// Continue polling even if one request fails
+				});
+			}, 3000);
+			
+			// Start the restore
 			post('wudt_restore_run', {
-				backup_path: $('#wudt-restore-path').val(),
+				backup_path: backupPath,
 				restore_options: JSON.stringify(components),
 				safe_mode: $('#wudt-restore-safe').is(':checked') ? '1' : '0',
+				preserve_plugins: $('#wudt-restore-preserve-plugins').is(':checked') ? '1' : '0',
 				media_base: $('#wudt-restore-media-base').val()
 			}).done(function (r) {
-				$('#wudt-restore-result').text(JSON.stringify(r, null, 2));
+				if (r && r.success) {
+					// Progress is being tracked via polling
+				} else {
+					clearInterval(progressInterval);
+					$btn.prop('disabled', false).text('🔄 Run Complete Restore');
+					$progress.hide();
+					var msg = (r && r.data && r.data.message) ? r.data.message : 'Failed to start restore';
+					showToast('Restore Error', msg, 'error', 5000);
+					
+					// Show pre-check results if available
+					if (r && r.data && r.data.checks) {
+						displayPreRestoreChecks(r.data.checks);
+					}
+				}
+			}).fail(function (xhr) {
+				clearInterval(progressInterval);
+				$btn.prop('disabled', false).text('🔄 Run Complete Restore');
+				$progress.hide();
+				
+				var msg = 'Failed to connect to server. Please try again.';
+				if (xhr.status === 423) {
+					msg = 'Another restore operation is in progress. Please wait.';
+				}
+				showToast('Restore Error', msg, 'error', 5000);
 			});
 		});
 

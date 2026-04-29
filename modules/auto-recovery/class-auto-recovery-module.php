@@ -48,6 +48,8 @@ class Auto_Recovery_Module extends Module_Base {
 		
 		// Add safe mode indicator to admin bar
 		add_action('admin_bar_menu', array($this, 'add_safe_mode_indicator'), 100);
+		// Handle admin request to disable safe mode via GET (notice button)
+		add_action('admin_init', array($this, 'maybe_handle_disable_safe_mode'));
 	}
 
 	public function get_key(): string {
@@ -620,6 +622,40 @@ class Auto_Recovery_Module extends Module_Base {
 		}
 		
 		return false;
+	}
+
+	/**
+	 * Handle admin GET request to disable safe mode (from the notice button)
+	 */
+	public function maybe_handle_disable_safe_mode(): void {
+		if (! isset($_GET['wudt_disable_safe_mode'])) {
+			return;
+		}
+
+		if (! is_admin()) {
+			return;
+		}
+
+		// Verify nonce generated with wp_nonce_url(..., 'wudt_disable_safe_mode')
+		if (! isset($_GET['_wpnonce']) || ! wp_verify_nonce((string) $_GET['_wpnonce'], 'wudt_disable_safe_mode')) {
+			return;
+		}
+
+		if (! current_user_can('manage_options')) {
+			return;
+		}
+
+		// Clear safe mode options and pending flags
+		delete_option(self::OPTION_SAFE_MODE);
+		delete_option('wudt_pending_safe_mode');
+
+		$this->log_recovery_event('safe_mode_exited', array('message' => 'Safe mode manually disabled via admin notice'), 'wudt');
+		Operation_Logger::log('auto_recovery', 'Safe mode exited via admin notice', array());
+
+		// Redirect to avoid resubmission and remove query arg
+		$redirect = remove_query_arg(array('wudt_disable_safe_mode', '_wpnonce'));
+		wp_safe_redirect($redirect);
+		exit;
 	}
 
 	/**
