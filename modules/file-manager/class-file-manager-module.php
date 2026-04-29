@@ -345,29 +345,38 @@ class File_Manager_Module extends Module_Base {
 			return ABSPATH;
 		}
 
-		// Try realpath first, fallback to normalizing the input path
-		$real_path = realpath($path);
-		if (false === $real_path) {
-			// Path might not exist yet, use as-is but normalized
-			$full = wp_normalize_path($path);
-		} else {
-			$full = wp_normalize_path($real_path);
-		}
-
 		$abs_path = wp_normalize_path(ABSPATH);
 
-		// For security check, ensure both paths end with trailing slash for proper comparison
-		$full_for_check = trailingslashit($full);
-		$abs_for_check = trailingslashit($abs_path);
+		// First check: if path string starts with WordPress root, it's likely valid
+		$path_lower = strtolower($path);
+		$abs_lower = strtolower($abs_path);
+		
+		if (0 === strpos($path_lower, $abs_lower)) {
+			// Path appears to be inside WordPress root based on string comparison
+			// Try realpath to resolve any symlinks
+			$real_path = @realpath($path);
+			if (false !== $real_path) {
+				return wp_normalize_path($real_path);
+			}
+			// Path doesn't exist yet, but string starts with WordPress root
+			return wp_normalize_path($path);
+		}
 
-		// On Windows, make case-insensitive comparison
-		$full_lower = strtolower($full_for_check);
-		$abs_lower = strtolower($abs_for_check);
+		// Path doesn't start with WordPress root - try to resolve and check
+		$real_path = @realpath($path);
+		if (false === $real_path) {
+			// Cannot resolve and path doesn't start with WordPress root
+			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
+		}
+		
+		$full = wp_normalize_path($real_path);
+		$full_lower = strtolower(trailingslashit($full));
+		$abs_lower = strtolower(trailingslashit($abs_path));
 
 		if (0 !== strpos($full_lower, $abs_lower)) {
 			wp_send_json_error(array('message' => __('Path outside WordPress root.', 'wp-ultimate-diagnostics-toolkit')), 400);
 		}
-		// Return the original resolved path without forced trailing slash (files shouldn't have trailing slashes)
+		
 		return $full;
 	}
 
@@ -377,27 +386,37 @@ class File_Manager_Module extends Module_Base {
 			return wp_normalize_path(ABSPATH);
 		}
 		
-		// Try realpath first, fallback to normalizing the input path
-		$real_path = realpath($normalized);
-		if (false === $real_path) {
-			$full = wp_normalize_path($normalized);
-		} else {
-			$full = wp_normalize_path($real_path);
-		}
-		
 		$abs_path = wp_normalize_path(ABSPATH);
 		
-		// Ensure both paths end with trailing slash for proper comparison
-		$full = trailingslashit($full);
-		$abs_path = trailingslashit($abs_path);
-		
-		// On Windows, make case-insensitive comparison
-		$full_lower = strtolower($full);
+		// First check: if path string starts with WordPress root, it's likely valid
+		$normalized_lower = strtolower($normalized);
 		$abs_lower = strtolower($abs_path);
+		
+		if (0 === strpos($normalized_lower, $abs_lower)) {
+			// Path appears to be inside WordPress root based on string comparison
+			// Try realpath to resolve any symlinks
+			$real_path = @realpath($normalized);
+			if (false !== $real_path) {
+				return wp_normalize_path($real_path);
+			}
+			// Path doesn't exist yet, but string starts with WordPress root
+			return wp_normalize_path($normalized);
+		}
+		
+		// Path doesn't start with WordPress root - try to resolve and check
+		$real_path = @realpath($normalized);
+		if (false === $real_path) {
+			throw new \RuntimeException('Path outside WordPress root.');
+		}
+		
+		$full = wp_normalize_path($real_path);
+		$full_lower = strtolower(trailingslashit($full));
+		$abs_lower = strtolower(trailingslashit($abs_path));
 		
 		if (0 !== strpos($full_lower, $abs_lower)) {
 			throw new \RuntimeException('Path outside WordPress root.');
 		}
+		
 		return $full;
 	}
 
