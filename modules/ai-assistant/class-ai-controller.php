@@ -93,15 +93,16 @@ class AI_Controller extends Module_Base {
 		$context  = $this->context_builder->build($prompt, $flags, $file, $chat_txt);
 		$result   = $this->service->complete($prompt, $context, $history, array('model' => $model, 'mode' => $mode));
 		$parsed   = $this->parser->parse((string) ($result['content'] ?? ''));
+		$text     = (string) ($parsed['text'] ?? '');
 		if ('agent' !== $mode) {
+			$text = $this->sanitize_ask_mode_text($text);
 			$parsed['action'] = array();
 		}
 		$this->push_history('user', $prompt, $context);
-		$this->push_history('assistant', (string) ($parsed['text'] ?? ''), array('model' => $result['model'] ?? 'unknown', 'mode' => $mode));
+		$this->push_history('assistant', $text, array('model' => $result['model'] ?? 'unknown', 'mode' => $mode));
 		Operation_Logger::log('ai', 'AI diagnosis generated', array('prompt_len' => strlen($prompt)));
 		$response = array(
-			'message' => $parsed['text'] ?? '',
-			'action'  => $parsed['action'] ?? array(),
+		'message' => $text,
 			'model'   => $result['model'] ?? 'unknown',
 		);
 		
@@ -129,6 +130,7 @@ class AI_Controller extends Module_Base {
 		$parsed  = $this->parser->parse($text);
 		$text    = (string) ($parsed['text'] ?? $text);
 		if ('agent' !== $mode) {
+			$text = $this->sanitize_ask_mode_text($text);
 			$parsed['action'] = array();
 		}
 		$this->push_history('user', $prompt, $context);
@@ -157,6 +159,22 @@ class AI_Controller extends Module_Base {
 			'actions'  => $parsed['actions'] ?? array()
 		)) . "\n";
 		exit;
+	}
+
+	private function sanitize_ask_mode_text(string $text): string {
+		$patterns = array(
+			'/\r?\n\s*Action Block[\s\S]*$/i',
+			'/\r?\n\s*The following actions will be executed[\s\S]*$/i',
+			'/\r?\n\s*Please confirm the execution of these actions\.*.*$/i',
+			'/```json[\s\S]*?```/i',
+			'/`{1,3}\{[\s\S]*?\}`{1,3}/',
+		);
+		$clean = preg_replace($patterns, '', $text);
+		if (! is_string($clean)) {
+			return trim(preg_replace('/\n{3,}/', "\n\n", trim($text)));
+		}
+		$clean = preg_replace('/\n{3,}/', "\n\n", trim($clean));
+		return trim($clean);
 	}
 
 	public function ajax_history(): void {
@@ -302,7 +320,9 @@ class AI_Controller extends Module_Base {
 			return array('applied' => false, 'message' => 'Plugin slug or name missing');
 		}
 		
-		$plugin_slug = sanitize_key((string) ($params['plugin_slug'] ?? $params['plugin']));
+		$plugin_value = (string) ($params['plugin_slug'] ?? $params['plugin']);
+		$plugin_value = sanitize_text_field($plugin_value);
+		$plugin_slug = $this->normalize_plugin_slug($plugin_value);
 		$activate = !empty($params['activate']) && $params['activate'] === true;
 		
 		// Check if already installed
@@ -373,6 +393,18 @@ class AI_Controller extends Module_Base {
 	/**
 	 * Find plugin file by slug
 	 */
+	private function normalize_plugin_slug(string $plugin_value): string {
+		$plugin_value = trim($plugin_value);
+		if (strpos($plugin_value, '/') !== false) {
+			$parts = explode('/', $plugin_value);
+			$plugin_value = $parts[0];
+		}
+		if (substr($plugin_value, -4) === '.php') {
+			$plugin_value = basename($plugin_value, '.php');
+		}
+		return sanitize_key($plugin_value);
+	}
+
 	private function find_plugin_file(string $plugin_slug): ?string {
 		if (!function_exists('get_plugins')) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';

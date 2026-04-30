@@ -22,6 +22,7 @@ class Restore_Module extends Module_Base {
 	private const TRANSIENT_PROGRESS = 'wudt_restore_progress';
 	private const TRANSIENT_LOCK = 'wudt_restore_lock';
 	private const RESTORE_TIMEOUT = 1800; // 30 minutes
+	private const ENABLE_URL_REPLACEMENT = false; // TEMPORARY: disable URL replacement during restore
 
 	public function register_hooks(): void {
 		add_action('wp_ajax_wudt_restore_preview', array($this, 'ajax_preview'));
@@ -557,6 +558,8 @@ class Restore_Module extends Module_Base {
 	 * @return array<string,mixed>
 	 */
 	private function restore_package(string $archive, array $restore_options, bool $safe_mode, string $media_base, bool $preserve_plugins = false): array {
+		global $wpdb;
+		
 		// Preserve current site URLs and user session before restore
 		$current_home = get_option('home');
 		$current_siteurl = get_option('siteurl');
@@ -1721,10 +1724,11 @@ class Restore_Module extends Module_Base {
 				$previous_prefix = $current_prefix; // Same as effective, no previous tables
 			}
 			$options_table = $effective_prefix . 'options';
+			$url_replacement_enabled = self::ENABLE_URL_REPLACEMENT;
 
 			// Update wp_options with current site's URLs (so user stays logged in to current site)
 			// NOTE: This ONLY updates the backup's tables, NEVER the previous site's tables
-			if ($preserved_home && $preserved_siteurl) {
+			if ($url_replacement_enabled && $preserved_home && $preserved_siteurl) {
 				Operation_Logger::log('restore', 'Updating site URLs in backup tables only', array(
 					'options_table' => $options_table,
 					'backup_prefix' => $backup_prefix,
@@ -1752,6 +1756,13 @@ class Restore_Module extends Module_Base {
 
 				// Replace URLs in all tables for cross-site compatibility
 				$this->replace_urls_across_tables($preserved_home, $preserved_siteurl, $effective_prefix);
+			} else {
+				Operation_Logger::log('restore', 'URL replacement disabled during restore', array(
+					'preserved_home' => $preserved_home,
+					'preserved_siteurl' => $preserved_siteurl,
+					'options_table' => $options_table,
+					'url_replacement_enabled' => $url_replacement_enabled,
+				));
 			}
 
 			// Re-establish user session to prevent logout
@@ -2181,7 +2192,9 @@ class Restore_Module extends Module_Base {
 	 */
 	private function update_wp_config_prefix(string $new_prefix): bool {
 
-		return true;
+	return true;
+
+		// return true;
 		$wp_config_path = ABSPATH . 'wp-config.php';
 		
 		// Check if wp-config.php exists

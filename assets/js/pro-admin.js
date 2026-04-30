@@ -3345,6 +3345,7 @@
 							
 							// Actions are displayed for user review - user must click "Execute" to run each action
 							// No auto-execution for safety - all actions require explicit user confirmation
+						}
 					} catch (e) {}
 				}
 				render();

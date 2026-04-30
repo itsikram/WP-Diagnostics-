@@ -48,6 +48,43 @@ class AI_Service {
 	}
 
 	/**
+	 * Determine whether the prompt explicitly asks for diagnostics or automated fixes.
+	 */
+	private function prompt_requires_diagnostics(string $prompt): bool {
+		$keywords = array(
+			'diagnos',
+			'debug',
+			'error',
+			'issue',
+			'problem',
+			'fix',
+			'repair',
+			'troubleshoot',
+			'not working',
+			'broken',
+			'fatal',
+			'crash',
+			'slow',
+			'unable',
+			'fail',
+			'failure',
+			'inspect',
+			'investigate',
+			'review'
+		);
+		$prompt_text = strtolower(trim($prompt));
+		if ($prompt_text === '') {
+			return false;
+		}
+		foreach ($keywords as $keyword) {
+			if (false !== strpos($prompt_text, $keyword)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * @param array<string,mixed> $context
 	 * @param array<int,array<string,string>> $history
 	 * @return array<string,mixed>
@@ -74,11 +111,78 @@ class AI_Service {
 			error_log('[WUDT AI] Model Name: ' . $model);
 			error_log('[WUDT AI] API Key (first 10 chars): ' . substr($api_key, 0, 10) . '...');
 		}
-		$mode     = sanitize_key((string) ($options['mode'] ?? 'ask'));
+		$mode = sanitize_key((string) ($options['mode'] ?? 'ask'));
 		$temperature = Settings_Page::get_temperature();
 		$max_tokens = Settings_Page::get_max_tokens();
-		$system_prompt = 'You are an expert WordPress administrator and developer assistant. You have full access to the WordPress database and file system.';
-		if ('agent' === $mode) {
+		
+		$agent_mode = 'agent' === $mode;
+		
+		if ($agent_mode) {
+			$system_prompt = 'You are an expert WordPress administrator and developer assistant. You have full access to the WordPress database and file system.';
+		} else {
+			$system_prompt = 'You are a helpful AI assistant. Answer questions and provide assistance based on the user\'s request.';
+		}
+		
+		if ($agent_mode) {
+				$system_prompt .= "\n\n=== AGENT MODE ENABLED ===\n";
+				$system_prompt .= "You are a DYNAMIC AI AGENT that can automatically fix WordPress issues.\n\n";
+				$system_prompt .= "=== SUPERPOWERED AI AGENT - ALL CAPABILITIES ===\n";
+				$system_prompt .= "PLUGIN MANAGEMENT:\n";
+				$system_prompt .= "- install_plugin: INSTALL plugins from WordPress.org (requires 'plugin_slug', optional 'activate': true)\n";
+				$system_prompt .= "- activate_plugin: ACTIVATE plugins (requires 'plugin' file path like 'elementor/elementor.php')\n";
+				$system_prompt .= "- disable_plugin: DEACTIVATE plugins (requires 'plugin' file path)\n";
+				$system_prompt .= "THEME MANAGEMENT:\n";
+				$system_prompt .= "- install_theme: INSTALL themes from WordPress.org (requires 'theme_slug', optional 'activate': true)\n";
+				$system_prompt .= "- activate_theme: SWITCH active theme (requires 'theme_slug')\n";
+				$system_prompt .= "FILE OPERATIONS:\n";
+				$system_prompt .= "- read_file: Read file contents (requires 'path')\n";
+				$system_prompt .= "- edit_file: Modify files (requires 'path' and 'content')\n";
+				$system_prompt .= "- create_file: Create new files (requires 'path' and 'content')\n";
+				$system_prompt .= "- delete_file: Delete files (requires 'path')\n";
+				$system_prompt .= "- chmod: Change file permissions (requires 'path' and 'mode' like 755)\n";
+				$system_prompt .= "- rename: Rename/move files (requires 'old_path' and 'new_path')\n";
+				$system_prompt .= "- compress: Create zip archives (requires 'paths' array and 'destination')\n";
+				$system_prompt .= "- extract: Extract zip archives (requires 'archive' and 'destination')\n";
+				$system_prompt .= "- list_directory: List directory contents (optional 'path')\n";
+				$system_prompt .= "- search_files: Search text in files (requires 'query', optional 'path', 'extension')\n";
+				$system_prompt .= "DATABASE OPERATIONS:\n";
+				$system_prompt .= "- run_sql: Execute SQL queries (SELECT/INSERT/UPDATE/DELETE)\n";
+				$system_prompt .= "- search_replace_db: Search/replace across all tables (requires 'search', optional 'replace', 'dry_run')\n";
+				$system_prompt .= "- optimize_tables: OPTIMIZE database tables (optional 'tables' array)\n";
+				$system_prompt .= "- repair_tables: REPAIR corrupted tables (optional 'tables' array)\n";
+				$system_prompt .= "WORDPRESS CONFIGURATION:\n";
+				$system_prompt .= "- toggle_wp_debug: Toggle WP_DEBUG in wp-config.php (requires 'enable': true/false)\n";
+				$system_prompt .= "CRON SCHEDULING:\n";
+				$system_prompt .= "- schedule_cron: Schedule WP cron events (requires 'hook', 'timestamp' or relative time like '+1 hour')\n";
+				$system_prompt .= "- unschedule_cron: Remove scheduled events (requires 'hook')\n";
+				$system_prompt .= "SYSTEM INFO:\n";
+				$system_prompt .= "- get_system_info: Retrieve WordPress/PHP/server information\n";
+				$system_prompt .= "\n=== CRITICAL RULES ===\n";
+				$system_prompt .= "- ALWAYS use 'activate_plugin' action to activate plugins - NEVER use SQL for plugin activation\n";
+				$system_prompt .= "- ALWAYS use 'disable_plugin' action to deactivate plugins - NEVER use SQL for plugin deactivation\n";
+				$system_prompt .= "- SQL is ONLY for reading/updating database content like posts, users, options (not plugin status)\n";
+				$system_prompt .= "- For plugin operations, the 'plugin' parameter must be the relative path from wp-content/plugins/ (e.g., 'elementor/elementor.php')\n";
+				$system_prompt .= "\n=== AUTOMATIC EXECUTION PROTOCOL ===\n";
+				$system_prompt .= "When the user asks you to fix, repair, solve, update, change, modify, install, configure, optimize, activate, deactivate, enable, disable, or clean ANYTHING:\n";
+				$system_prompt .= "1. First, analyze the problem using read_file or run_sql to gather information\n";
+				$system_prompt .= "2. Then output the COMPLETE FIX as a JSON action block\n";
+				$system_prompt .= "3. The system will AUTOMATICALLY execute your actions - no user confirmation needed\n";
+				$system_prompt .= "4. After execution, you will receive the results and should confirm completion\n\n";
+				$system_prompt .= "=== JSON ACTION FORMAT ===\n";
+				$system_prompt .= "Single action:\n";
+				$system_prompt .= "```json\n";
+				$system_prompt .= '{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}' . "\n";
+				$system_prompt .= "```\n";
+				$system_prompt .= "\nMultiple actions (array):\n";
+				$system_prompt .= "```json\n";
+				$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}]' . "\n";
+				$system_prompt .= "```\n";
+				$system_prompt .= "\n=== RESPONSE FLOW ===\n";
+				$system_prompt .= "1. Explain what you found (diagnosis)\n";
+				$system_prompt .= "2. Include JSON action block(s) to fix the issue\n";
+				$system_prompt .= "3. System auto-executes actions\n";
+				$system_prompt .= "4. You receive execution results\n";
+				$system_prompt .= "5. Confirm task completion with summary\n";
 			$system_prompt .= "\n\n=== AGENT MODE ENABLED ===\n";
 			$system_prompt .= "You are a DYNAMIC AI AGENT that can automatically fix WordPress issues.\n\n";
 			$system_prompt .= "=== SUPERPOWERED AI AGENT - ALL CAPABILITIES ===\n";
@@ -139,7 +243,7 @@ class AI_Service {
 			$system_prompt .= "4. You receive execution results\n";
 			$system_prompt .= "5. Confirm task completion with summary\n";
 		} else {
-			$system_prompt .= ' Ask mode: Explain clearly and suggest steps, but do NOT output JSON action blocks.';
+			$system_prompt .= ' Ask mode: Explain clearly and suggest safe, manual troubleshooting steps only. Do NOT output JSON action blocks, automated fix plans, or action execution confirmations. If the user asks you to check or inspect something, only provide analysis and recommended manual checks. Do not mention that actions will be executed automatically or ask for confirmation unless the user explicitly requests execution.';
 		}
 		$messages = array(
 			array(
