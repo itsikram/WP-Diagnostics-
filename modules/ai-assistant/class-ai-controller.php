@@ -1145,25 +1145,101 @@ class AI_Controller extends Module_Base {
 			);
 		}
 
-		$request_args = array(
-			'timeout' => 30,
-			'headers' => array('Content-Type' => 'application/json'),
-			'body' => wp_json_encode($request_body),
+		// Build headers array
+		$headers = array(
+			'Content-Type: application/json',
 		);
-
 		if (! $is_gemini) {
-			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+			$headers[] = 'Authorization: Bearer ' . $api_key;
 		}
-
 		if ($is_openrouter) {
-			$request_args['headers']['HTTP-Referer'] = get_site_url();
-			$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
+			$headers[] = 'HTTP-Referer: ' . get_site_url();
+			$headers[] = 'X-Title: WP Ultimate Diagnostics Toolkit';
 		}
 
-		$response = wp_remote_post($endpoint, $request_args);
+		$body_json = wp_json_encode($request_body);
 
-		$status_code = wp_remote_retrieve_response_code($response);
-		$body = wp_remote_retrieve_body($response);
+		// Try cURL first (more reliable for Authorization headers)
+		if (function_exists('curl_init')) {
+			$ch = curl_init($endpoint);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_POST, true);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $body_json);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+
+			$body = curl_exec($ch);
+			$status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+			$curl_error = curl_error($ch);
+			curl_close($ch);
+
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('[WUDT AI Test] Using cURL - Status: ' . $status_code);
+				if ($curl_error) {
+					error_log('[WUDT AI Test] cURL Error: ' . $curl_error);
+				}
+			}
+
+			if ($body === false || $curl_error) {
+				wp_send_json_error(array(
+					'provider' => $provider,
+					'model_setting' => $model_setting,
+					'model_used' => $model,
+					'error' => 'cURL Error: ' . ($curl_error ?: 'Unknown error'),
+					'method' => 'curl',
+				));
+				return;
+			}
+		} else {
+			// Fallback to wp_remote_post
+			$request_args = array(
+				'timeout' => 30,
+				'headers' => array('Content-Type' => 'application/json'),
+				'body' => $body_json,
+				'sslverify' => false,
+			);
+
+			if (! $is_gemini) {
+				$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+			}
+			if ($is_openrouter) {
+				$request_args['headers']['HTTP-Referer'] = get_site_url();
+				$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
+			}
+
+			$auth_filter = function($args, $url) use ($request_args) {
+				if (isset($request_args['headers']['Authorization'])) {
+					$args['headers']['Authorization'] = $request_args['headers']['Authorization'];
+				}
+				if (isset($request_args['sslverify'])) {
+					$args['sslverify'] = $request_args['sslverify'];
+				}
+				return $args;
+			};
+			add_filter('http_request_args', $auth_filter, 10, 2);
+
+			$response = wp_remote_post($endpoint, $request_args);
+			remove_filter('http_request_args', $auth_filter, 10);
+
+			if (is_wp_error($response)) {
+				wp_send_json_error(array(
+					'provider' => $provider,
+					'model_setting' => $model_setting,
+					'model_used' => $model,
+					'error' => $response->get_error_message(),
+					'error_code' => $response->get_error_code(),
+					'method' => 'wp_remote_post',
+				));
+				return;
+			}
+
+			$status_code = wp_remote_retrieve_response_code($response);
+			$body = wp_remote_retrieve_body($response);
+		}
+
 		$data = json_decode((string) $body, true);
 
 		$result = array(

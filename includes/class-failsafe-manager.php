@@ -25,6 +25,23 @@ class Failsafe_Manager {
 		if (isset($_GET['wudt_emergency']) && '1' === (string) wp_unslash($_GET['wudt_emergency'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			return true;
 		}
+
+		// Check if options table exists before querying (during restore it may not exist)
+		global $wpdb;
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return false;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			return false;
+		}
+
 		return (bool) get_option(self::MODE_OPTION, false);
 	}
 
@@ -37,6 +54,23 @@ class Failsafe_Manager {
 		if (! in_array((int) ($error['type'] ?? 0), $fatal_types, true)) {
 			return;
 		}
+
+		// Check if options table exists before writing (during restore it may not exist)
+		global $wpdb;
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			return;
+		}
+
 		update_option(
 			self::FATAL_OPTION,
 			array(
@@ -77,6 +111,23 @@ class Failsafe_Manager {
 		if (! current_user_can('manage_options')) {
 			return;
 		}
+
+		// Check if options table exists before reading (during restore it may not exist)
+		global $wpdb;
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			return;
+		}
+
 		$fatal = get_option(self::FATAL_OPTION);
 		if (! is_array($fatal) || empty($fatal['message'])) {
 			return;

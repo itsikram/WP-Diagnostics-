@@ -340,10 +340,12 @@ class Backup_Module extends Module_Base {
 		// Clean up old orphaned tmp directories (older than 1 hour)
 		$this->cleanup_old_tmp_dirs($dir);
 		
+		global $wpdb;
 		$db_file = $work_dir . 'database.sql';
 		$config  = array(
 			'created_at'   => gmdate('c'),
 			'site_url'     => home_url('/'),
+			'table_prefix' => $wpdb->prefix,
 			'components'   => $components,
 			'format'       => $gzip ? 'zip+gz' : 'zip',
 			'incremental'  => false,
@@ -583,7 +585,7 @@ class Backup_Module extends Module_Base {
 							if (null === $value) {
 								$values[] = 'NULL';
 							} else {
-								$values[] = "'" . $wpdb->escape($value) . "'";
+								$values[] = "'" . esc_sql($value) . "'";
 							}
 						}
 						fwrite($handle, "INSERT INTO `{$table_name}` VALUES (" . implode(', ', $values) . ");\n");
@@ -772,7 +774,8 @@ class Backup_Module extends Module_Base {
 
 		foreach ($iterator as $item) {
 			$local_path = wp_normalize_path($item->getPathname());
-			$relative_path = substr($local_path, strlen($source_dir_normalized) + 1);
+			$relative_path = substr($local_path, strlen($source_dir_normalized));
+			$relative_path = ltrim($relative_path, '/');
 			$relative_path = str_replace('\\', '/', $relative_path);
 
 			if ($item->isDir()) {

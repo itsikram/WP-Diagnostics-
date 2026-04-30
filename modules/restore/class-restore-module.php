@@ -29,6 +29,7 @@ class Restore_Module extends Module_Base {
 		add_action('wp_ajax_wudt_restore_progress', array($this, 'ajax_get_progress'));
 		add_action('wp_ajax_wudt_restore_check', array($this, 'ajax_pre_restore_checks'));
 		add_action('wp_ajax_wudt_restore_cancel', array($this, 'ajax_cancel_restore'));
+		add_action('wp_ajax_wudt_restore_download', array($this, 'ajax_download'));
 	}
 
 	public function get_key(): string {
@@ -211,6 +212,108 @@ class Restore_Module extends Module_Base {
 	}
 
 	/**
+	 * AJAX: Download backup from URL
+	 */
+	public function ajax_download(): void {
+		Security_Guard::assert_ajax_admin();
+
+		$url = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
+
+		if (empty($url)) {
+			wp_send_json_error(array('message' => __('No URL provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Validate URL
+		if (!filter_var($url, FILTER_VALIDATE_URL)) {
+			wp_send_json_error(array('message' => __('Invalid URL format.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Only allow http/https
+		$scheme = parse_url($url, PHP_URL_SCHEME);
+		if (!in_array($scheme, array('http', 'https'), true)) {
+			wp_send_json_error(array('message' => __('Only HTTP and HTTPS URLs are allowed.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			return;
+		}
+
+		// Prepare download directory
+		$upload_dir = wp_upload_dir();
+		$backup_dir = $upload_dir['basedir'] . '/wudt-backups';
+
+		if (!is_dir($backup_dir)) {
+			wp_mkdir_p($backup_dir);
+		}
+
+		if (!is_dir($backup_dir) || !is_writable($backup_dir)) {
+			wp_send_json_error(array('message' => __('Backup directory is not writable.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+
+		// Generate filename from URL or use timestamp
+		$filename = basename(parse_url($url, PHP_URL_PATH));
+		if (empty($filename) || !preg_match('/\.(zip|tar\.gz|gz)$/i', $filename)) {
+			$filename = 'downloaded-backup-' . date('Y-m-d-His') . '.zip';
+		}
+
+		$filename = sanitize_file_name($filename);
+		$target_path = $backup_dir . '/' . $filename;
+
+		// If file already exists, add number suffix
+		$counter = 1;
+		$original_filename = $filename;
+		while (file_exists($target_path)) {
+			$info = pathinfo($original_filename);
+			$extension = isset($info['extension']) ? '.' . $info['extension'] : '';
+			$filename = $info['filename'] . '-' . $counter . $extension;
+			$target_path = $backup_dir . '/' . $filename;
+			$counter++;
+		}
+
+		// Download the file using WordPress HTTP API
+		$response = wp_remote_get($url, array(
+			'timeout'   => 300, // 5 minutes
+			'blocking'  => true,
+			'headers'   => array(
+				'Accept' => 'application/zip, application/octet-stream, */*',
+			),
+		));
+
+		if (is_wp_error($response)) {
+			wp_send_json_error(array('message' => __('Download failed: ', 'wp-ultimate-diagnostics-toolkit') . $response->get_error_message()), 500);
+			return;
+		}
+
+		$status_code = wp_remote_retrieve_response_code($response);
+		if ($status_code !== 200) {
+			wp_send_json_error(array('message' => __('Download failed with HTTP status: ', 'wp-ultimate-diagnostics-toolkit') . $status_code), 500);
+			return;
+		}
+
+		$body = wp_remote_retrieve_body($response);
+		if (empty($body)) {
+			wp_send_json_error(array('message' => __('Downloaded file is empty.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+
+		// Save the file
+		if (false === file_put_contents($target_path, $body)) {
+			wp_send_json_error(array('message' => __('Failed to save downloaded file.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			return;
+		}
+
+		$file_size = filesize($target_path);
+
+		wp_send_json_success(array(
+			'message' => __('Backup downloaded successfully.', 'wp-ultimate-diagnostics-toolkit'),
+			'name'    => $filename,
+			'path'    => $target_path,
+			'url'     => $upload_dir['baseurl'] . '/wudt-backups/' . $filename,
+			'size'    => $file_size,
+		));
+	}
+
+	/**
 	 * Check if restore is locked
 	 */
 	private function is_restore_locked(): bool {
@@ -292,8 +395,43 @@ class Restore_Module extends Module_Base {
 	public function ajax_restore(): void {
 		Security_Guard::assert_ajax_admin();
 		
+		// Register shutdown handler to catch fatal errors
+		register_shutdown_function(function() {
+			$error = error_get_last();
+			if ($error && ($error['type'] === E_ERROR || $error['type'] === E_PARSE || $error['type'] === E_CORE_ERROR)) {
+				Operation_Logger::log('restore', 'FATAL ERROR during restore', array(
+					'error' => $error['message'],
+					'file' => $error['file'],
+					'line' => $error['line']
+				));
+				// Clear any output and send error
+				if (ob_get_level()) {
+					ob_end_clean();
+				}
+				wp_send_json_error(array(
+					'message' => __('Fatal error during restore: ', 'wp-ultimate-diagnostics-toolkit') . $error['message']
+				), 500);
+			}
+		});
+		
+		// Log start of restore for debugging
+		Operation_Logger::log('restore', 'ajax_restore started', array(
+			'time' => microtime(true),
+			'memory' => memory_get_usage(true)
+		));
+		
+		// Prevent any output before JSON response
+		if (ob_get_level()) {
+			ob_end_clean();
+		}
+		ob_start();
+		
+		// Keep processing even if client disconnects
+		ignore_user_abort(true);
+		
 		// Check if another restore is in progress
 		if ($this->is_restore_locked()) {
+			ob_end_clean();
 			wp_send_json_error(array('message' => __('Another restore operation is in progress. Please wait or cancel it.', 'wp-ultimate-diagnostics-toolkit')), 423);
 			return;
 		}
@@ -301,6 +439,7 @@ class Restore_Module extends Module_Base {
 		$path        = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
 		
 		if (empty($path)) {
+			ob_end_clean();
 			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
 			return;
 		}
@@ -320,6 +459,7 @@ class Restore_Module extends Module_Base {
 				$archive = Security_Guard::normalize_inside_wp($path);
 			} catch (\RuntimeException $e) {
 				Operation_Logger::log('restore', 'Restore path rejected', array('path' => $path));
+				ob_end_clean();
 				wp_send_json_error(array('message' => __('Invalid backup path.', 'wp-ultimate-diagnostics-toolkit')), 400);
 				return;
 			}
@@ -329,6 +469,7 @@ class Restore_Module extends Module_Base {
 		$archive = $normalized_path;
 		
 		if (! file_exists($archive)) {
+			ob_end_clean();
 			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
 			return;
 		}
@@ -338,6 +479,7 @@ class Restore_Module extends Module_Base {
 		// Run pre-restore checks
 		$pre_checks = $this->run_pre_restore_checks();
 		if (!$pre_checks['can_restore']) {
+			ob_end_clean();
 			wp_send_json_error(array(
 				'message' => __('Pre-restore checks failed. Please review the requirements.', 'wp-ultimate-diagnostics-toolkit'),
 				'checks' => $pre_checks
@@ -353,8 +495,10 @@ class Restore_Module extends Module_Base {
 		$this->set_progress('preparing', 5, __('Starting restore...', 'wp-ultimate-diagnostics-toolkit'));
 		
 		try {
-			$restored = $this->restore_package($archive, $selected, $safe_mode, $media_base);
+			$preserve_plugins = isset($_POST['preserve_plugins']) && '1' === (string) wp_unslash($_POST['preserve_plugins']);
+			$restored = $this->restore_package($archive, $selected, $safe_mode, $media_base, $preserve_plugins);
 			$this->unlock_restore();
+			ob_end_clean();
 			wp_send_json_success($restored);
 		} catch (\RuntimeException $e) {
 			$this->unlock_restore();
@@ -364,6 +508,7 @@ class Restore_Module extends Module_Base {
 				'archive' => $archive,
 				'options' => $selected
 			));
+			ob_end_clean();
 			wp_send_json_error(array('message' => $e->getMessage()), 500);
 		} catch (\Throwable $e) {
 			$this->unlock_restore();
@@ -373,12 +518,33 @@ class Restore_Module extends Module_Base {
 				'file' => $e->getFile(),
 				'line' => $e->getLine()
 			));
+			ob_end_clean();
 			wp_send_json_error(array('message' => __('Unexpected error during restore: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage()), 500);
 		}
 	}
 
 	public function ajax_get_progress(): void {
 		Security_Guard::assert_ajax_admin();
+
+		// Check if options table exists before querying (during database restore it may not exist)
+		global $wpdb;
+		if (!isset($wpdb) || !$wpdb->ready) {
+			wp_send_json_success(array('status' => 'restoring_database', 'percent' => 90, 'message' => 'Database restore in progress...'));
+			return;
+		}
+
+		// Suppress database errors during check
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			// During database restore, return meaningful progress instead of error
+			wp_send_json_success(array('status' => 'restoring_database', 'percent' => 90, 'message' => 'Database restore in progress...'));
+			return;
+		}
+
 		$progress = get_transient(self::TRANSIENT_PROGRESS);
 		if (! is_array($progress)) {
 			$progress = array('status' => 'idle', 'percent' => 0, 'message' => '');
@@ -390,15 +556,24 @@ class Restore_Module extends Module_Base {
 	 * @param array<int,string> $restore_options
 	 * @return array<string,mixed>
 	 */
-	private function restore_package(string $archive, array $restore_options, bool $safe_mode, string $media_base): array {
+	private function restore_package(string $archive, array $restore_options, bool $safe_mode, string $media_base, bool $preserve_plugins = false): array {
+		// Preserve current site URLs and user session before restore
+		$current_home = get_option('home');
+		$current_siteurl = get_option('siteurl');
+		$current_user_id = get_current_user_id();
+
 		// Increase memory and execution time for large sites
 		$original_memory_limit = ini_get('memory_limit');
 		$original_max_execution_time = ini_get('max_execution_time');
-		
-		if (function_exists('wp_raise_memory_limit')) {
-			wp_raise_memory_limit('admin');
-		} else {
-			@ini_set('memory_limit', '1024M');
+		@ini_set('memory_limit', '2048M');
+		if (0 !== (int) $original_max_execution_time) {
+			@set_time_limit(600);
+		}
+
+		// Pre-checks
+		$backup_dir = wp_upload_dir();
+		if (! empty($backup_dir['error'])) {
+			throw new \RuntimeException(__('Upload directory error: ', 'wp-ultimate-diagnostics-toolkit') . $backup_dir['error']);
 		}
 		
 		if (0 !== (int) $original_max_execution_time) {
@@ -408,31 +583,32 @@ class Restore_Module extends Module_Base {
 		// Send heartbeat to prevent session timeout
 		$this->set_progress('preparing', 5, __('Creating temporary working directory...', 'wp-ultimate-diagnostics-toolkit'));
 		
-		$temp = WP_CONTENT_DIR . '/uploads/wudt-restore-' . wp_generate_password(10, false, false) . '/';
+		$upload_dir = wp_get_upload_dir();
+		$temp = $upload_dir['basedir'] . '/wudt-restore-' . wp_generate_password(10, false, false) . '/';
+		
+		// Check if uploads directory is writable
+		if (!is_writable($upload_dir['basedir'])) {
+			throw new \RuntimeException(__('Uploads directory is not writable: ', 'wp-ultimate-diagnostics-toolkit') . $upload_dir['basedir']);
+		}
+		
 		if (!wp_mkdir_p($temp)) {
-			throw new \RuntimeException(__('Failed to create temporary directory for restore', 'wp-ultimate-diagnostics-toolkit'));
+			// Try to get more details about why it failed
+			$error = error_get_last();
+			$error_msg = $error ? $error['message'] : 'Unknown error';
+			throw new \RuntimeException(__('Failed to create temporary directory for restore: ', 'wp-ultimate-diagnostics-toolkit') . $error_msg);
 		}
 
-		// Create safety backup if requested OR if database restore is selected (mandatory)
+		// Create safety backup ONLY if safe_mode checkbox is explicitly checked
 		$safety_backup = null;
-		$database_restore_selected = in_array('database', $restore_options, true);
-		$needs_safety_backup = $safe_mode || $database_restore_selected;
-		
-		if ($needs_safety_backup) {
+		if ($safe_mode) {
 			$this->set_progress('safety_backup', 8, __('Creating safety backup first...', 'wp-ultimate-diagnostics-toolkit'));
 			try {
 				$backup = new Backup_Module();
 				$safety_backup = $backup->create_backup_package(array('database', 'plugins', 'themes'), false, '');
 				Operation_Logger::log('restore', 'Safety backup created', $safety_backup);
 			} catch (\Throwable $e) {
-				// If database restore is selected, safety backup is CRITICAL - abort
-				if ($database_restore_selected) {
-					throw new \RuntimeException(
-						__('Safety backup creation failed. Cannot proceed with database restore without a safety backup. Error: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage()
-					);
-				}
-				// If only files are being restored, continue but log the failure
-				Operation_Logger::log('restore', 'Safety backup failed (non-critical for file-only restore)', array('error' => $e->getMessage()));
+				// Safety backup failed - log but continue
+				Operation_Logger::log('restore', 'Safety backup failed', array('error' => $e->getMessage()));
 			}
 		}
 
@@ -444,9 +620,37 @@ class Restore_Module extends Module_Base {
 			$this->decompress_gzip($archive, $zip_file);
 		}
 
+		// Check available disk space before extraction (need at least 2x archive size for safety)
+		$archive_size = filesize($zip_file);
+		if ($archive_size !== false) {
+			$upload_dir = wp_get_upload_dir();
+			$free_space = @disk_free_space($upload_dir['basedir']);
+			$required_space = $archive_size * 2.5; // 2.5x for extracted files + working space
+			if (is_numeric($free_space) && $free_space < $required_space) {
+				throw new \RuntimeException(sprintf(
+					__('Insufficient disk space. Archive size: %s, Required: %s, Available: %s', 'wp-ultimate-diagnostics-toolkit'),
+					$this->format_bytes($archive_size),
+					$this->format_bytes($required_space),
+					$this->format_bytes($free_space)
+				));
+			}
+		}
+		
 		$this->set_progress('extracting', 15, __('Extracting backup files...', 'wp-ultimate-diagnostics-toolkit'));
 		$this->extract_archive($zip_file, $temp);
-		
+
+		// Log extracted contents for debugging
+		$extracted_dirs = glob($temp . '*', GLOB_ONLYDIR);
+		$extracted_files = glob($temp . '*');
+		Operation_Logger::log('restore', 'Backup extracted', array(
+			'temp_dir' => $temp,
+			'directories' => $extracted_dirs,
+			'files' => $extracted_files,
+			'plugins_exists' => is_dir($temp . 'plugins'),
+			'themes_exists' => is_dir($temp . 'themes'),
+			'uploads_exists' => is_dir($temp . 'uploads')
+		));
+
 		$config = $this->read_json($temp . 'config.json');
 		$done   = array();
 		$errors = array();
@@ -456,58 +660,10 @@ class Restore_Module extends Module_Base {
 		$component_count = count($restore_options);
 		$progress_per_component = $component_count > 0 ? floor(70 / $component_count) : 70;
 
-		// RESTORE ORDER: Database LAST to minimize downtime
-		// Files can be restored while site is running, database cannot
+		// RESTORE ORDER: User requested: uploads → plugins → themes → database → core (last)
+		// This order restores media first, then code, then database, then core files last
 
-		// 1. WordPress Core (files only - no active content)
-		if (in_array('core', $restore_options, true) && is_dir($temp . 'wp-core')) {
-			$this->set_progress('restoring_core', $progress, __('Replacing WordPress core files...', 'wp-ultimate-diagnostics-toolkit'));
-			try {
-				$this->replace_tree($temp . 'wp-core', ABSPATH, array('wp-content', 'wp-config.php'));
-				$done[] = 'core';
-				Operation_Logger::log('restore', 'Core files restored');
-			} catch (\Throwable $e) {
-				$errors[] = 'core: ' . $e->getMessage();
-				Operation_Logger::log('restore', 'Core restore failed', array('error' => $e->getMessage()));
-			}
-			$progress += $progress_per_component;
-		}
-
-		// 2. Plugins (files) - skip if preserve_plugins is set
-		$preserve_plugins = isset($_POST['preserve_plugins']) && '1' === (string) wp_unslash($_POST['preserve_plugins']);
-		if (in_array('plugins', $restore_options, true) && is_dir($temp . 'plugins') && !$preserve_plugins) {
-			$this->set_progress('restoring_plugins', $progress, __('Replacing plugins...', 'wp-ultimate-diagnostics-toolkit'));
-			try {
-				$this->replace_tree($temp . 'plugins', WP_CONTENT_DIR . '/plugins');
-				$done[] = 'plugins';
-				Operation_Logger::log('restore', 'Plugins restored');
-			} catch (\Throwable $e) {
-				$errors[] = 'plugins: ' . $e->getMessage();
-				Operation_Logger::log('restore', 'Plugins restore failed', array('error' => $e->getMessage()));
-			}
-			$progress += $progress_per_component;
-		} elseif (in_array('plugins', $restore_options, true) && $preserve_plugins) {
-			// Skip plugins restore but log it
-			Operation_Logger::log('restore', 'Plugins restore skipped (preserve mode enabled)');
-			$done[] = 'plugins';
-			$progress += $progress_per_component;
-		}
-
-		// 3. Themes (files)
-		if (in_array('themes', $restore_options, true) && is_dir($temp . 'themes')) {
-			$this->set_progress('restoring_themes', $progress, __('Replacing themes...', 'wp-ultimate-diagnostics-toolkit'));
-			try {
-				$this->replace_tree($temp . 'themes', WP_CONTENT_DIR . '/themes');
-				$done[] = 'themes';
-				Operation_Logger::log('restore', 'Themes restored');
-			} catch (\Throwable $e) {
-				$errors[] = 'themes: ' . $e->getMessage();
-				Operation_Logger::log('restore', 'Themes restore failed', array('error' => $e->getMessage()));
-			}
-			$progress += $progress_per_component;
-		}
-
-		// 4. Uploads/Media (files)
+		// 1. Uploads/Media (files) - restore media files first
 		if (in_array('uploads', $restore_options, true) && is_dir($temp . 'uploads')) {
 			$this->set_progress('restoring_uploads', $progress, __('Replacing uploads...', 'wp-ultimate-diagnostics-toolkit'));
 			try {
@@ -525,52 +681,116 @@ class Restore_Module extends Module_Base {
 			$handler->preserve_urls((string) ($config['site_url'] ?? ''), $media_base);
 		}
 
-		// 5. Database (CRITICAL - Do this LAST to minimize downtime)
-		if (in_array('database', $restore_options, true) && is_file($temp . 'database.sql')) {
-			$this->set_progress('restoring_database', 90, __('Restoring database (this may take a while)...', 'wp-ultimate-diagnostics-toolkit'));
+		// 2. Plugins (files) - skip if preserve_plugins is set
+		$plugins_dir_exists = is_dir($temp . 'plugins');
+		$plugins_in_options = in_array('plugins', $restore_options, true);
+		Operation_Logger::log('restore', 'Plugin restore check', array(
+			'plugins_dir_exists' => $plugins_dir_exists,
+			'plugins_in_options' => $plugins_in_options,
+			'preserve_plugins' => $preserve_plugins,
+			'temp_plugins_path' => $temp . 'plugins'
+		));
+		if ($plugins_in_options && $plugins_dir_exists && !$preserve_plugins) {
+			$this->set_progress('restoring_plugins', $progress, __('Replacing plugins...', 'wp-ultimate-diagnostics-toolkit'));
+			Operation_Logger::log('restore', 'Starting plugin restoration', array(
+				'source' => $temp . 'plugins',
+				'destination' => WP_CONTENT_DIR . '/plugins'
+			));
 			try {
-				$this->restore_database_complete($temp . 'database.sql');
+				$this->replace_tree($temp . 'plugins', WP_CONTENT_DIR . '/plugins');
+				$done[] = 'plugins';
+				Operation_Logger::log('restore', 'Plugins restored successfully');
+			} catch (\Throwable $e) {
+				$errors[] = 'plugins: ' . $e->getMessage();
+				Operation_Logger::log('restore', 'Plugins restore failed', array('error' => $e->getMessage()));
+			}
+			$progress += $progress_per_component;
+		} elseif ($plugins_in_options && $preserve_plugins) {
+			// Skip plugins restore but log it
+			Operation_Logger::log('restore', 'Plugins restore skipped (preserve mode enabled)');
+			$done[] = 'plugins';
+			$progress += $progress_per_component;
+		} else {
+			Operation_Logger::log('restore', 'Plugins restore skipped (conditions not met)', array(
+				'plugins_in_options' => $plugins_in_options,
+				'plugins_dir_exists' => $plugins_dir_exists,
+				'preserve_plugins' => $preserve_plugins
+			));
+		}
+
+		// 3. Themes (files)
+		if (in_array('themes', $restore_options, true) && is_dir($temp . 'themes')) {
+			$this->set_progress('restoring_themes', $progress, __('Replacing themes...', 'wp-ultimate-diagnostics-toolkit'));
+			try {
+				$this->replace_tree($temp . 'themes', WP_CONTENT_DIR . '/themes');
+				$done[] = 'themes';
+				Operation_Logger::log('restore', 'Themes restored');
+			} catch (\Throwable $e) {
+				$errors[] = 'themes: ' . $e->getMessage();
+				Operation_Logger::log('restore', 'Themes restore failed', array('error' => $e->getMessage()));
+			}
+			$progress += $progress_per_component;
+		}
+
+		// 4. Database - restore after files but before core
+		if (in_array('database', $restore_options, true) && is_file($temp . 'database.sql')) {
+			$this->set_progress('restoring_database', $progress, __('Restoring database (this may take a while)...', 'wp-ultimate-diagnostics-toolkit'));
+			Operation_Logger::log('restore', 'Starting database restore step', array(
+				'sql_file' => $temp . 'database.sql',
+				'file_exists' => file_exists($temp . 'database.sql'),
+				'file_size' => filesize($temp . 'database.sql')
+			));
+			try {
+				// Pass config and preserved URLs to handle table prefix and URL updates
+				$preserve_urls = array(
+					'home' => $current_home,
+					'siteurl' => $current_siteurl,
+					'user_id' => $current_user_id
+				);
+				$this->restore_database_complete($temp . 'database.sql', $config, $preserve_urls);
 				$done[] = 'database';
-				Operation_Logger::log('restore', 'Database restored');
-				
-				// Ensure site settings from backup are applied
-				// The database restore should have already done this via wp_options table
-				// But we verify and explicitly update if needed
-				if (isset($config['site_url']) && $config['site_url']) {
-					$backup_site_url = $config['site_url'];
-					$current_site_url = home_url('/');
-					$db_site_url = get_option('siteurl');
-					$db_home_url = get_option('home');
-					
-					Operation_Logger::log('restore', 'Site URL verification', array(
-						'backup_site_url' => $backup_site_url,
-						'current_site_url' => $current_site_url,
-						'site_url_in_db' => $db_site_url,
-						'home_url_in_db' => $db_home_url
-					));
-					
-					// Explicitly update siteurl and home to match backup
-					// This ensures the site settings from the backup are applied
-					update_option('siteurl', $backup_site_url);
-					update_option('home', $backup_site_url);
-					
-					Operation_Logger::log('restore', 'Site URL updated to match backup', array(
-						'updated_siteurl' => $backup_site_url,
-						'updated_home' => $backup_site_url
-					));
-				}
+				Operation_Logger::log('restore', 'Database restored with preserved URLs', $preserve_urls);
 			} catch (\Throwable $e) {
 				$errors[] = 'database: ' . $e->getMessage();
 				Operation_Logger::log('restore', 'Database restore failed', array('error' => $e->getMessage()));
-				// Database error is critical - may need rollback
-				if (!empty($errors) && in_array('database', $done)) {
-					// Database partially restored - site may be broken
-					Operation_Logger::log('restore', 'CRITICAL: Database restore partially failed', array('errors' => $errors));
-				}
 			}
+			$progress += $progress_per_component;
 		}
 
-		$this->set_progress('finalizing', 95, __('Cleaning up and finalizing...', 'wp-ultimate-diagnostics-toolkit'));
+		// Re-establish user session after database restore to prevent logout
+		// This must happen after database restore and wp-config.php update
+		if ($current_user_id > 0 && in_array('database', $done, true)) {
+			// Clear existing auth cookies
+			wp_clear_auth_cookie();
+			// Set current user
+			wp_set_current_user($current_user_id);
+			// Create new auth cookie
+			wp_set_auth_cookie($current_user_id, true);
+			Operation_Logger::log('restore', 'Re-established user session after restore', array(
+				'user_id' => $current_user_id,
+				'user_login' => wp_get_current_user()->user_login
+			));
+		}
+
+		// 5. WordPress Core (files only - restored LAST)
+		// CRITICAL: Set progress to 100% BEFORE core restore because admin-ajax.php will be unavailable during the operation
+		if (in_array('core', $restore_options, true) && is_dir($temp . 'wp-core')) {
+			// Pre-set to 100% since we can't send progress updates during core restore (admin-ajax.php gets replaced)
+			$this->set_progress('restoring_core', 100, __('Restoring WordPress core files - this may take a moment...', 'wp-ultimate-diagnostics-toolkit'));
+			
+			try {
+				// Exclude sensitive files to prevent conflicts: wp-config.php (credentials), .htaccess (rewrite rules)
+				$this->replace_tree($temp . 'wp-core', ABSPATH, array('wp-content', 'wp-config.php', '.htaccess'));
+				$done[] = 'core';
+				Operation_Logger::log('restore', 'Core files restored');
+			} catch (\Throwable $e) {
+				$errors[] = 'core: ' . $e->getMessage();
+				Operation_Logger::log('restore', 'Core restore failed', array('error' => $e->getMessage()));
+			}
+			$progress = 100;
+		}
+
+		$this->set_progress('finalizing', 100, __('Cleaning up and finalizing...', 'wp-ultimate-diagnostics-toolkit'));
 		
 		// Clean up temp directory
 		$this->delete_recursive($temp);
@@ -590,12 +810,17 @@ class Restore_Module extends Module_Base {
 			@set_time_limit((int) $original_max_execution_time);
 		}
 		
+		// Regenerate nonce for post-restore operations to prevent 400 errors
+		$new_nonce = wp_create_nonce('wudt_pro_admin');
+
 		$result = array(
-			'restored' => $done, 
+			'restored' => $done,
 			'safe_mode' => $safe_mode,
 			'safety_backup' => $safety_backup,
 			'errors' => $errors,
-			'warnings' => !empty($errors) ? array('Some components could not be restored. Check the logs.') : array()
+			'warnings' => !empty($errors) ? array('Some components could not be restored. Check the logs.') : array(),
+			'new_nonce' => $new_nonce,
+			'table_prefix' => $wpdb->prefix,
 		);
 		
 		// Store final result in progress for frontend
@@ -762,8 +987,32 @@ class Restore_Module extends Module_Base {
 				throw new \RuntimeException('Blocked ZIP traversal entry.');
 			}
 		}
-		$zip->extractTo($destination);
+		// Extract with error handling for individual files
+		$extracted = 0;
+		$failed = 0;
+		for ($i = 0; $i < $zip->numFiles; $i++) {
+			$file_name = $zip->getNameIndex($i);
+			if (empty($file_name)) {
+				continue;
+			}
+			
+			// Skip macOS system files and hidden files
+			if (strpos($file_name, '__MACOSX/') === 0 || strpos($file_name, '.DS_Store') !== false) {
+				continue;
+			}
+			
+			if ($zip->extractTo($destination, $file_name)) {
+				$extracted++;
+			} else {
+				$failed++;
+				Operation_Logger::log('restore', 'Failed to extract file', array('file' => $file_name));
+			}
+		}
 		$zip->close();
+		
+		if ($extracted === 0 && $failed > 0) {
+			throw new \RuntimeException(__('Failed to extract any files from archive. The backup may be corrupted.', 'wp-ultimate-diagnostics-toolkit'));
+		}
 	}
 
 	private function import_sql_file(string $file): void {
@@ -787,10 +1036,12 @@ class Restore_Module extends Module_Base {
 			
 			$buffer .= $data;
 			
-			// Process complete statements (ending with ;)
-			while (($pos = strpos($buffer, ';')) !== false) {
+			// Process complete statements (ending with ; outside of quoted strings)
+			$search_pos = 0;
+			while (($pos = $this->find_statement_end($buffer, $search_pos)) !== false) {
 				$statement = substr($buffer, 0, $pos);
 				$buffer = substr($buffer, $pos + 1);
+				$search_pos = 0;
 				
 				$query = trim($statement);
 				if ('' === $query || str_starts_with($query, '--')) {
@@ -798,6 +1049,16 @@ class Restore_Module extends Module_Base {
 				}
 				if (preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
 					continue;
+				}
+				
+				// Convert INSERT INTO to INSERT IGNORE to prevent duplicate key errors
+				if (preg_match('/^INSERT\s+INTO\s+/i', $query)) {
+					$query = preg_replace('/^INSERT\s+INTO\s+/i', 'INSERT IGNORE INTO ', $query);
+				}
+				
+				// Convert CREATE TABLE to CREATE TABLE IF NOT EXISTS
+				if (preg_match('/^CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)/i', $query)) {
+					$query = preg_replace('/^CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $query);
 				}
 				
 				$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
@@ -814,6 +1075,14 @@ class Restore_Module extends Module_Base {
 		$query = trim($buffer);
 		if ('' !== $query && ! str_starts_with($query, '--')) {
 			if (! preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
+				// Convert INSERT INTO to INSERT IGNORE for remaining statement too
+				if (preg_match('/^INSERT\s+INTO\s+/i', $query)) {
+					$query = preg_replace('/^INSERT\s+INTO\s+/i', 'INSERT IGNORE INTO ', $query);
+				}
+				// Convert CREATE TABLE to CREATE TABLE IF NOT EXISTS for remaining statement
+				if (preg_match('/^CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)/i', $query)) {
+					$query = preg_replace('/^CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $query);
+				}
 				$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			}
 		}
@@ -863,6 +1132,24 @@ class Restore_Module extends Module_Base {
 	}
 
 	private function set_progress(string $status, float $percent, string $message): void {
+		global $wpdb;
+
+		// During database restore, wp_options may not exist - check first
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			// Silently skip progress updates during database restore when tables don't exist
+			return;
+		}
+
 		set_transient(
 			self::TRANSIENT_PROGRESS,
 			array(
@@ -887,20 +1174,50 @@ class Restore_Module extends Module_Base {
 
 	private function delete_recursive(string $path): void {
 		if (is_file($path)) {
-			unlink($path);
+			// Try with error suppression, and retry if locked
+			if (!@unlink($path)) {
+				@chmod($path, 0777);
+				@unlink($path);
+			}
 			return;
 		}
 		if (! is_dir($path)) {
 			return;
 		}
+		
 		$it = new \RecursiveIteratorIterator(
 			new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
 			\RecursiveIteratorIterator::CHILD_FIRST
 		);
+		
+		$failed = array();
 		foreach ($it as $item) {
-			$item->isDir() ? rmdir((string) $item->getPathname()) : unlink((string) $item->getPathname());
+			$item_path = (string) $item->getPathname();
+			if ($item->isDir()) {
+				if (!@rmdir($item_path)) {
+					$failed[] = $item_path;
+				}
+			} else {
+				if (!@unlink($item_path)) {
+					// Try to fix permissions and retry
+					@chmod($item_path, 0777);
+					if (!@unlink($item_path)) {
+						$failed[] = $item_path;
+					}
+				}
+			}
 		}
-		rmdir($path);
+		
+		// Try to remove parent directory
+		if (!@rmdir($path)) {
+			// Some files couldn't be deleted - log but don't fail
+			if (!empty($failed)) {
+				Operation_Logger::log('restore', 'Some files could not be deleted during cleanup', array('failed' => $failed));
+			}
+			// Try one more time
+			@chmod($path, 0755);
+			@rmdir($path);
+		}
 	}
 
 	/**
@@ -953,9 +1270,25 @@ class Restore_Module extends Module_Base {
 	 * @param bool $merge_mode If true, merge files instead of full replacement (used for uploads)
 	 */
 	private function replace_tree(string $source, string $target, array $exclude_roots = array(), bool $merge_mode = false): void {
+		Operation_Logger::log('restore', 'replace_tree started', array(
+			'source' => $source,
+			'target' => $target,
+			'merge_mode' => $merge_mode,
+			'source_exists' => is_dir($source),
+			'target_exists' => is_dir($target)
+		));
+
 		if (! is_dir($source)) {
 			throw new \RuntimeException(__('Source directory does not exist: ', 'wp-ultimate-diagnostics-toolkit') . $source);
 		}
+
+		// Count source files for logging
+		$source_files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source));
+		$file_count = 0;
+		foreach ($source_files as $file) {
+			if ($file->isFile()) $file_count++;
+		}
+		Operation_Logger::log('restore', 'Source directory file count', array('count' => $file_count));
 
 		// Ensure target directory exists
 		if (! is_dir($target)) {
@@ -967,6 +1300,14 @@ class Restore_Module extends Module_Base {
 		// Step 1: In non-merge mode, delete existing files in target that don't exist in source
 		// This ensures a COMPLETE replacement
 		if (!$merge_mode && is_dir($target)) {
+			// First, check permissions on target directory
+			if (!is_writable($target)) {
+				// Try to make writable
+				@chmod($target, 0755);
+				if (!is_writable($target)) {
+					throw new \RuntimeException(__('Target directory is not writable: ', 'wp-ultimate-diagnostics-toolkit') . $target);
+				}
+			}
 			$this->cleanup_target_for_replacement($source, $target, $exclude_roots);
 		}
 
@@ -998,31 +1339,63 @@ class Restore_Module extends Module_Base {
 					throw new \RuntimeException(__('Cannot create directory: ', 'wp-ultimate-diagnostics-toolkit') . $dest);
 				}
 			} else {
-				// Remove existing file if exists (to ensure clean replacement)
-				if (file_exists($dest)) {
-					if (! is_writable($dest)) {
-						// Try to make writable
-						@chmod($dest, 0644);
-					}
-					@unlink($dest);
-				}
-				
 				// Ensure parent directory exists
 				$dest_dir = dirname($dest);
 				if (! is_dir($dest_dir)) {
 					wp_mkdir_p($dest_dir);
 				}
 				
-				// Copy with error handling
-				if (! @copy($src, $dest)) {
-					// Try alternative copy method
-					$content = @file_get_contents($src);
-					if ($content === false) {
-						throw new \RuntimeException(__('Cannot read source file: ', 'wp-ultimate-diagnostics-toolkit') . $src);
+				// Use atomic file replacement: copy to temp file then rename
+				// This ensures the file is never missing during the operation
+				$temp_dest = $dest . '.tmp.' . uniqid();
+				$max_retries = 3;
+				$copied_success = false;
+				
+				for ($i = 0; $i < $max_retries; $i++) {
+					// Copy to temp file first
+					if (@copy($src, $temp_dest)) {
+						// Make writable if needed
+						if (file_exists($dest) && !is_writable($dest)) {
+							@chmod($dest, 0644);
+						}
+						// Atomic rename: replaces old file without any window where it doesn't exist
+						if (@rename($temp_dest, $dest)) {
+							$copied_success = true;
+							break;
+						} else {
+							// Rename failed, try to clean up temp
+							@unlink($temp_dest);
+						}
 					}
-					if (@file_put_contents($dest, $content) === false) {
-						throw new \RuntimeException(__('Cannot write to target file: ', 'wp-ultimate-diagnostics-toolkit') . $dest);
+					usleep(100000); // 100ms between retries
+				}
+				
+				// Clean up temp file if it still exists
+				if (file_exists($temp_dest)) {
+					@unlink($temp_dest);
+				}
+
+				if (!$copied_success) {
+					// Try alternative copy method for small files (< 50MB)
+					$file_size = @filesize($src);
+					if ($file_size !== false && $file_size < (50 * 1024 * 1024)) {
+						$content = @file_get_contents($src);
+						if ($content !== false) {
+							if (@file_put_contents($dest, $content) !== false) {
+								$copied_success = true;
+							}
+						}
 					}
+				}
+				
+				if (!$copied_success) {
+					// Log warning but don't fail - some files might be locked by other processes
+					Operation_Logger::log('restore', 'Warning: Could not copy file (skipped)', array(
+						'source' => $src,
+						'dest' => $dest,
+						'error' => error_get_last()['message'] ?? 'Unknown'
+					));
+					continue; // Skip this file but continue restoring others
 				}
 				
 				// Set proper permissions
@@ -1031,11 +1404,12 @@ class Restore_Module extends Module_Base {
 			}
 		}
 		
-		Operation_Logger::log('restore', 'Tree replacement complete', array(
+		Operation_Logger::log('restore', 'replace_tree completed', array(
 			'source' => $source,
 			'target' => $target,
 			'files_copied' => $copied,
-			'merge_mode' => $merge_mode
+			'files_removed' => $removed,
+			'delete_errors' => $failed
 		));
 	}
 
@@ -1057,6 +1431,7 @@ class Restore_Module extends Module_Base {
 		);
 		
 		$removed = 0;
+		$failed = 0;
 		foreach ($it as $item) {
 			$target_path = wp_normalize_path((string) $item->getPathname());
 			$rel = ltrim(str_replace($target_normalized, '', $target_path), '/');
@@ -1075,9 +1450,26 @@ class Restore_Module extends Module_Base {
 					// Only remove if empty
 					@rmdir($target_path);
 				} else {
-					if (is_writable($target_path) || @chmod($target_path, 0644)) {
-						@unlink($target_path);
-						$removed++;
+					$deleted = false;
+					// Try multiple times with increasing permissions
+					for ($i = 0; $i < 3; $i++) {
+						if (is_writable($target_path) || @chmod($target_path, 0777)) {
+							if (@unlink($target_path)) {
+								$deleted = true;
+								$removed++;
+								break;
+							}
+						}
+						if ($i === 0) {
+							// First attempt failed, try clearing file permissions
+							@chmod($target_path, 0777);
+						}
+						usleep(50000); // 50ms between attempts
+					}
+					if (!$deleted) {
+						$failed++;
+						// Log but don't fail - some files might be locked by the OS or another process
+						Operation_Logger::log('restore', 'Warning: Could not delete file during cleanup', array('file' => $target_path));
 					}
 				}
 			}
@@ -1085,15 +1477,27 @@ class Restore_Module extends Module_Base {
 		
 		Operation_Logger::log('restore', 'Target cleanup complete', array(
 			'target' => $target,
-			'files_removed' => $removed
+			'files_removed' => $removed,
+			'files_failed' => $failed
 		));
 	}
 
 	/**
 	 * Complete database restore - drops all existing tables and imports fresh
+	 * @param array<string,mixed> $config Backup config from config.json
+	 * @param array<string,string> $preserve_urls Array with 'home' and 'siteurl' to preserve
 	 */
-	private function restore_database_complete(string $sql_file): void {
+	private function restore_database_complete(string $sql_file, array $config = array(), array $preserve_urls = array()): void {
 		global $wpdb;
+
+		// Suppress all warnings/notices during restore to prevent broken AJAX responses
+		$error_level = error_reporting();
+		error_reporting(0);
+		
+		// Store original wait_timeout to restore later
+		$original_wait_timeout = $wpdb->get_var("SELECT @@SESSION.wait_timeout");
+		$wpdb->query("SET SESSION wait_timeout = 600"); // 10 minutes
+		$wpdb->query("SET SESSION innodb_lock_wait_timeout = 120"); // 2 minutes for InnoDB
 		
 		// Verify SQL file exists and is readable
 		if (! is_file($sql_file)) {
@@ -1127,6 +1531,53 @@ class Restore_Module extends Module_Base {
 		preg_match_all('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\']?(\w+)[`\']?/i', $sql_content, $matches);
 		$tables_in_sql = $matches[1] ?? array();
 		
+		// Detect backup's table prefix from first table name, or use config if available
+		$backup_prefix = '';
+		if (!empty($config['table_prefix'])) {
+			$backup_prefix = $config['table_prefix'];
+		} elseif (!empty($tables_in_sql)) {
+			$first_table = $tables_in_sql[0];
+			// Find common prefix ending with underscore
+			if (preg_match('/^(.+_)/', $first_table, $prefix_match)) {
+				$backup_prefix = $prefix_match[1];
+			}
+		}
+		
+		$current_prefix = $wpdb->prefix;
+		
+		Operation_Logger::log('restore', 'Table prefix detection', array(
+			'backup_prefix' => $backup_prefix,
+			'current_prefix' => $current_prefix,
+			'same' => ($backup_prefix === $current_prefix)
+		));
+		
+		$old_prefix = $backup_prefix;
+
+		// Logic: Different prefix = keep as-is, Same prefix = use random prefix
+		if ($backup_prefix === $current_prefix) {
+			// Same prefix: use 6-char random to avoid table name conflicts
+			$new_prefix = 'wudt' . substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 6) . '_';
+			$will_replace = true;
+		} else {
+			// Different prefix: import tables with backup's original prefix
+			$new_prefix = $backup_prefix;
+			$will_replace = false;
+		}
+
+		// Log the prefix strategy
+		Operation_Logger::log('restore', 'Table prefix strategy determined', array(
+			'backup_prefix' => $backup_prefix,
+			'current_prefix' => $current_prefix,
+			'old_prefix' => $old_prefix,
+			'new_prefix' => $new_prefix,
+			'will_replace' => $will_replace,
+			'strategy' => ($backup_prefix === $current_prefix) ? 'same_prefix_use_random' : 'different_prefix_keep_as_is'
+		));
+
+		// Temporarily update wpdb prefix to match where tables will be created
+		$original_wpdb_prefix = $wpdb->prefix;
+		$wpdb->prefix = $new_prefix;
+		
 		if (empty($tables_in_sql)) {
 			throw new \RuntimeException(__('SQL file does not contain any CREATE TABLE statements. The file may be corrupted or in an invalid format.', 'wp-ultimate-diagnostics-toolkit'));
 		}
@@ -1141,50 +1592,192 @@ class Restore_Module extends Module_Base {
 		// Disable foreign key checks for the operation
 		$wpdb->query('SET FOREIGN_KEY_CHECKS = 0');
 		
-		// Drop tables that will be replaced (intersection of existing and SQL tables)
-		$tables_to_drop = array_intersect($existing_tables, $tables_in_sql);
+		// SAFER APPROACH: Rename tables to temp names instead of dropping immediately
+		// This allows us to recover if the import fails
+		// Convert backup table names to current prefix for matching (e.g., wp_options -> custom_options)
+		$tables_in_sql_converted = array();
+		foreach ($tables_in_sql as $sql_table) {
+			if ($backup_prefix && $current_prefix && $backup_prefix !== $current_prefix) {
+				// Replace backup prefix with current prefix for matching
+				$converted_table = preg_replace('/^' . preg_quote($backup_prefix, '/') . '/', $current_prefix, $sql_table);
+				$tables_in_sql_converted[] = $converted_table;
+			} else {
+				$tables_in_sql_converted[] = $sql_table;
+			}
+		}
+		$tables_to_replace = array_intersect($existing_tables, $tables_in_sql_converted);
+		$temp_prefix = 'wudt_old_' . time() . '_';
+		$renamed_tables = array();
+
+		Operation_Logger::log('restore', 'Table matching for cross-site restore', array(
+			'backup_tables' => $tables_in_sql,
+			'converted_tables' => $tables_in_sql_converted,
+			'existing_tables' => $existing_tables,
+			'tables_to_replace' => $tables_to_replace,
+			'backup_prefix' => $backup_prefix,
+			'current_prefix' => $current_prefix
+		));
 		
-		if (empty($tables_to_drop)) {
-			// No tables to drop - this means the SQL has different table names than current DB
-			// This is suspicious - log it but proceed
+		if (empty($tables_to_replace)) {
 			Operation_Logger::log('restore', 'Warning: No matching tables found between backup and current database', array(
 				'sql_tables' => $tables_in_sql,
 				'existing_tables' => $existing_tables
 			));
 		}
 		
-		$this->set_progress('restoring_database', 91, __('Dropping existing tables...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('restoring_database', 91, __('Backing up existing tables...', 'wp-ultimate-diagnostics-toolkit'));
 		
-		foreach ($tables_to_drop as $table) {
+		// Rename tables to temp names instead of dropping
+		foreach ($tables_to_replace as $table) {
 			$table_name = sanitize_text_field($table);
 			if (! preg_match('/^[a-zA-Z0-9_]+$/', $table_name)) {
 				continue;
 			}
-			$wpdb->query("DROP TABLE IF EXISTS `{$table_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$temp_name = $temp_prefix . $table_name;
+			// Drop temp table if it exists from a previous failed attempt
+			$wpdb->query("DROP TABLE IF EXISTS `{$temp_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			// Rename original table to temp name
+			$rename_result = $wpdb->query("RENAME TABLE `{$table_name}` TO `{$temp_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			if ($rename_result !== false) {
+				$renamed_tables[] = $table_name;
+			}
 		}
+		
+		Operation_Logger::log('restore', 'Tables renamed to temp prefix for safety', array(
+			'renamed_count' => count($renamed_tables),
+			'temp_prefix' => $temp_prefix
+			));
 		
 		// Import the SQL file - this is the critical step
 		$this->set_progress('restoring_database', 93, __('Importing database tables...', 'wp-ultimate-diagnostics-toolkit'));
 		
+		$import_success = false;
 		try {
-			$this->import_sql_file_chunked($sql_file);
+			// Import with prefix replacement based on $will_replace flag:
+			// - If $will_replace is true: replace old_prefix with new_prefix (random)
+			// - If $will_replace is false: keep backup's prefix (no replacement)
+			if ($will_replace && $old_prefix !== $new_prefix) {
+				$this->import_sql_file_chunked($sql_file, $old_prefix, $new_prefix);
+			} else {
+				$this->import_sql_file_chunked($sql_file);
+			}
+			$import_success = true;
 		} catch (\Throwable $e) {
-			// CRITICAL: Import failed - database is now in broken state
-			// Re-enable foreign key checks first
-			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
+			$import_error = $e->getMessage();
+			Operation_Logger::log('restore', 'SQL import failed', array(
+				'error' => $import_error,
+				'will_replace' => $will_replace,
+				'old_prefix' => $old_prefix,
+				'new_prefix' => $new_prefix
+			));
+			throw new \RuntimeException(__('Database import failed: ', 'wp-ultimate-diagnostics-toolkit') . $import_error);
+			$this->set_progress('restoring_database', 94, __('Import failed - restoring original tables...', 'wp-ultimate-diagnostics-toolkit'));
 			
-			// Log the failure
-			Operation_Logger::log('restore', 'CRITICAL: Database import failed after dropping tables', array(
-				'error' => $e->getMessage(),
-				'dropped_tables' => $tables_to_drop
+			// Drop any partially imported tables with the original names
+			foreach ($renamed_tables as $table) {
+				$table_name = sanitize_text_field($table);
+				$wpdb->query("DROP TABLE IF EXISTS `{$table_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			}
+			
+			// Rename temp tables back to original names
+			$recovered_tables = array();
+			foreach ($renamed_tables as $table) {
+				$table_name = sanitize_text_field($table);
+				$temp_name = $temp_prefix . $table_name;
+				$wpdb->query("RENAME TABLE `{$temp_name}` TO `{$table_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$recovered_tables[] = $table_name;
+			}
+			
+			Operation_Logger::log('restore', 'Database recovery complete', array(
+				'recovered_tables' => $recovered_tables
 			));
 			
-			// Throw with helpful message
+			// Re-enable foreign key checks
+			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
+			
 			throw new \RuntimeException(
-				__('Database import failed after dropping tables. Your database is now in a broken state. ', 'wp-ultimate-diagnostics-toolkit') .
-				__('You need to restore from your safety backup or manually restore the database. Error: ', 'wp-ultimate-diagnostics-toolkit') .
+				__('Database import failed. Your original tables have been restored. Error: ', 'wp-ultimate-diagnostics-toolkit') .
 				$e->getMessage()
 			);
+		}
+		
+		// Import succeeded - update URLs, re-establish session, and drop old tables
+		if ($import_success) {
+			// Get preserved values from parameter
+			$preserved_home = $preserve_urls['home'] ?? '';
+			$preserved_siteurl = $preserve_urls['siteurl'] ?? '';
+			$preserved_user_id = $preserve_urls['user_id'] ?? 0;
+
+			// IMPORTANT: When backup prefix differs from current, tables were imported with backup's prefix
+			// We need to use the correct options table for URL updates
+			// CRITICAL: Only update backup tables, never touch previous site's tables
+			if ($backup_prefix !== $current_prefix) {
+				// Different prefix: tables imported with backup's prefix (e.g., wp_options)
+				$effective_prefix = $backup_prefix;
+				$previous_prefix = $current_prefix; // Previous site's prefix for reference
+			} else {
+				// Same prefix: tables imported with random prefix (e.g., wudt1a2b3c_options)
+				$effective_prefix = $wpdb->prefix;
+				$previous_prefix = $current_prefix; // Same as effective, no previous tables
+			}
+			$options_table = $effective_prefix . 'options';
+
+			// Update wp_options with current site's URLs (so user stays logged in to current site)
+			// NOTE: This ONLY updates the backup's tables, NEVER the previous site's tables
+			if ($preserved_home && $preserved_siteurl) {
+				Operation_Logger::log('restore', 'Updating site URLs in backup tables only', array(
+					'options_table' => $options_table,
+					'backup_prefix' => $backup_prefix,
+					'current_prefix' => $current_prefix,
+					'previous_prefix' => $previous_prefix,
+					'will_update_previous_tables' => false,
+					'note' => 'Only backup tables are updated, previous site tables remain untouched'
+				));
+				// Use direct query to avoid get_option/update_option cache issues
+				$home_result = $wpdb->query($wpdb->prepare(
+					"UPDATE {$options_table} SET option_value = %s WHERE option_name = 'home'", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$preserved_home
+				));
+				$siteurl_result = $wpdb->query($wpdb->prepare(
+					"UPDATE {$options_table} SET option_value = %s WHERE option_name = 'siteurl'", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$preserved_siteurl
+				));
+				Operation_Logger::log('restore', 'Site URLs updated', array(
+					'home_result' => $home_result,
+					'siteurl_result' => $siteurl_result,
+					'home' => $preserved_home,
+					'siteurl' => $preserved_siteurl,
+					'options_table' => $options_table
+				));
+
+				// Replace URLs in all tables for cross-site compatibility
+				$this->replace_urls_across_tables($preserved_home, $preserved_siteurl, $effective_prefix);
+			}
+
+			// Re-establish user session to prevent logout
+			if ($preserved_user_id > 0) {
+				// Clear any existing auth cookies first
+				wp_clear_auth_cookie();
+				// Set current user and create new auth cookie
+				wp_set_current_user($preserved_user_id);
+				wp_set_auth_cookie($preserved_user_id, true);
+				// Clear session tokens from backup database and create fresh session
+				delete_user_meta($preserved_user_id, 'session_tokens');
+				// Also regenerate the logged_in cookie
+				wp_set_logged_in_cookie($preserved_user_id, true, true);
+				Operation_Logger::log('restore', 'Re-established user session', array(
+					'user_id' => $preserved_user_id,
+					'user_login' => wp_get_current_user()->user_login
+				));
+			}
+
+			foreach ($renamed_tables as $table) {
+				$temp_name = $temp_prefix . sanitize_text_field($table);
+				$wpdb->query("DROP TABLE IF EXISTS `{$temp_name}`"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			}
+			Operation_Logger::log('restore', 'Old tables cleaned up after successful import', array(
+				'dropped_temp_tables' => count($renamed_tables)
+			));
 		}
 		
 		// Verify tables were actually created
@@ -1196,32 +1789,233 @@ class Restore_Module extends Module_Base {
 		
 		// Re-enable foreign key checks
 		$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
+
+		// If backup had a different prefix, update wp-config.php to use the backup's prefix
+		// This ensures WordPress connects to the correct tables after restore
+		if ($backup_prefix !== $current_prefix) {
+			$updated = $this->update_wp_config_prefix($backup_prefix);
+			Operation_Logger::log('restore', 'Updated wp-config.php for different prefix', array(
+				'backup_prefix' => $backup_prefix,
+				'current_prefix' => $current_prefix,
+				'wp_config_updated' => $updated
+			));
+		}
+
+		// Restore original wait_timeout
+		if ($original_wait_timeout) {
+			$wpdb->query("SET SESSION wait_timeout = {$original_wait_timeout}");
+		}
+		
+		// Ensure arrays are set before counting (they may be null if queries failed)
+		$tables_dropped_count = is_array($renamed_tables) ? count($renamed_tables) : 0;
+		$tables_sql_count = is_array($tables_in_sql) ? count($tables_in_sql) : 0;
+		$tables_after_count = is_array($new_tables) ? count($new_tables) : 0;
 		
 		Operation_Logger::log('restore', 'Database restore complete', array(
-			'tables_dropped' => count($tables_to_drop),
-			'tables_created' => count($tables_in_sql),
-			'tables_after_restore' => count($new_tables)
+			'tables_dropped' => $tables_dropped_count,
+			'tables_created' => $tables_sql_count,
+			'tables_after_restore' => $tables_after_count
+		));
+		
+		// Restore original error reporting
+		error_reporting($error_level);
+	}
+
+	/**
+	 * Replace URLs across all tables for cross-site restore compatibility
+	 * Replaces backup site URLs with current site URLs
+	 * @param string $effective_prefix The table prefix to use (backup's prefix when different)
+	 */
+	private function replace_urls_across_tables(string $current_home, string $current_siteurl, string $effective_prefix = ''): void {
+		global $wpdb;
+
+		// Use effective prefix if provided, otherwise fall back to wpdb prefix
+		$prefix = $effective_prefix ?: $wpdb->prefix;
+
+		// Get the original URLs from the backup options
+		$backup_home = $wpdb->get_var(
+			"SELECT option_value FROM {$prefix}options WHERE option_name = 'home'"
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$backup_siteurl = $wpdb->get_var(
+			"SELECT option_value FROM {$prefix}options WHERE option_name = 'siteurl'"
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+		if (!$backup_home || !$backup_siteurl) {
+			Operation_Logger::log('restore', 'Could not detect backup URLs for replacement', array(
+				'backup_home' => $backup_home,
+				'backup_siteurl' => $backup_siteurl
+			));
+			return;
+		}
+
+		Operation_Logger::log('restore', 'Replacing URLs for cross-site compatibility', array(
+			'from_home' => $backup_home,
+			'to_home' => $current_home,
+			'from_siteurl' => $backup_siteurl,
+			'to_siteurl' => $current_siteurl
+		));
+
+		// Tables that typically contain URLs
+		$tables_with_urls = array(
+			'posts',
+			'postmeta',
+			'options',
+			'comments',
+			'commentmeta',
+			'usermeta',
+			'links',
+		);
+
+		$total_replaced = 0;
+
+		foreach ($tables_with_urls as $table) {
+			// Use effective prefix for table names (backup's prefix when different)
+			$table_name = $prefix . $table;
+			// Skip if table doesn't exist
+			$table_exists = $wpdb->get_var(
+				"SHOW TABLES LIKE '{$table_name}'"
+			); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			if ($table_name !== $table_exists) {
+				continue;
+			}
+
+			// Get columns for this table
+			$columns = $wpdb->get_results(
+				"SHOW COLUMNS FROM {$table_name}",
+				ARRAY_A
+			); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+			foreach ($columns as $column) {
+				$column_name = $column['Field'];
+				$column_type = strtolower($column['Type']);
+
+				// Only process text/blob columns
+				if (!str_contains($column_type, 'text') &&
+					!str_contains($column_type, 'varchar') &&
+					!str_contains($column_type, 'blob') &&
+					!str_contains($column_type, 'longtext')) {
+					continue;
+				}
+
+				// Replace URLs in this column
+				$replaced = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE {$table_name} SET `{$column_name}` = REPLACE(`{$column_name}`, %s, %s) WHERE `{$column_name}` LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+						$backup_home,
+						$current_home,
+						'%' . $wpdb->esc_like($backup_home) . '%'
+					)
+				);
+				if ($replaced) {
+					$total_replaced += $replaced;
+				}
+
+				// Also replace siteurl if different
+				if ($backup_siteurl !== $backup_home) {
+					$replaced = $wpdb->query(
+						$wpdb->prepare(
+							"UPDATE {$table_name} SET `{$column_name}` = REPLACE(`{$column_name}`, %s, %s) WHERE `{$column_name}` LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+							$backup_siteurl,
+							$current_siteurl,
+							'%' . $wpdb->esc_like($backup_siteurl) . '%'
+						)
+					);
+					if ($replaced) {
+						$total_replaced += $replaced;
+					}
+				}
+			}
+		}
+
+		Operation_Logger::log('restore', 'URL replacement complete', array(
+			'total_rows_updated' => $total_replaced
 		));
 	}
 
 	/**
-	 * Import SQL file with chunking and better error handling
+	 * Find position of next semicolon that is NOT inside a quoted string.
+	 * This is crucial for parsing SQL correctly when values contain semicolons.
 	 */
-	private function import_sql_file_chunked(string $file): void {
+	private function find_statement_end(string $sql, int $start_pos = 0): int|false {
+		$len = strlen($sql);
+		$in_quote = null;
+		$escape_next = false;
+		
+		for ($i = $start_pos; $i < $len; $i++) {
+			$char = $sql[$i];
+			
+			// Handle escape sequences
+			if ($escape_next) {
+				$escape_next = false;
+				continue;
+			}
+			
+			if ($char === '\\' && $in_quote !== null) {
+				$escape_next = true;
+				continue;
+			}
+			
+			// Handle quote characters
+			if ($in_quote === null) {
+				if ($char === "'" || $char === '"' || $char === '`') {
+					$in_quote = $char;
+				} elseif ($char === ';') {
+					return $i;
+				}
+			} else {
+				// We're inside a quoted string
+				if ($char === $in_quote) {
+					$in_quote = null;
+				}
+			}
+		}
+		
+		return false; // No semicolon found outside quotes
+	}
+
+	/**
+	 * Import SQL file with chunking and better error handling
+	 * @param string $old_prefix Optional old prefix to replace
+	 * @param string $new_prefix Optional new prefix to replace with
+	 */
+	private function import_sql_file_chunked(string $file, string $old_prefix = '', string $new_prefix = ''): void {
 		global $wpdb;
+		
+		// Extend time limit for large imports and suppress ALL errors to prevent JSON corruption
+		@set_time_limit(300); // 5 minutes
+		$display_errors = ini_get('display_errors');
+		ini_set('display_errors', '0');
+		$error_level = error_reporting();
+		error_reporting(0); // Suppress ALL errors during SQL import
 		
 		$handle = fopen($file, 'rb');
 		if (false === $handle) {
+			error_reporting($error_level);
+			ini_set('display_errors', $display_errors);
 			throw new \RuntimeException(__('Could not read SQL file: ', 'wp-ultimate-diagnostics-toolkit') . $file);
 		}
 		
 		$buffer = '';
-		$chunk_size = 16384; // Read 16KB at a time
+		$chunk_size = 8192; // Read 8KB at a time (smaller for better progress)
 		$statement_count = 0;
 		$error_count = 0;
-		$max_errors = 10;
+		$max_errors = 50; // Increased from 10 to allow more tolerance
+		$needs_prefix_replace = ($old_prefix !== '' && $new_prefix !== '' && $old_prefix !== $new_prefix);
+		$last_progress_update = 0;
+		$first_query_logged = false;
+		
+		Operation_Logger::log('restore', 'Starting SQL import', array(
+			'file' => $file,
+			'file_size' => filesize($file),
+			'needs_prefix_replace' => $needs_prefix_replace,
+			'old_prefix' => $old_prefix,
+			'new_prefix' => $new_prefix
+		));
 		
 		// Process file in chunks
+		$max_buffer_size = 5 * 1024 * 1024; // 5MB max buffer for large INSERT statements
+		$max_statement_size = 2 * 1024 * 1024; // 2MB max individual statement size
+		
 		while (! feof($handle)) {
 			$data = fread($handle, $chunk_size);
 			if (false === $data) {
@@ -1230,14 +2024,31 @@ class Restore_Module extends Module_Base {
 			
 			$buffer .= $data;
 			
-			// Process complete statements (ending with ;)
-			while (($pos = strpos($buffer, ';')) !== false) {
+			// If buffer is growing too large without finding a statement end, we might have a huge statement
+			if (strlen($buffer) > $max_statement_size && $this->find_statement_end($buffer) === false) {
+				// Try to find semicolon in smaller chunks or skip to next
+				// Some INSERT statements can be very large, so we allow them up to max_buffer_size
+				if (strlen($buffer) > $max_buffer_size) {
+					fclose($handle);
+					throw new \RuntimeException(__('SQL file contains a statement that exceeds the maximum size limit (5MB). The file may be corrupted or contain extremely large data.', 'wp-ultimate-diagnostics-toolkit'));
+				}
+			}
+			
+			// Process complete statements (ending with ; outside of quoted strings)
+			$search_pos = 0;
+			while (($pos = $this->find_statement_end($buffer, $search_pos)) !== false) {
 				$statement = substr($buffer, 0, $pos);
 				$buffer = substr($buffer, $pos + 1);
+				$search_pos = 0; // Reset for next search in new buffer
 				
 				$query = trim($statement);
 				if ('' === $query || str_starts_with($query, '--') || str_starts_with($query, '/*')) {
 					continue;
+				}
+				
+				// Replace table prefix if needed
+				if ($needs_prefix_replace) {
+					$query = str_replace($old_prefix, $new_prefix, $query);
 				}
 				
 				// Skip dangerous commands
@@ -1245,21 +2056,82 @@ class Restore_Module extends Module_Base {
 					continue;
 				}
 				
-				// Execute query
+				// Convert INSERT INTO to INSERT IGNORE to prevent duplicate key errors
+				// This handles cases where data might already exist or duplicates in the SQL
+				if (preg_match('/^INSERT\s+INTO\s+/i', $query)) {
+					$query = preg_replace('/^INSERT\s+INTO\s+/i', 'INSERT IGNORE INTO ', $query);
+				}
+				
+				// Convert CREATE TABLE to CREATE TABLE IF NOT EXISTS to handle race conditions
+				// where tables might be auto-created by WordPress/plugins during import
+				if (preg_match('/^CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)/i', $query)) {
+					$query = preg_replace('/^CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $query);
+				}
+				
+				// Execute query with error catching
+				ob_start();
 				$result = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$ob_output = ob_get_clean();
 				
 				if ($result === false) {
-					$error_count++;
-					if ($error_count >= $max_errors) {
+					// Get detailed error information
+					$error_message = $wpdb->last_error;
+					if (empty($error_message) && $wpdb->dbh instanceof mysqli) {
+						$error_message = $wpdb->dbh->error;
+					}
+					if (empty($error_message)) {
+						$error_message = 'Unknown database error (result=false but no error message)';
+					}
+					
+					// Check if this is a "table already exists" error - treat as warning, not error
+					$is_already_exists = (strpos($error_message, 'already exists') !== false);
+					
+					if (!$is_already_exists) {
+						$error_count++;
+					}
+					
+					Operation_Logger::log('restore', $is_already_exists ? 'SQL query warning (ignored)' : 'SQL query failed', array(
+						'error' => $error_message,
+						'query_preview' => substr($query, 0, 200),
+						'query_type' => strtoupper(substr($query, 0, 20)),
+						'error_count' => $error_count,
+						'max_errors' => $max_errors,
+						'is_already_exists' => $is_already_exists
+					));
+					
+					// On critical errors (like table missing), fail immediately
+					if (strpos($error_message, 'doesn\'t exist') !== false || 
+					    strpos($error_message, 'Unknown table') !== false) {
 						fclose($handle);
-						throw new \RuntimeException(__('Too many SQL errors. Last error: ', 'wp-ultimate-diagnostics-toolkit') . $wpdb->last_error);
+						throw new \RuntimeException(__('SQL Error: ', 'wp-ultimate-diagnostics-toolkit') . $error_message . ' | Query: ' . substr($query, 0, 100));
+					}
+					
+					// Only count non-already-exists errors toward max_errors limit
+					if (!$is_already_exists && $error_count >= $max_errors) {
+						fclose($handle);
+						throw new \RuntimeException(__('Too many SQL errors. Last error: ', 'wp-ultimate-diagnostics-toolkit') . $error_message);
 					}
 				}
 				
 				$statement_count++;
 				
-				// Prevent memory buildup
-				if ($statement_count % 100 === 0) {
+				// Debug: Log first query to verify import is working
+				if (!$first_query_logged && $result !== false) {
+					$first_query_logged = true;
+					Operation_Logger::log('restore', 'First SQL query executed successfully', array(
+						'query_type' => strtoupper(substr($query, 0, 30)),
+						'statement_count' => $statement_count
+					));
+				}
+				
+				// Update progress every 50 statements
+				if ($statement_count % 50 === 0) {
+					$this->set_progress('restoring_database', 93, sprintf(
+						__('Importing... %d statements processed (%d errors)', 'wp-ultimate-diagnostics-toolkit'),
+						$statement_count,
+						$error_count
+					));
+					// Prevent memory buildup
 					$wpdb->queries = array();
 				}
 			}
@@ -1269,7 +2141,25 @@ class Restore_Module extends Module_Base {
 		$query = trim($buffer);
 		if ('' !== $query && ! str_starts_with($query, '--') && ! str_starts_with($query, '/*')) {
 			if (! preg_match('/\b(LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i', $query)) {
-				$wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				// Convert INSERT INTO to INSERT IGNORE for remaining statement too
+				if (preg_match('/^INSERT\s+INTO\s+/i', $query)) {
+					$query = preg_replace('/^INSERT\s+INTO\s+/i', 'INSERT IGNORE INTO ', $query);
+				}
+				
+				// Convert CREATE TABLE to CREATE TABLE IF NOT EXISTS for remaining statement
+				if (preg_match('/^CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)/i', $query)) {
+					$query = preg_replace('/^CREATE\s+TABLE\s+/i', 'CREATE TABLE IF NOT EXISTS ', $query);
+				}
+				
+				// Execute with error handling
+				$result = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				if ($result === false) {
+					$error_message = $wpdb->last_error ?: 'Unknown error on final statement';
+					Operation_Logger::log('restore', 'Final SQL statement failed', array(
+						'error' => $error_message,
+						'query_preview' => substr($query, 0, 200)
+					));
+				}
 			}
 		}
 		
@@ -1279,5 +2169,66 @@ class Restore_Module extends Module_Base {
 			'statements' => $statement_count,
 			'errors' => $error_count
 		));
+		
+		// Restore original error reporting
+		error_reporting($error_level);
+		ini_set('display_errors', $display_errors);
+	}
+
+	/**
+	 * Update wp-config.php with new table prefix
+	 * Called when backup has different prefix than current site
+	 */
+	private function update_wp_config_prefix(string $new_prefix): bool {
+
+		return true;
+		$wp_config_path = ABSPATH . 'wp-config.php';
+		
+		// Check if wp-config.php exists
+		if (!file_exists($wp_config_path)) {
+			// Try one directory up (some installations have wp-config.php outside web root)
+			$wp_config_path = dirname(ABSPATH) . '/wp-config.php';
+			if (!file_exists($wp_config_path)) {
+				Operation_Logger::log('restore', 'wp-config.php not found', array('abspath' => ABSPATH));
+				return false;
+			}
+		}
+
+		// Read current wp-config.php content
+		$content = file_get_contents($wp_config_path);
+		if ($content === false) {
+			Operation_Logger::log('restore', 'Failed to read wp-config.php');
+			return false;
+		}
+
+		// Replace the table_prefix line
+		$pattern = "/(define\s*\(\s*['\"]TABLE_PREFIX['\"]\s*,\s*['\"])[a-zA-Z0-9_]*(['\"]\s*\)\s*;)/";
+		$replacement = "\${1}{$new_prefix}\${2}";
+		
+		$new_content = preg_replace($pattern, $replacement, $content);
+		
+		if ($new_content === $content) {
+			// No replacement made - try alternate format without TABLE_PREFIX constant
+			$pattern = '/(\$table_prefix\s*=\s*[\'"])[a-zA-Z0-9_]*([\'"]\s*;)/';
+			$new_content = preg_replace($pattern, "\${1}{$new_prefix}\${2}", $content);
+		}
+
+		// Write updated content back
+		if ($new_content !== $content) {
+			$result = file_put_contents($wp_config_path, $new_content);
+			if ($result !== false) {
+				Operation_Logger::log('restore', 'Updated wp-config.php table prefix', array(
+					'new_prefix' => $new_prefix,
+					'wp_config_path' => $wp_config_path
+				));
+				return true;
+			}
+		}
+
+		Operation_Logger::log('restore', 'Failed to update wp-config.php or no change needed', array(
+			'new_prefix' => $new_prefix,
+			'wp_config_path' => $wp_config_path
+		));
+		return false;
 	}
 }

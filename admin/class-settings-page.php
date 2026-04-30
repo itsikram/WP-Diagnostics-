@@ -411,6 +411,22 @@ class Settings_Page {
 	 * Apply runtime settings that can be changed without wp-config.php
 	 */
 	public function apply_runtime_settings(): void {
+		// Check if options table exists before querying (during restore it may not exist)
+		global $wpdb;
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			return;
+		}
+
 		// Apply debug settings if WP_DEBUG is not already defined
 		if (! defined('WP_DEBUG')) {
 			if (get_option(self::OPTION_WP_DEBUG, false)) {

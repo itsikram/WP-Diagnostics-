@@ -44,6 +44,21 @@ class Advanced_Diagnostics_Module extends Module_Base {
 	public function capture_request_sample(): void {
 		global $wpdb;
 
+		// Check if options table exists before writing (during restore it may not exist)
+		if (!isset($wpdb) || !$wpdb->ready) {
+			return;
+		}
+
+		// Suppress database errors during check to prevent race condition output
+		$wpdb->suppress_errors(true);
+		$table_name = $wpdb->prefix . 'options';
+		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->suppress_errors(false);
+
+		if (!$table_exists) {
+			return;
+		}
+
 		$memory_samples   = (array) get_option(self::MEM_OPTION, array());
 		$memory_samples[] = array(
 			'time'           => current_time('mysql'),

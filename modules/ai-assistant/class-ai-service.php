@@ -32,10 +32,11 @@ class AI_Service {
 	/**
 	 * Get API endpoint based on selected provider.
 	 */
-	private function get_api_endpoint(string $provider): string {
+	private function get_api_endpoint(string $provider, string $model = ''): string {
 		switch ($provider) {
 			case 'gemini':
-				return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+				$model = $model ?: 'gemini-1.5-flash-latest';
+				return 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
 			case 'anthropic':
 				return 'https://api.anthropic.com/v1/messages';
 			case 'openrouter':
@@ -62,7 +63,8 @@ class AI_Service {
 
 		$provider = Settings_Page::get_ai_provider();
 		$model_setting = Settings_Page::get_ai_model();
-		$model = sanitize_text_field((string) ($options['model'] ?? $model_setting));
+		$model_option = $options['model'] ?? '';
+		$model = sanitize_text_field((string) (! empty($model_option) ? $model_option : $model_setting));
 
 		// DEBUG LOGGING
 		if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -158,7 +160,7 @@ class AI_Service {
 			'content' => "User prompt:\n" . $prompt . "\n\nDiagnostics context:\n" . (string) wp_json_encode($context, JSON_PRETTY_PRINT),
 		);
 
-		$endpoint = $this->get_api_endpoint($provider);
+		$endpoint = $this->get_api_endpoint($provider, $model);
 		$is_gemini = 'gemini' === $provider;
 		$is_openrouter = 'openrouter' === $provider;
 		
@@ -231,35 +233,84 @@ class AI_Service {
 			);
 		}
 
-		$request_args = array(
-			'timeout' => 60,
-			'headers' => array(
-				'Content-Type'  => 'application/json',
-			),
-			'body' => wp_json_encode($request_body),
-		);
+		$body_json = wp_json_encode($request_body);
 
-		// Gemini uses API key in query param; others use Authorization header
+		// Build headers for cURL
+		$headers = array('Content-Type: application/json');
 		if (! $is_gemini) {
-			$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+			$headers[] = 'Authorization: Bearer ' . $api_key;
 		}
-
-		// OpenRouter requires additional headers
 		if ($is_openrouter) {
-			$request_args['headers']['HTTP-Referer'] = get_site_url();
-			$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
+			$headers[] = 'HTTP-Referer: ' . get_site_url();
+			$headers[] = 'X-Title: WP Ultimate Diagnostics Toolkit';
 		}
 
-		$response = wp_remote_post($endpoint, $request_args);
-		if (is_wp_error($response)) {
+		// DEBUG LOGGING
+		if (defined('WP_DEBUG') && WP_DEBUG) {
+			error_log('[WUDT AI] Request Body: ' . $body_json);
+			error_log('[WUDT AI] Request Headers: ' . wp_json_encode($headers));
+		}
+
+		// Use cURL for reliable Authorization header support
+		$status_code = 0;
+		$body = '';
+		if (function_exists('curl_init')) {
+			$ch = curl_init($endpoint);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_POST, true);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $body_json);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+
+			$body = curl_exec($ch);
+			$status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+			$curl_error = curl_error($ch);
+			curl_close($ch);
+
 			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log('[WUDT AI] WP ERROR: ' . $response->get_error_message());
+				error_log('[WUDT AI] cURL Status: ' . $status_code);
+				if ($curl_error) {
+					error_log('[WUDT AI] cURL Error: ' . $curl_error);
+				}
 			}
-			return array('content' => 'AI request failed: ' . $response->get_error_message(), 'model' => $model);
+
+			if ($body === false || $curl_error) {
+				return array('content' => 'AI request failed (cURL): ' . ($curl_error ?: 'Unknown error'), 'model' => $model);
+			}
+		} else {
+			// Fallback to wp_remote_post if cURL not available
+			$request_args = array(
+				'timeout' => 60,
+				'headers' => array(
+					'Content-Type'  => 'application/json',
+				),
+				'body' => $body_json,
+				'sslverify' => false,
+			);
+
+			if (! $is_gemini) {
+				$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
+			}
+			if ($is_openrouter) {
+				$request_args['headers']['HTTP-Referer'] = get_site_url();
+				$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
+			}
+
+			$response = wp_remote_post($endpoint, $request_args);
+			if (is_wp_error($response)) {
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('[WUDT AI] WP ERROR: ' . $response->get_error_message());
+				}
+				return array('content' => 'AI request failed: ' . $response->get_error_message(), 'model' => $model);
+			}
+
+			$status_code = wp_remote_retrieve_response_code($response);
+			$body = wp_remote_retrieve_body($response);
 		}
 
-		$status_code = wp_remote_retrieve_response_code($response);
-		$body = wp_remote_retrieve_body($response);
 		$data = json_decode((string) $body, true);
 		
 		// DEBUG LOGGING
@@ -352,11 +403,29 @@ class AI_Service {
 		// Return default models based on selected provider
 		switch ($provider) {
 			case 'gemini':
-				return array('gemini-2.5-flash');
+				return array(
+					'gemini-2.5-flash-preview-05-20',
+					'gemini-1.5-flash-latest',
+					'gemini-1.5-pro-latest',
+					'gemini-1.0-pro-latest'
+				);
 			case 'anthropic':
 				return array('claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku');
 			case 'openrouter':
-				return array('google/gemini-2.5-flash-preview', 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet');
+				return array(
+					'mistralai/mistral-7b-instruct',
+					'mistralai/mixtral-8x7b',
+					'google/gemini-2.5-flash-preview',
+					'openai/gpt-4o',
+					'openai/gpt-4o-mini',
+					'openai/gpt-3.5-turbo',
+					'anthropic/claude-3.5-sonnet',
+					'anthropic/claude-3-haiku',
+					'meta-llama/llama-3-8b-instruct',
+					'meta-llama/llama-3-70b-instruct',
+					'microsoft/wizardlm-2-8x22b',
+					'nousresearch/nous-capybara-34b'
+				);
 			case 'openai':
 			default:
 				return array('gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo');
