@@ -19,8 +19,8 @@ class AI_Service {
 	 */
 	private function get_model_mapping(): array {
 		return array(
-			'gemini-2.5-flash' => 'gemini-2.5-flash-preview-05-20',
-			'gemini' => 'gemini-2.5-flash-preview-05-20',
+			'gemini-2.5-flash' => 'gemini-2.5-flash',
+			'gemini' => 'gemini-2.5-flash',
 			'gpt4' => 'gpt-4o',
 			'gpt35' => 'gpt-3.5-turbo',
 			'sonnet' => 'claude-3-sonnet',
@@ -162,12 +162,10 @@ class AI_Service {
 				$system_prompt .= "- ALWAYS use 'disable_plugin' action to deactivate plugins - NEVER use SQL for plugin deactivation\n";
 				$system_prompt .= "- SQL is ONLY for reading/updating database content like posts, users, options (not plugin status)\n";
 				$system_prompt .= "- For plugin operations, the 'plugin' parameter must be the relative path from wp-content/plugins/ (e.g., 'elementor/elementor.php')\n";
-				$system_prompt .= "\n=== AUTOMATIC EXECUTION PROTOCOL ===\n";
-				$system_prompt .= "When the user asks you to fix, repair, solve, update, change, modify, install, configure, optimize, activate, deactivate, enable, disable, or clean ANYTHING:\n";
-				$system_prompt .= "1. First, analyze the problem using read_file or run_sql to gather information\n";
-				$system_prompt .= "2. Then output the COMPLETE FIX as a JSON action block\n";
-				$system_prompt .= "3. The system will AUTOMATICALLY execute your actions - no user confirmation needed\n";
-				$system_prompt .= "4. After execution, you will receive the results and should confirm completion\n\n";
+				$system_prompt .= "\n=== ACTION EXECUTION PROTOCOL ===\n";
+				$system_prompt .= "When the user asks you to perform changes (install/activate/modify), prefer emitting JSON action block(s) that the system can present to the user.\n";
+				$system_prompt .= "Do NOT assume actions will be executed automatically; the system will present actions for explicit user approval unless the user explicitly asks for automatic execution.\n";
+				$system_prompt .= "If additional inspection is required before acting, emit read_file or run_sql actions to gather the minimal information needed.\n\n";
 				$system_prompt .= "=== JSON ACTION FORMAT ===\n";
 				$system_prompt .= "Single action:\n";
 				$system_prompt .= "```json\n";
@@ -178,11 +176,10 @@ class AI_Service {
 				$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}]' . "\n";
 				$system_prompt .= "```\n";
 				$system_prompt .= "\n=== RESPONSE FLOW ===\n";
-				$system_prompt .= "1. Explain what you found (diagnosis)\n";
-				$system_prompt .= "2. Include JSON action block(s) to fix the issue\n";
-				$system_prompt .= "3. System auto-executes actions\n";
-				$system_prompt .= "4. You receive execution results\n";
-				$system_prompt .= "5. Confirm task completion with summary\n";
+				$system_prompt .= "When requested to perform changes (install/activate/modify), output the required JSON action block(s) as the primary response.\n";
+				$system_prompt .= "Do NOT prepend lengthy diagnostic narratives unless the user explicitly asks for a diagnosis. A one-line summary is acceptable.\n";
+				$system_prompt .= "Actions should be well-formed JSON objects or an array of objects following the JSON ACTION FORMAT above.\n";
+				$system_prompt .= "If additional inspection is necessary before taking an action, request the minimum information or emit a read_file/run_sql action to gather it.\n";
 			$system_prompt .= "\n\n=== AGENT MODE ENABLED ===\n";
 			$system_prompt .= "You are a DYNAMIC AI AGENT that can automatically fix WordPress issues.\n\n";
 			$system_prompt .= "=== SUPERPOWERED AI AGENT - ALL CAPABILITIES ===\n";
@@ -221,12 +218,10 @@ class AI_Service {
 			$system_prompt .= "- ALWAYS use 'disable_plugin' action to deactivate plugins - NEVER use SQL for plugin deactivation\n";
 			$system_prompt .= "- SQL is ONLY for reading/updating database content like posts, users, options (not plugin status)\n";
 			$system_prompt .= "- For plugin operations, the 'plugin' parameter must be the relative path from wp-content/plugins/ (e.g., 'elementor/elementor.php')\n";
-			$system_prompt .= "\n=== AUTOMATIC EXECUTION PROTOCOL ===\n";
-			$system_prompt .= "When the user asks you to fix, repair, solve, update, change, modify, install, configure, optimize, activate, deactivate, enable, disable, or clean ANYTHING:\n";
-			$system_prompt .= "1. First, analyze the problem using read_file or run_sql to gather information\n";
-			$system_prompt .= "2. Then output the COMPLETE FIX as a JSON action block\n";
-			$system_prompt .= "3. The system will AUTOMATICALLY execute your actions - no user confirmation needed\n";
-			$system_prompt .= "4. After execution, you will receive the results and should confirm completion\n\n";
+			$system_prompt .= "\n=== ACTION EXECUTION PROTOCOL ===\n";
+			$system_prompt .= "When the user asks you to perform changes (install/activate/modify), prefer emitting JSON action block(s) that the system can present to the user.\n";
+			$system_prompt .= "Do NOT assume actions will be executed automatically; the system will present actions for explicit user approval unless the user explicitly asks for automatic execution.\n";
+			$system_prompt .= "If additional inspection is required before acting, emit read_file or run_sql actions to gather the minimal information needed.\n\n";
 			$system_prompt .= "=== JSON ACTION FORMAT ===\n";
 			$system_prompt .= "Single action:\n";
 			$system_prompt .= "```json\n";
@@ -237,11 +232,10 @@ class AI_Service {
 			$system_prompt .= '[{"action":"read_file","path":"wp-config.php","description":"Check config"},{"action":"activate_plugin","plugin":"elementor/elementor.php","description":"Activate Elementor"}]' . "\n";
 			$system_prompt .= "```\n";
 			$system_prompt .= "\n=== RESPONSE FLOW ===\n";
-			$system_prompt .= "1. Explain what you found (diagnosis)\n";
-			$system_prompt .= "2. Include JSON action block(s) to fix the issue\n";
-			$system_prompt .= "3. System auto-executes actions\n";
-			$system_prompt .= "4. You receive execution results\n";
-			$system_prompt .= "5. Confirm task completion with summary\n";
+			$system_prompt .= "When requested to perform changes (install/activate/modify), output the required JSON action block(s) as the primary response.\n";
+			$system_prompt .= "Do NOT prepend lengthy diagnostic narratives unless the user explicitly asks for a diagnosis. A one-line summary is acceptable.\n";
+			$system_prompt .= "Actions should be well-formed JSON objects or an array of objects following the JSON ACTION FORMAT above.\n";
+			$system_prompt .= "If additional inspection is necessary before taking an action, request the minimum information or emit a read_file/run_sql action to gather it.\n";
 		} else {
 			$system_prompt .= ' Ask mode: Explain clearly and suggest safe, manual troubleshooting steps only. Do NOT output JSON action blocks, automated fix plans, or action execution confirmations. If the user asks you to check or inspect something, only provide analysis and recommended manual checks. Do not mention that actions will be executed automatically or ask for confirmation unless the user explicitly requests execution.';
 		}
@@ -508,7 +502,7 @@ class AI_Service {
 		switch ($provider) {
 			case 'gemini':
 				return array(
-					'gemini-2.5-flash-preview-05-20',
+					'gemini-2.5-flash',
 					'gemini-1.5-flash-latest',
 					'gemini-1.5-pro-latest',
 					'gemini-1.0-pro-latest'

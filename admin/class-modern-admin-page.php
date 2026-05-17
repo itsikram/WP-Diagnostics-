@@ -92,88 +92,90 @@ class Modern_Admin_Page {
 			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		?>
-		<div class="wrap wudt-wrap wudt-modern">
-			<div class="wudt-header-bar">
-				<div class="wudt-header-logo">
-					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-logo-img">
-					<h1><?php echo esc_html__('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-				</div>
-				<div class="wudt-header-actions">
-					<button type="button" class="wudt-btn wudt-btn--secondary" id="wudt-dark-mode-toggle">
-						<span class="dashicons dashicons-visibility"></span>
-						<?php esc_html_e('Toggle Dark Mode', 'wp-ultimate-diagnostics-toolkit'); ?>
-					</button>
-					<a href="<?php echo esc_url(admin_url('admin.php?page=wudt-ai-assistant')); ?>" class="wudt-btn wudt-btn--primary">
-						<span class="dashicons dashicons-art"></span>
-						<?php esc_html_e('AI Assistant', 'wp-ultimate-diagnostics-toolkit'); ?>
-					</a>
-				</div>
-			</div>
-
-			<!-- Dashboard Stats -->
-			<div class="wudt-stats-grid" id="wudt-stats-grid">
-				<?php $this->render_stat_cards(); ?>
-			</div>
-
-			<!-- Cover Banner -->
-			<div class="wudt-cover-banner">
-				<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Cover" class="wudt-cover-img">
-			</div>
-
-			<!-- Module Navigation -->
-			<div class="wudt-tabs" id="wudt-module-tabs">
-				<?php foreach ($this->modules as $module): ?>
-					<button class="wudt-tab" data-tab="<?php echo esc_attr($module->get_key()); ?>">
-						<?php echo esc_html($module->get_label()); ?>
-					</button>
-				<?php endforeach; ?>
-			</div>
-
-			<!-- Module Content Panels -->
-			<div class="wudt-panels-container" id="wudt-panels-container">
-				<?php foreach ($this->modules as $module): ?>
-					<div class="wudt-panel" data-panel="<?php echo esc_attr($module->get_key()); ?>" style="display: none;">
-						<div class="wudt-panel__header">
-							<h2><?php echo esc_html($module->get_label()); ?></h2>
-							<div class="wudt-panel__actions">
-								<button type="button" class="wudt-btn wudt-btn--secondary wudt-btn--sm wudt-run-module" data-module="<?php echo esc_attr($module->get_key()); ?>">
-									<span class="dashicons dashicons-update"></span>
-									<?php esc_html_e('Run Check', 'wp-ultimate-diagnostics-toolkit'); ?>
-								</button>
-							</div>
-						</div>
-						<div class="wudt-panel__content">
-							<div class="wudt-skeleton-loader">
-								<div class="wudt-skeleton wudt-skeleton--title"></div>
-								<div class="wudt-skeleton wudt-skeleton--text"></div>
-								<div class="wudt-skeleton wudt-skeleton--text"></div>
-								<div class="wudt-skeleton wudt-skeleton--text"></div>
-							</div>
-						</div>
+		<div class="wudt-fullscreen-page">
+			<div style="padding: 20px; overflow-y: auto;">
+				<div class="wudt-header-bar">
+					<div class="wudt-header-logo">
+						<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-logo-img">
+						<h1><?php echo esc_html__('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
 					</div>
-				<?php endforeach; ?>
-			</div>
+					<div class="wudt-header-actions">
+						<button type="button" class="wudt-btn wudt-btn--secondary" id="wudt-dark-mode-toggle">
+							<span class="dashicons dashicons-visibility"></span>
+							<?php esc_html_e('Toggle Dark Mode', 'wp-ultimate-diagnostics-toolkit'); ?>
+						</button>
+						<a href="<?php echo esc_url(admin_url('admin.php?page=wudt-ai-assistant')); ?>" class="wudt-btn wudt-btn--primary">
+							<span class="dashicons dashicons-art"></span>
+							<?php esc_html_e('AI Assistant', 'wp-ultimate-diagnostics-toolkit'); ?>
+						</a>
+					</div>
+				</div>
 
-			<!-- Quick Actions -->
-			<div class="wudt-quick-actions">
-				<h3><?php esc_html_e('Quick Actions', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
-				<div class="wudt-quick-actions__grid">
-					<button type="button" class="wudt-quick-action" id="wudt-quick-scan">
-						<span class="wudt-quick-action__icon">🔍</span>
-						<span class="wudt-quick-action__label"><?php esc_html_e('Full System Scan', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-					</button>
-					<button type="button" class="wudt-quick-action" id="wudt-quick-clear-cache">
-						<span class="wudt-quick-action__icon">🧹</span>
-						<span class="wudt-quick-action__label"><?php esc_html_e('Clear Cache', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-					</button>
-					<button type="button" class="wudt-quick-action" id="wudt-quick-export">
-						<span class="wudt-quick-action__icon">📊</span>
-						<span class="wudt-quick-action__label"><?php esc_html_e('Export Report', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-					</button>
-					<button type="button" class="wudt-quick-action" id="wudt-quick-help">
-						<span class="wudt-quick-action__icon">❓</span>
-						<span class="wudt-quick-action__label"><?php esc_html_e('Get Help', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-					</button>
+				<!-- Dashboard Stats -->
+				<div class="wudt-stats-grid" id="wudt-stats-grid">
+					<?php $this->render_stat_cards(); ?>
+				</div>
+
+				<!-- Cover Banner -->
+				<div class="wudt-cover-banner">
+					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Cover" class="wudt-cover-img">
+				</div>
+
+				<!-- Module Navigation -->
+				<div class="wudt-tabs" id="wudt-module-tabs">
+					<?php foreach ($this->modules as $module): ?>
+						<button class="wudt-tab" data-tab="<?php echo esc_attr($module->get_key()); ?>">
+							<?php echo esc_html($module->get_label()); ?>
+						</button>
+					<?php endforeach; ?>
+				</div>
+
+				<!-- Module Content Panels -->
+				<div class="wudt-panels-container" id="wudt-panels-container">
+					<?php foreach ($this->modules as $module): ?>
+						<div class="wudt-panel" data-panel="<?php echo esc_attr($module->get_key()); ?>" style="display: none;">
+							<div class="wudt-panel__header">
+								<h2><?php echo esc_html($module->get_label()); ?></h2>
+								<div class="wudt-panel__actions">
+									<button type="button" class="wudt-btn wudt-btn--secondary wudt-btn--sm wudt-run-module" data-module="<?php echo esc_attr($module->get_key()); ?>">
+										<span class="dashicons dashicons-update"></span>
+										<?php esc_html_e('Run Check', 'wp-ultimate-diagnostics-toolkit'); ?>
+									</button>
+								</div>
+							</div>
+							<div class="wudt-panel__content">
+								<div class="wudt-skeleton-loader">
+									<div class="wudt-skeleton wudt-skeleton--title"></div>
+									<div class="wudt-skeleton wudt-skeleton--text"></div>
+									<div class="wudt-skeleton wudt-skeleton--text"></div>
+									<div class="wudt-skeleton wudt-skeleton--text"></div>
+								</div>
+							</div>
+						</div>
+					<?php endforeach; ?>
+				</div>
+
+				<!-- Quick Actions -->
+				<div class="wudt-quick-actions">
+					<h3><?php esc_html_e('Quick Actions', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+					<div class="wudt-quick-actions__grid">
+						<button type="button" class="wudt-quick-action" id="wudt-quick-scan">
+							<span class="wudt-quick-action__icon">🔍</span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Full System Scan', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+						</button>
+						<button type="button" class="wudt-quick-action" id="wudt-quick-clear-cache">
+							<span class="wudt-quick-action__icon">🧹</span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Clear Cache', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+						</button>
+						<button type="button" class="wudt-quick-action" id="wudt-quick-export">
+							<span class="wudt-quick-action__icon">📊</span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Export Report', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+						</button>
+						<button type="button" class="wudt-quick-action" id="wudt-quick-help">
+							<span class="wudt-quick-action__icon">❓</span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Get Help', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>

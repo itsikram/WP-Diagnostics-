@@ -82,15 +82,17 @@ class Pro_Admin_Page {
 			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		?>
-		<div class="wrap wudt-wrap wudt-pro-wrap">
-			<div class="wudt-pro-header">
-				<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-pro-logo">
-				<div class="wudt-pro-title">
-					<h1><?php esc_html_e('WP Diagnostics Pro - Admin Operations Suite', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-					<p><?php esc_html_e('Advanced file operations, database manager, malware scanner, logs, performance and security controls.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+		<div class="wudt-fullscreen-page">
+			<div class="wudt-pro-wrap" style="padding: 20px; overflow-y: auto;">
+				<div class="wudt-pro-header">
+					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-pro-logo">
+					<div class="wudt-pro-title">
+						<h1><?php esc_html_e('WP Diagnostics Pro - Admin Operations Suite', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+						<p><?php esc_html_e('Advanced file operations, database manager, malware scanner, logs, performance and security controls.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+					</div>
 				</div>
+				<div id="wudt-pro-admin-app"></div>
 			</div>
-			<div id="wudt-pro-admin-app"></div>
 		</div>
 		<?php
 	}

@@ -437,9 +437,6 @@ class File_Manager_Module extends Module_Base {
 		if (in_array($base, $this->blocked_names, true)) {
 			wp_send_json_error(array('message' => __('Access blocked for sensitive file.', 'wp-ultimate-diagnostics-toolkit')), 403);
 		}
-		if ($write && 'wp-config.php' === $base) {
-			wp_send_json_error(array('message' => __('wp-config.php is read-only in File Manager.', 'wp-ultimate-diagnostics-toolkit')), 403);
-		}
 	}
 
 	private function delete_recursive(string $path): void {

@@ -1873,6 +1873,34 @@
 	color: var(--wudt-gray-400);
 }
 
+/* Generic fullscreen page wrapper for all admin pages */
+.wudt-fullscreen-page {
+	position: fixed;
+	top: 32px;
+	left: 160px;
+	right: 0;
+	bottom: 0;
+	background: #fff;
+	z-index: 1000;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.folded .wudt-fullscreen-page {
+	left: 36px;
+}
+
+.wudt-fullscreen-page ~ #wpfooter {
+	display: none !important;
+}
+
+.wudt-fullscreen-page > div:first-child {
+	flex: 1;
+	overflow: auto;
+	height: 100%;
+}
+
 .wudt-ai-fullscreen .wudt-ai-textarea:disabled {
 	background: var(--wudt-gray-100);
 	cursor: not-allowed;

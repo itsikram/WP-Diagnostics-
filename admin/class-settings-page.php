@@ -17,6 +17,7 @@ class Settings_Page {
 	private const OPTION_AI_API_KEY = 'wudt_ai_api_key';
 	private const OPTION_AI_TEMPERATURE = 'wudt_ai_temperature';
 	private const OPTION_AI_MAX_TOKENS = 'wudt_ai_max_tokens';
+	private const OPTION_AI_ALLOW_FILE_OPS = 'wudt_ai_allow_file_ops';
 
 	// WordPress Debug Settings
 	private const OPTION_WP_DEBUG = 'wudt_wp_debug_enabled';
@@ -85,6 +86,18 @@ class Settings_Page {
 
 		$ai_max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
 		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $ai_max_tokens)), false);
+
+		// Allow AI file operations flag (admin override)
+		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
+		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
+
+		// Allow AI file operations flag (admin override)
+		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
+		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
+
+		// Allow AI file operations flag (admin override)
+		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
+		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
 
 		// WordPress Debug Settings - Also update wp-config.php for 100% functionality
 		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
@@ -474,6 +487,7 @@ class Settings_Page {
 		$ai_api_key = get_option(self::OPTION_AI_API_KEY, '');
 		$ai_temperature = (float) get_option(self::OPTION_AI_TEMPERATURE, 0.7);
 		$ai_max_tokens = (int) get_option(self::OPTION_AI_MAX_TOKENS, 2000);
+		$ai_allow_file_ops = (bool) get_option(self::OPTION_AI_ALLOW_FILE_OPS, false);
 
 		// WordPress Debug Settings - Read from wp-config.php for 100% accuracy
 		$wp_config_constants = $this->get_wp_config_constants();
@@ -491,28 +505,29 @@ class Settings_Page {
 		$saved = isset($_GET['saved']) && '1' === $_GET['saved'];
 		$wp_config_error = isset($_GET['wp_config_error']) ? sanitize_text_field((string) wp_unslash($_GET['wp_config_error'])) : '';
 		?>
-		<div class="wrap wudt-wrap">
-			<h1><?php esc_html_e('WP Diagnostics Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-			<p><?php esc_html_e('Configure AI models, API keys, and other plugin settings.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+		<div class="wudt-fullscreen-page">
+			<div style="padding: 20px; overflow-y: auto;">
+				<h1><?php esc_html_e('WP Diagnostics Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+				<p><?php esc_html_e('Configure AI models, API keys, and other plugin settings.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
 
-			<?php if ($saved) : ?>
-				<div class="notice notice-success is-dismissible">
-					<p><?php esc_html_e('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
-				</div>
-			<?php endif; ?>
+				<?php if ($saved) : ?>
+					<div class="notice notice-success is-dismissible">
+						<p><?php esc_html_e('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+					</div>
+				<?php endif; ?>
 
-			<?php if (! empty($wp_config_error)) : ?>
-				<div class="notice notice-error is-dismissible">
-					<p><strong><?php esc_html_e('wp-config.php Error:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
-					<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
-				</div>
-			<?php endif; ?>
+				<?php if (! empty($wp_config_error)) : ?>
+					<div class="notice notice-error is-dismissible">
+						<p><strong><?php esc_html_e('wp-config.php Error:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
+						<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+					</div>
+				<?php endif; ?>
 
-			<div class="wudt-card" style="max-width: 860px;">
-				<h2><?php esc_html_e('AI Assistant Configuration', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
-				<p class="description">
-					<?php esc_html_e('Choose your preferred AI model and configure API access.', 'wp-ultimate-diagnostics-toolkit'); ?>
-				</p>
+				<div class="wudt-card" style="max-width: 860px;">
+					<h2><?php esc_html_e('AI Assistant Configuration', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<p class="description">
+						<?php esc_html_e('Choose your preferred AI model and configure API access.', 'wp-ultimate-diagnostics-toolkit'); ?>
+					</p>
 
 				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="wudt-settings-form">
 					<input type="hidden" name="action" value="wudt_save_settings" />
@@ -525,6 +540,24 @@ class Settings_Page {
 									<label for="ai_provider"><?php esc_html_e('AI Provider', 'wp-ultimate-diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
+
+						<tr>
+							<th scope="row">
+								<label for="ai_allow_file_ops"><?php esc_html_e('Allow AI File Operations', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+							</th>
+							<td>
+								<label class="wudt-toggle-switch">
+									<input type="checkbox" name="ai_allow_file_ops" value="1" <?php checked($ai_allow_file_ops); ?>>
+									<span class="slider"></span>
+								</label>
+								<span class="wudt-toggle-label">
+									<?php esc_html_e('Allow AI to create, read and write files under wp-content/plugins, wp-content/themes and wp-content/uploads (Admin only).', 'wp-ultimate-diagnostics-toolkit'); ?>
+								</span>
+								<p class="description">
+									<?php esc_html_e('Enable only if you trust the AI and the current administrator. This grants the AI increased file system access within wp-content.', 'wp-ultimate-diagnostics-toolkit'); ?>
+								</p>
+							</td>
+						</tr>
 									<select name="ai_provider" id="ai_provider" class="regular-text">
 										<option value="gemini" <?php selected($ai_provider, 'gemini'); ?>>Google Gemini</option>
 										<option value="openai" <?php selected($ai_provider, 'openai'); ?>>OpenAI</option>
@@ -899,6 +932,10 @@ class Settings_Page {
 	 */
 	public static function get_ai_model(): string {
 		return get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
+	}
+
+	public static function is_ai_file_ops_allowed(): bool {
+		return (bool) get_option(self::OPTION_AI_ALLOW_FILE_OPS, false);
 	}
 
 	/**

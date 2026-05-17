@@ -108,6 +108,7 @@ safe_require('admin/class-pro-admin-page.php');
 safe_require('admin/class-debug-page.php');
 safe_require('admin/class-backup-page.php');
 safe_require('admin/class-ai-assistant-page.php');
+safe_require('admin/class-file-manager-page.php');
 safe_require('admin/class-progress-page.php');
 safe_require('admin/class-modern-admin-page.php');
 safe_require('admin/class-search-page.php');

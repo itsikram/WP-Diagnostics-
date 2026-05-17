@@ -75,12 +75,13 @@ class Search_Page {
 			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		?>
-		<div class="wrap wudt-wrap">
-			<h1><?php esc_html_e('Global Search & Replace', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-			<p><?php esc_html_e('Search across WordPress files and database with advanced filters.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+		<div class="wudt-fullscreen-page">
+			<div style="padding: 20px; overflow-y: auto;">
+				<h1><?php esc_html_e('Global Search & Replace', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+				<p><?php esc_html_e('Search across WordPress files and database with advanced filters.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
 
-			<!-- Search Form -->
-			<div class="wudt-card">
+				<!-- Search Form -->
+				<div class="wudt-card">
 				<div class="wudt-form-group">
 					<label class="wudt-label" for="wudt-search-input">
 						<?php esc_html_e('Search Text', 'wp-ultimate-diagnostics-toolkit'); ?>
@@ -273,6 +274,7 @@ class Search_Page {
 						</button>
 					</div>
 				</div>
+			</div>
 			</div>
 		</div>
 

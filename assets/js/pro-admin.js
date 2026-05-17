@@ -100,7 +100,9 @@
 			mode: 'ask',
 			model: '',
 			models: [],
-			chatTranscript: ''
+			chatTranscript: '',
+			newChat: false,
+			autoExecute: false
 		}
 	};
 
@@ -1193,7 +1195,7 @@
 						break;
 					case 'chmod':
 						icon = iconSettings;
-						label = 'Chmod: ' + (act.path ? basename(act.path) : 'File');
+						label = 'Chmod: ' + (act.path ? pathBasename(act.path) : 'File');
 						btnClass += ' is-warning';
 						break;
 					case 'compress':
@@ -1203,17 +1205,17 @@
 						break;
 					case 'extract':
 						icon = iconFile;
-						label = 'Extract: ' + (act.archive ? basename(act.archive) : 'Archive');
+						label = 'Extract: ' + (act.archive ? pathBasename(act.archive) : 'Archive');
 						btnClass += ' is-primary';
 						break;
 					case 'rename':
 						icon = iconArrowRight;
-						label = 'Rename: ' + (act.old_path ? basename(act.old_path) : 'File');
+						label = 'Rename: ' + (act.old_path ? pathBasename(act.old_path) : 'File');
 						btnClass += ' is-warning';
 						break;
 					case 'list_directory':
 						icon = iconFile;
-						label = 'List: ' + (act.path ? basename(act.path) : 'Root');
+						label = 'List: ' + (act.path ? pathBasename(act.path) : 'Root');
 						btnClass += ' is-info';
 						break;
 					case 'optimize_tables':
@@ -1278,6 +1280,9 @@
 			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Custom model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid var(--wudt-gray-300);border-radius:6px;font-size:13px;">'
 			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
 			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-test-api" title="Test API Connection" style="margin-left:4px;">Test API</button>'
+			+ '<label style="margin-left:10px;display:inline-flex;align-items:center;gap:6px;font-size:13px;">'
+			+ '<input type="checkbox" id="wudt-ai-auto-execute" ' + (state.ai.autoExecute ? 'checked' : '') + '> Auto execute'
+			+ '</label>'
 			+ '</div>'
 			+ '</div>'
 			// Mode toggle
@@ -1805,6 +1810,10 @@
 		$('#wudt-ai-send').on('click', function () {
 			sendAIMessage();
 		});
+		$(document).off('change', '#wudt-ai-auto-execute').on('change', '#wudt-ai-auto-execute', function () {
+			state.ai.autoExecute = $(this).is(':checked');
+			render();
+		});
 		// Enter key to send message (Shift+Enter for new line)
 		$(document).off('keydown', '#wudt-ai-input').on('keydown', '#wudt-ai-input', function (e) {
 			if (e.key === 'Enter' && !e.shiftKey) {
@@ -1897,6 +1906,8 @@
 		$('#wudt-ai-clear-chat').on('click', function () {
 			post('diagnostics_ai_clear_history').done(function () {
 				state.ai.history = [];
+				// Mark next request to ignore server-side history
+				state.ai.newChat = true;
 				render();
 			});
 		});
@@ -2796,7 +2807,11 @@
 		});
 		$('#wudt-fm-save').on('click', function () {
 			post('wudt_fm_write', { path: $('#wudt-fm-file-path').val(), content: $('#wudt-fm-editor').val() }).done(function (r) {
-				alert((r && r.data && r.data.message) ? r.data.message : 'Saved');
+				if (r && r.success) {
+					showToast('Success', (r.data && r.data.message) ? r.data.message : 'File saved successfully', 'success');
+				} else {
+					showToast('Error', (r && r.data && r.data.message) ? r.data.message : 'Save failed', 'error');
+				}
 			});
 		});
 		$('#wudt-fm-search').on('click', function () {
@@ -3288,6 +3303,7 @@
 		state.ai.typing = true;
 		state.ai.executionStarted = false; // Reset for new execution
 		render();
+		scrollAIToBottom();
 		var payload = new URLSearchParams();
 		payload.append('action', 'diagnostics_ai_chat_stream');
 		payload.append('nonce', window.wudtProAdmin.nonce);
@@ -3297,6 +3313,14 @@
 		payload.append('chat_transcript', String(chatTranscript));
 		payload.append('mode', String(mode));
 		payload.append('model', String(model));
+		// If user started a new chat, tell server to ignore stored history for this request
+		if (state.ai.newChat) {
+			payload.append('ignore_history', '1');
+			state.ai.newChat = false;
+		}
+		if (state.ai.autoExecute) {
+			payload.append('auto_execute', '1');
+		}
 		fetch(window.wudtProAdmin.ajaxUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
@@ -3341,6 +3365,10 @@
 							} else if (evt.action && evt.action.action) {
 								state.ai.lastAction = evt.action;
 								state.ai.lastActions = [evt.action];
+							} else {
+								// No actions found in this response - clear previous actions to avoid confusion
+								state.ai.lastActions = [];
+								state.ai.lastAction = null;
 							}
 							
 							// Actions are displayed for user review - user must click "Execute" to run each action

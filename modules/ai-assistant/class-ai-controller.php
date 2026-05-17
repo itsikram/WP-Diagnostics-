@@ -89,10 +89,19 @@ class AI_Controller extends Module_Base {
 		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : '';
 		$model    = sanitize_text_field((string) wp_unslash($_POST['model'] ?? ''));
 		$mode     = sanitize_key((string) wp_unslash($_POST['mode'] ?? 'ask'));
-		$history  = $this->get_history(10);
+		$ignore_history = ! empty($_POST['ignore_history']);
+		$history  = $ignore_history ? array() : $this->get_history(10);
 		$context  = $this->context_builder->build($prompt, $flags, $file, $chat_txt);
 		$result   = $this->service->complete($prompt, $context, $history, array('model' => $model, 'mode' => $mode));
 		$parsed   = $this->parser->parse((string) ($result['content'] ?? ''));
+		// Optionally auto-execute parsed actions if requested and user has capability
+		$auto_execute = ! empty($_POST['auto_execute']);
+		$executed_results = array();
+		if ($auto_execute && 'agent' === $mode && ! empty($parsed['actions']) && current_user_can('manage_options')) {
+			foreach ($parsed['actions'] as $act) {
+				$executed_results[] = $this->execute_action($act);
+			}
+		}
 		$text     = (string) ($parsed['text'] ?? '');
 		if ('agent' !== $mode) {
 			$text = $this->sanitize_ask_mode_text($text);
@@ -102,8 +111,10 @@ class AI_Controller extends Module_Base {
 		$this->push_history('assistant', $text, array('model' => $result['model'] ?? 'unknown', 'mode' => $mode));
 		Operation_Logger::log('ai', 'AI diagnosis generated', array('prompt_len' => strlen($prompt)));
 		$response = array(
-		'message' => $text,
+			'message' => $text,
 			'model'   => $result['model'] ?? 'unknown',
+			'actions' => $parsed['actions'] ?? array(),
+			'executed' => $executed_results,
 		);
 		
 		// Include debug info if available (when WP_DEBUG is enabled)
@@ -123,11 +134,20 @@ class AI_Controller extends Module_Base {
 		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : '';
 		$model   = sanitize_text_field((string) wp_unslash($_POST['model'] ?? ''));
 		$mode    = sanitize_key((string) wp_unslash($_POST['mode'] ?? 'ask'));
-		$history = $this->get_history(10);
+		$ignore_history = ! empty($_POST['ignore_history']);
+		$history = $ignore_history ? array() : $this->get_history(10);
 		$context = $this->context_builder->build($prompt, $flags, $file, $chat_txt);
 		$result  = $this->service->complete($prompt, $context, $history, array('model' => $model, 'mode' => $mode));
 		$text    = (string) ($result['content'] ?? '');
 		$parsed  = $this->parser->parse($text);
+		// Optionally auto-execute parsed actions if requested and user has capability
+		$auto_execute = ! empty($_POST['auto_execute']);
+		$executed_results = array();
+		if ($auto_execute && 'agent' === $mode && ! empty($parsed['actions']) && current_user_can('manage_options')) {
+			foreach ($parsed['actions'] as $act) {
+				$executed_results[] = $this->execute_action($act);
+			}
+		}
 		$text    = (string) ($parsed['text'] ?? $text);
 		if ('agent' !== $mode) {
 			$text = $this->sanitize_ask_mode_text($text);
@@ -156,7 +176,8 @@ class AI_Controller extends Module_Base {
 		echo wp_json_encode(array(
 			'type'     => 'done',
 			'action'   => $parsed['action'] ?? array(),
-			'actions'  => $parsed['actions'] ?? array()
+			'actions'  => $parsed['actions'] ?? array(),
+			'executed' => $executed_results,
 		)) . "\n";
 		exit;
 	}
@@ -192,6 +213,20 @@ class AI_Controller extends Module_Base {
 	public function ajax_apply_fix(): void {
 		Security_Guard::assert_ajax_admin();
 		$action = sanitize_key((string) wp_unslash($_POST['action_type'] ?? ''));
+		// Normalize common AI-emitted action aliases (e.g. installplugin -> install_plugin)
+		$action_aliases = array(
+			'installplugin' => 'install_plugin',
+			'activateplugin' => 'activate_plugin',
+			'installtheme' => 'install_theme',
+			'activatetheme' => 'activate_theme',
+			'disableplugin' => 'disable_plugin',
+			'searchreplacedb' => 'search_replace_db',
+			'searchfiles' => 'search_files',
+			'run_sql' => 'run_sql',
+		);
+		if (isset($action_aliases[$action])) {
+			$action = $action_aliases[$action];
+		}
 		$params = isset($_POST['params']) ? (array) json_decode((string) wp_unslash($_POST['params']), true) : array();
 		$result = array('applied' => false, 'message' => '', 'data' => null);
 
@@ -219,6 +254,9 @@ class AI_Controller extends Module_Base {
 				break;
 			case 'create_file':
 				$result = $this->action_create_file($params);
+				break;
+			case 'create_hello_elementor_child':
+				$result = $this->action_create_hello_elementor_child($params);
 				break;
 			case 'delete_file':
 				$result = $this->action_delete_file($params);
@@ -316,11 +354,21 @@ class AI_Controller extends Module_Base {
 	 * Install a plugin action
 	 */
 	private function action_install_plugin(array $params): array {
-		if (empty($params['plugin_slug']) && empty($params['plugin'])) {
+		// Accept alternate param names emitted by some AI responses
+		if (empty($params['plugin_slug']) && empty($params['plugin']) && empty($params['pluginslug']) && empty($params['pluginslug'])) {
 			return array('applied' => false, 'message' => 'Plugin slug or name missing');
 		}
-		
-		$plugin_value = (string) ($params['plugin_slug'] ?? $params['plugin']);
+		// Normalize possible keys: 'plugin_slug', 'pluginslug', 'plugin'
+		$plugin_value = '';
+		if (! empty($params['plugin_slug'])) {
+			$plugin_value = (string) $params['plugin_slug'];
+		} elseif (! empty($params['pluginslug'])) {
+			$plugin_value = (string) $params['pluginslug'];
+		} elseif (! empty($params['plugin'])) {
+			$plugin_value = (string) $params['plugin'];
+		} elseif (! empty($params['pluginSlug'])) {
+			$plugin_value = (string) $params['pluginSlug'];
+		}
 		$plugin_value = sanitize_text_field($plugin_value);
 		$plugin_slug = $this->normalize_plugin_slug($plugin_value);
 		$activate = !empty($params['activate']) && $params['activate'] === true;
@@ -388,6 +436,72 @@ class AI_Controller extends Module_Base {
 		}
 		
 		return array('applied' => true, 'message' => 'Plugin installed successfully: ' . $plugin_slug, 'data' => array('plugin_file' => $plugin_file));
+	}
+
+	/**
+	 * Execute a parsed action by mapping to internal action methods.
+	 *
+	 * @param array $action Parsed action array (must contain 'action' key)
+	 * @return array Result array with 'action', 'applied', 'message', and optional 'data'
+	 */
+	private function execute_action(array $action): array {
+		$act = sanitize_key((string) ($action['action'] ?? ''));
+		$params = $action;
+		switch ($act) {
+			case 'install_plugin':
+				return array_merge(array('action' => $act), $this->action_install_plugin($params));
+			case 'activate_plugin':
+				return array_merge(array('action' => $act), $this->action_activate_plugin($params));
+			case 'install_theme':
+				return array_merge(array('action' => $act), $this->action_install_theme($params));
+			case 'activate_theme':
+				return array_merge(array('action' => $act), $this->action_activate_theme($params));
+			case 'disable_plugin':
+				return array_merge(array('action' => $act), $this->action_disable_plugin($params));
+			case 'run_sql':
+				return array_merge(array('action' => $act), $this->action_run_sql($params));
+			case 'read_file':
+				return array_merge(array('action' => $act), $this->action_read_file($params));
+			case 'edit_file':
+				return array_merge(array('action' => $act), $this->action_edit_file($params));
+			case 'create_file':
+				return array_merge(array('action' => $act), $this->action_create_file($params));
+			case 'create_page':
+				return array_merge(array('action' => $act), $this->action_create_page($params));
+			default:
+				return array('action' => $act, 'applied' => false, 'message' => 'Unknown or unsupported action: ' . $act);
+		}
+	}
+
+	/**
+	 * Create a new WordPress page.
+	 * Params: 'title' (required), 'content' (optional), 'status' (default 'publish'), 'template' (optional)
+	 */
+	private function action_create_page(array $params): array {
+		if (empty($params['title'])) {
+			return array('applied' => false, 'message' => 'Page title missing');
+		}
+		if (! current_user_can('edit_pages')) {
+			return array('applied' => false, 'message' => 'Insufficient permissions to create page');
+		}
+		$title = sanitize_text_field((string) $params['title']);
+		$content = isset($params['content']) ? wp_kses_post((string) $params['content']) : '';
+		$status = ! empty($params['status']) ? sanitize_key((string) $params['status']) : 'publish';
+		$post = array(
+			'post_title'   => $title,
+			'post_content' => $content,
+			'post_status'  => $status,
+			'post_type'    => 'page',
+		);
+		$post_id = wp_insert_post($post, true);
+		if (is_wp_error($post_id)) {
+			return array('applied' => false, 'message' => 'Failed to create page: ' . $post_id->get_error_message());
+		}
+		// Optional page template
+		if (! empty($params['template']) && is_string($params['template'])) {
+			update_post_meta($post_id, '_wp_page_template', sanitize_text_field($params['template']));
+		}
+		return array('applied' => true, 'message' => 'Page created', 'data' => array('post_id' => $post_id));
 	}
 	
 	/**
@@ -606,15 +720,50 @@ class AI_Controller extends Module_Base {
 		$path = sanitize_text_field((string) $params['path']);
 		$content = (string) wp_unslash($params['content']);
 
-		// Validate path is within WordPress
-		$abspath = realpath(ABSPATH);
-		$fullpath = realpath($path);
-		if (!$fullpath) {
-			// File doesn't exist yet, try to resolve parent
-			$fullpath = $path;
+		// Normalize and validate path is within WordPress
+		$abspath = wp_normalize_path(realpath(ABSPATH));
+		// Determine if provided path is absolute (cross-platform)
+		$is_absolute = false;
+		if ('' !== $path) {
+			$first = $path[0];
+			if ($first === '/' || $first === '\\') {
+				$is_absolute = true;
+			} elseif (strlen($path) >= 2 && ctype_alpha($path[0]) && $path[1] === ':') {
+				// Windows drive letter e.g. C:\path
+				$is_absolute = true;
+			}
 		}
+		if (! $is_absolute) {
+			$candidate = $abspath . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
+		} else {
+			$candidate = $path;
+		}
+		$fullpath = wp_normalize_path(@realpath($candidate) ?: $candidate);
+		// Allow either paths under ABSPATH, or when enabled allow under wp-content/plugins/themes/uploads
 		if (strpos($fullpath, $abspath) !== 0) {
-			return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+			$allow_more = false;
+			if (\WUDT\Admin\Settings_Page::is_ai_file_ops_allowed()) {
+				$allowed_roots = array();
+				if (defined('WP_CONTENT_DIR')) {
+					$allowed_roots[] = wp_normalize_path(realpath(WP_CONTENT_DIR) ?: WP_CONTENT_DIR);
+				}
+				if (defined('WP_PLUGIN_DIR')) {
+					$allowed_roots[] = wp_normalize_path(realpath(WP_PLUGIN_DIR) ?: WP_PLUGIN_DIR);
+				}
+				$theme_root = get_theme_root();
+				if ($theme_root) {
+					$allowed_roots[] = wp_normalize_path(realpath($theme_root) ?: $theme_root);
+				}
+				foreach ($allowed_roots as $root) {
+					if ($root && strpos($fullpath, $root) === 0) {
+						$allow_more = true;
+						break;
+					}
+				}
+			}
+			if (! $allow_more) {
+				return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+			}
 		}
 
 		if (!file_exists($fullpath)) {
@@ -652,32 +801,116 @@ class AI_Controller extends Module_Base {
 		$path = sanitize_text_field((string) $params['path']);
 		$content = (string) wp_unslash($params['content']);
 
-		// Validate path is within WordPress
-		$abspath = realpath(ABSPATH);
-		if (strpos($path, $abspath) !== 0) {
-			return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+		// Normalize and validate path is within WordPress
+		$abspath = wp_normalize_path(realpath(ABSPATH));
+		// Determine if provided path is absolute (cross-platform)
+		$is_absolute = false;
+		if ('' !== $path) {
+			$first = $path[0];
+			if ($first === '/' || $first === '\\') {
+				$is_absolute = true;
+			} elseif (strlen($path) >= 2 && ctype_alpha($path[0]) && $path[1] === ':') {
+				$is_absolute = true;
+			}
+		}
+		if (! $is_absolute) {
+			$candidate = $abspath . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
+		} else {
+			$candidate = $path;
+		}
+		$fullpath = wp_normalize_path(@realpath($candidate) ?: $candidate);
+		// Allow either paths under ABSPATH, or when enabled allow under wp-content/plugins/themes/uploads
+		if (strpos($fullpath, $abspath) !== 0) {
+			$allow_more = false;
+			if (\WUDT\Admin\Settings_Page::is_ai_file_ops_allowed()) {
+				$allowed_roots = array();
+				if (defined('WP_CONTENT_DIR')) {
+					$allowed_roots[] = wp_normalize_path(realpath(WP_CONTENT_DIR) ?: WP_CONTENT_DIR);
+				}
+				if (defined('WP_PLUGIN_DIR')) {
+					$allowed_roots[] = wp_normalize_path(realpath(WP_PLUGIN_DIR) ?: WP_PLUGIN_DIR);
+				}
+				$theme_root = get_theme_root();
+				if ($theme_root) {
+					$allowed_roots[] = wp_normalize_path(realpath($theme_root) ?: $theme_root);
+				}
+				foreach ($allowed_roots as $root) {
+					if ($root && strpos($fullpath, $root) === 0) {
+						$allow_more = true;
+						break;
+					}
+				}
+			}
+			if (! $allow_more) {
+				return array('applied' => false, 'message' => 'Invalid file path - must be within WordPress directory');
+			}
 		}
 
-		if (file_exists($path)) {
+		if (file_exists($fullpath)) {
 			return array('applied' => false, 'message' => 'File already exists: ' . $path);
 		}
 
-		// Ensure directory exists
-		$dir = dirname($path);
-		if (!file_exists($dir)) {
+		// Ensure directory exists (use fullpath)
+		$dir = dirname($fullpath);
+		if (! file_exists($dir)) {
 			wp_mkdir_p($dir);
 		}
 
-		$result = file_put_contents($path, $content, LOCK_EX);
+		$result = file_put_contents($fullpath, $content, LOCK_EX);
 		if ($result === false) {
-			return array('applied' => false, 'message' => 'Failed to create file: ' . $path);
+			return array('applied' => false, 'message' => 'Failed to create file: ' . $fullpath);
 		}
 
 		return array(
 			'applied' => true,
-			'message' => 'File created successfully: ' . $path,
+			'message' => 'File created successfully: ' . $fullpath,
 			'data' => array('bytes_written' => $result)
 		);
+	}
+
+	/**
+	 * Create Hello Elementor child theme and activate it
+	 */
+	private function action_create_hello_elementor_child(array $params): array {
+		if (! current_user_can('manage_options')) {
+			return array('applied' => false, 'message' => 'Insufficient permissions');
+		}
+
+		$theme_slug = 'hello-elementor-child';
+		$theme_root = get_theme_root();
+		$theme_dir = wp_normalize_path($theme_root . DIRECTORY_SEPARATOR . $theme_slug);
+
+		if (! file_exists($theme_dir)) {
+			if (! wp_mkdir_p($theme_dir)) {
+				return array('applied' => false, 'message' => 'Failed to create theme directory: ' . $theme_dir);
+			}
+		}
+
+		// style.css header
+		$style_css = "/*\nTheme Name: Hello Elementor Child\nTheme URI: https://example.com/\nDescription: Child theme for Hello Elementor\nAuthor: WP Diagnostics Toolkit\nTemplate: hello-elementor\nVersion: 1.0.0\n*/\n\n/* Basic child styles */\n";
+		$style_path = $theme_dir . DIRECTORY_SEPARATOR . 'style.css';
+		if (false === file_put_contents($style_path, $style_css, LOCK_EX)) {
+			return array('applied' => false, 'message' => 'Failed to write style.css');
+		}
+
+		// functions.php to enqueue parent and child styles
+		$functions_php = "<?php\nadd_action('wp_enqueue_scripts', function() {\n    wp_enqueue_style('hello-elementor-parent', get_template_directory_uri() . '/style.css');\n    wp_enqueue_style('hello-elementor-child', get_stylesheet_directory_uri() . '/style.css', array('hello-elementor-parent'), wp_get_theme()->get('Version'));\n}, 20);\n";
+		$functions_path = $theme_dir . DIRECTORY_SEPARATOR . 'functions.php';
+		if (false === file_put_contents($functions_path, $functions_php, LOCK_EX)) {
+			return array('applied' => false, 'message' => 'Failed to write functions.php');
+		}
+
+		// Clear theme cache and refresh
+		wp_clean_themes_cache();
+
+		// Attempt to activate the new child theme
+		switch_theme($theme_slug);
+		$new_theme = wp_get_theme();
+		if ($new_theme->get_stylesheet() !== $theme_slug) {
+			return array('applied' => false, 'message' => 'Failed to activate theme after creation: ' . $theme_slug);
+		}
+
+		return array('applied' => true, 'message' => 'Child theme created and activated: ' . $theme_slug, 'data' => array('theme_dir' => $theme_dir));
 	}
 
 	/**

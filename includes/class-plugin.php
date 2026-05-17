@@ -13,6 +13,7 @@ use WUDT\Admin\Settings_Page;
 use WUDT\Admin\Pro_Admin_Page;
 use WUDT\Admin\Backup_Page;
 use WUDT\Admin\AI_Assistant_Page;
+use WUDT\Admin\File_Manager_Page;
 use WUDT\Admin\Progress_Page;
 use WUDT\Admin\Modern_Admin_Page;
 use WUDT\Admin\Search_Page;
@@ -124,6 +125,8 @@ class Plugin {
 		$backup_page->register_hooks();
 		$ai_page = new AI_Assistant_Page();
 		$ai_page->register_hooks();
+		$file_manager_page = new File_Manager_Page();
+		$file_manager_page->register_hooks();
 		$progress_page = new Progress_Page();
 		$progress_page->register_hooks();
 		// Combine both module sets for Modern_Admin_Page to show all tabs

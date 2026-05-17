@@ -62,92 +62,94 @@ class Progress_Page {
 			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
 		}
 		?>
-		<div class="wrap wudt-wrap wudt-progress-monitor">
-			<h1><?php echo esc_html__('Progress Monitor', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-			<p class="description">
-				<?php esc_html_e('Real-time monitoring of all debugging operations and their progress.', 'wp-ultimate-diagnostics-toolkit'); ?>
-			</p>
+		<div class="wudt-fullscreen-page">
+			<div style="padding: 20px; overflow-y: auto;">
+				<h1><?php echo esc_html__('Progress Monitor', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+				<p class="description">
+					<?php esc_html_e('Real-time monitoring of all debugging operations and their progress.', 'wp-ultimate-diagnostics-toolkit'); ?>
+				</p>
 
-			<!-- Overall Status Card -->
-			<div class="wudt-progress-overview">
-				<div class="wudt-card wudt-status-summary">
-					<h2><?php esc_html_e('System Status', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
-					<div class="wudt-status-grid" id="wudt-status-grid">
-						<div class="wudt-status-item">
-							<span class="wudt-status-value" id="active-operations-count">0</span>
-							<span class="wudt-status-label"><?php esc_html_e('Active Operations', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-						</div>
-						<div class="wudt-status-item">
-							<span class="wudt-status-value" id="completed-today-count">0</span>
-							<span class="wudt-status-label"><?php esc_html_e('Completed Today', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-						</div>
-						<div class="wudt-status-item">
-							<span class="wudt-status-value" id="modules-ready-count">0</span>
-							<span class="wudt-status-label"><?php esc_html_e('Modules Ready', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-						</div>
-						<div class="wudt-status-item">
-							<span class="wudt-status-value" id="errors-count">0</span>
-							<span class="wudt-status-label"><?php esc_html_e('Recent Errors', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+				<!-- Overall Status Card -->
+				<div class="wudt-progress-overview">
+					<div class="wudt-card wudt-status-summary">
+						<h2><?php esc_html_e('System Status', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+						<div class="wudt-status-grid" id="wudt-status-grid">
+							<div class="wudt-status-item">
+								<span class="wudt-status-value" id="active-operations-count">0</span>
+								<span class="wudt-status-label"><?php esc_html_e('Active Operations', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							</div>
+							<div class="wudt-status-item">
+								<span class="wudt-status-value" id="completed-today-count">0</span>
+								<span class="wudt-status-label"><?php esc_html_e('Completed Today', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							</div>
+							<div class="wudt-status-item">
+								<span class="wudt-status-value" id="modules-ready-count">0</span>
+								<span class="wudt-status-label"><?php esc_html_e('Modules Ready', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							</div>
+							<div class="wudt-status-item">
+								<span class="wudt-status-value" id="errors-count">0</span>
+								<span class="wudt-status-label"><?php esc_html_e('Recent Errors', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
 
-			<!-- Active Operations -->
-			<div class="wudt-card wudt-active-operations">
-				<h2>
-					<?php esc_html_e('Active Operations', 'wp-ultimate-diagnostics-toolkit'); ?>
-					<span class="wudt-live-indicator"><?php esc_html_e('LIVE', 'wp-ultimate-diagnostics-toolkit'); ?></span>
-				</h2>
-				<div id="wudt-active-operations-list">
-					<p class="wudt-no-operations"><?php esc_html_e('No active operations at the moment.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+				<!-- Active Operations -->
+				<div class="wudt-card wudt-active-operations">
+					<h2>
+						<?php esc_html_e('Active Operations', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<span class="wudt-live-indicator"><?php esc_html_e('LIVE', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+					</h2>
+					<div id="wudt-active-operations-list">
+						<p class="wudt-no-operations"><?php esc_html_e('No active operations at the moment.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+					</div>
 				</div>
-			</div>
 
-			<!-- Module Status Grid -->
-			<div class="wudt-card">
-				<h2><?php esc_html_e('Module Status', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
-				<div class="wudt-modules-grid" id="wudt-modules-grid">
-					<?php $this->render_modules_placeholder(); ?>
+				<!-- Module Status Grid -->
+				<div class="wudt-card">
+					<h2><?php esc_html_e('Module Status', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<div class="wudt-modules-grid" id="wudt-modules-grid">
+						<?php $this->render_modules_placeholder(); ?>
+					</div>
 				</div>
-			</div>
 
-			<!-- Recent Operations -->
-			<div class="wudt-card">
-				<h2><?php esc_html_e('Recent Operations', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
-				<table class="wp-list-table widefat fixed striped" id="wudt-recent-operations">
-					<thead>
-						<tr>
-							<th><?php esc_html_e('Operation', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-							<th><?php esc_html_e('Status', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-							<th><?php esc_html_e('Progress', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-							<th><?php esc_html_e('Started', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-							<th><?php esc_html_e('Duration', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-							<th><?php esc_html_e('Actions', 'wp-ultimate-diagnostics-toolkit'); ?></th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr class="no-items">
-							<td colspan="6"><?php esc_html_e('Loading...', 'wp-ultimate-diagnostics-toolkit'); ?></td>
-						</tr>
-					</tbody>
-				</table>
-				<p class="wudt-cleanup-actions">
-					<button type="button" class="button" id="wudt-cleanup-old">
-						<?php esc_html_e('Clean Up Old Operations', 'wp-ultimate-diagnostics-toolkit'); ?>
+				<!-- Recent Operations -->
+				<div class="wudt-card">
+					<h2><?php esc_html_e('Recent Operations', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<table class="wp-list-table widefat fixed striped" id="wudt-recent-operations">
+						<thead>
+							<tr>
+								<th><?php esc_html_e('Operation', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th><?php esc_html_e('Status', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th><?php esc_html_e('Progress', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th><?php esc_html_e('Started', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th><?php esc_html_e('Duration', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th><?php esc_html_e('Actions', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr class="no-items">
+								<td colspan="6"><?php esc_html_e('Loading...', 'wp-ultimate-diagnostics-toolkit'); ?></td>
+							</tr>
+						</tbody>
+					</table>
+					<p class="wudt-cleanup-actions">
+						<button type="button" class="button" id="wudt-cleanup-old">
+							<?php esc_html_e('Clean Up Old Operations', 'wp-ultimate-diagnostics-toolkit'); ?>
+						</button>
+					</p>
+				</div>
+
+				<!-- Auto-refresh toggle -->
+				<div class="wudt-refresh-control">
+					<label>
+						<input type="checkbox" id="wudt-auto-refresh" checked />
+						<?php esc_html_e('Auto-refresh progress (every 2 seconds)', 'wp-ultimate-diagnostics-toolkit'); ?>
+					</label>
+					<button type="button" class="button" id="wudt-refresh-now">
+						<?php esc_html_e('Refresh Now', 'wp-ultimate-diagnostics-toolkit'); ?>
 					</button>
-				</p>
-			</div>
-
-			<!-- Auto-refresh toggle -->
-			<div class="wudt-refresh-control">
-				<label>
-					<input type="checkbox" id="wudt-auto-refresh" checked />
-					<?php esc_html_e('Auto-refresh progress (every 2 seconds)', 'wp-ultimate-diagnostics-toolkit'); ?>
-				</label>
-				<button type="button" class="button" id="wudt-refresh-now">
-					<?php esc_html_e('Refresh Now', 'wp-ultimate-diagnostics-toolkit'); ?>
-				</button>
+				</div>
 			</div>
 		</div>
 
