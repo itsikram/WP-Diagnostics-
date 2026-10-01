@@ -168,7 +168,7 @@ class Migration_API {
 			case 'import':
 				return $engine->import_table_chunk((string) ($p['job'] ?? ''), (array) ($p['chunk'] ?? array()), (string) ($p['source_prefix'] ?? ''));
 			case 'manifest':
-				return $engine->manifest_page((string) ($p['job'] ?? ''), (string) ($p['component'] ?? ''), (int) ($p['offset'] ?? 0), (array) ($p['excludes'] ?? array()), $budget);
+				return $engine->manifest_page((string) ($p['job'] ?? ''), (string) ($p['component'] ?? ''), (int) ($p['offset'] ?? 0), (array) ($p['excludes'] ?? array()), $budget, 3000, ! isset($p['hash']) || ! empty($p['hash']));
 			case 'diff':
 				return $engine->diff_entries((string) ($p['component'] ?? ''), (array) ($p['entries'] ?? array()), $budget);
 			case 'read':

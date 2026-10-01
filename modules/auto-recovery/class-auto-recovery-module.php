@@ -178,8 +178,19 @@ class Auto_Recovery_Module extends Module_Base {
 			$this->get_logged_fatal_errors()
 		);
 
+		// Only act on errors newer than the last scan; old log lines are history.
+		$last_seen = (int) get_option('wudt_recovery_last_error_time', 0);
+		$newest = $last_seen;
 		foreach ($errors as $error) {
+			$ts = (int) ($error['timestamp'] ?? 0);
+			if ('shutdown' !== ($error['source'] ?? '') && ($ts <= $last_seen || $ts < $current_time - 600)) {
+				continue;
+			}
+			$newest = max($newest, $ts);
 			$this->process_error($error);
+		}
+		if ($newest > $last_seen) {
+			update_option('wudt_recovery_last_error_time', $newest, false);
 		}
 	}
 
@@ -252,39 +263,29 @@ class Auto_Recovery_Module extends Module_Base {
 			return array();
 		}
 
-		$content = file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-		if (! is_array($content)) {
+		// Read only the end of the file: logs can be hundreds of megabytes.
+		$size = (int) filesize($file);
+		$fh = @fopen($file, 'rb');
+		if (! $fh) {
 			return array();
 		}
-
-		return array_slice($content, -$lines);
+		$read = min($size, 256 * 1024);
+		fseek($fh, $size - $read);
+		$data = (string) fread($fh, $read);
+		fclose($fh);
+		$content = array_map('rtrim', explode("\n", trim($data)));
+		if ($read < $size) {
+			array_shift($content);
+		}
+		return array_slice(array_values(array_filter($content, 'strlen')), -$lines);
 	}
 
 	/**
 	 * Check if error line contains fatal/500 error
 	 */
 	private function is_fatal_error_line(string $line): bool {
-		$fatal_keywords = array(
-			'fatal error',
-			'parse error',
-			'syntax error',
-			'uncaught exception',
-			'500 internal server error',
-			'call to undefined function',
-			'call to undefined method',
-			'class not found',
-			'failed to open stream',
-			'cannot redeclare',
-		);
-		
-		$line_lower = strtolower($line);
-		foreach ($fatal_keywords as $keyword) {
-			if (str_contains($line_lower, $keyword)) {
-				return true;
-			}
-		}
-		
-		return false;
+		// Only genuine fatal errors; warnings such as "failed to open stream" are not crashes.
+		return (bool) preg_match('/PHP (Fatal error|Parse error)\s*:/i', $line);
 	}
 
 	/**
@@ -384,8 +385,8 @@ class Auto_Recovery_Module extends Module_Base {
 		// Calculate confidence score
 		$confidence = $this->calculate_confidence($error);
 		
-		if ($confidence >= 70) {
-			$this->deactivate_plugin($plugin, $error, $confidence);
+		if ($confidence >= 70 && class_exists('\WUDT\Modules\Recovery\Crash_Recovery_Module')) {
+			\WUDT\Modules\Recovery\Crash_Recovery_Module::report_fatal(array('message' => (string) ($error['message'] ?? ''), 'file' => $file, 'line' => (int) ($error['line'] ?? 0)), 'log');
 		} else {
 			$this->log_recovery_event('low_confidence_detected', $error, $plugin, $confidence);
 		}

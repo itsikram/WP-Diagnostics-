@@ -224,6 +224,18 @@
 		if (state.tab === 'site_migration' && !state.tabLoading) {
 			mountSiteMigration();
 		}
+		if ((state.tab === 'backup_suite' || state.tab === 'restore_suite') && !state.tabLoading) {
+			var backupRoot = document.getElementById('wudt-backup-root');
+			if (backupRoot && window.WUDTBackup) {
+				window.WUDTBackup.mount(backupRoot, state.tab === 'restore_suite' ? 'restore' : 'backup');
+			}
+		}
+		if (state.tab === 'malware_enterprise' && !state.tabLoading) {
+			var malwareRoot = document.getElementById('wudt-malware-root');
+			if (malwareRoot && window.WUDTMalware) {
+				window.WUDTMalware.mount(malwareRoot);
+			}
+		}
 		if (state.tab === 'ai_assistant' && !state.tabLoading) {
 			var agentRoot = document.getElementById('wudt-ai-agent-root');
 			if (agentRoot && window.WUDTAgent) {
@@ -843,206 +855,11 @@
 	}
 
 	function renderBackupSuite() {
-		var d = tabData('backup_suite');
-		var backups = d.backups || [];
-		
-		// Build backup cards grid
-		var cardsHtml = '<div class="wudt-backup-grid">';
-		if (backups.length === 0) {
-			cardsHtml += '<div class="wudt-backup-empty"><p>No backups found. Create your first backup below.</p></div>';
-		} else {
-			for (var i = 0; i < backups.length; i++) {
-				var b = backups[i];
-				var name = b.name || 'backup.zip';
-				var size = formatSize(b.size || 0);
-				var path = b.file || b.path || '';
-				var url = b.url || '';
-				
-				// Use formatted time from backup data or parse from b.time
-				var timeStr = b.time_formatted || '';
-				if (!timeStr && b.time) {
-					try {
-						var date = new Date(b.time);
-						timeStr = date.getHours().toString().padStart(2, '0') + ':' + 
-						          date.getMinutes().toString().padStart(2, '0') + ' ' +
-						          date.getDate().toString().padStart(2, '0') + '-' + 
-						          (date.getMonth() + 1).toString().padStart(2, '0') + '-' + 
-						          date.getFullYear().toString().substr(2, 2);
-					} catch(e) {}
-				}
-				
-				// Use AJAX download endpoint instead of direct file URL
-				var nonce = (window.wudtProAdmin && window.wudtProAdmin.nonce) ? window.wudtProAdmin.nonce : '';
-				var downloadUrl = ajaxurl + '?action=wudt_backup_download&file=' + encodeURIComponent(path) + '&nonce=' + encodeURIComponent(nonce);
-				
-				// Determine format badge
-				var formatBadge = name.endsWith('.zip.gz') ? '<span class="wudt-backup-format" title="GZIP compressed">🗜️ GZIP</span>' : '<span class="wudt-backup-format" title="ZIP archive">📦 ZIP</span>';
-				
-				cardsHtml += '<div class="wudt-backup-card" data-path="' + esc(path) + '">'
-					+ '<div class="wudt-backup-card-header">'
-					+ '<span class="wudt-backup-icon">📦</span>'
-					+ '<span class="wudt-backup-size">' + esc(size) + '</span>'
-					+ '</div>'
-					+ '<div class="wudt-backup-card-body">'
-					+ '<h4 class="wudt-backup-name">' + esc(name) + '</h4>'
-					+ '<p class="wudt-backup-meta">' + formatBadge + ' ' + (timeStr ? '🕐 ' + esc(timeStr) : '') + '</p>'
-					+ '</div>'
-					+ '<div class="wudt-backup-card-footer">'
-					+ '<a href="' + esc(downloadUrl) + '" class="button button-small" title="Download">⬇️</a>'
-					+ '<button class="button button-small wudt-backup-copy-path" data-path="' + esc(path) + '" title="Copy path for Restore">📋</button>'
-					+ '<button class="button button-small wudt-backup-delete button-link-delete" data-path="' + esc(path) + '" data-name="' + esc(name) + '" title="Delete backup">🗑️</button>'
-					+ '</div>'
-					+ '</div>';
-			}
-		}
-		cardsHtml += '</div>';
-		
-		// Progress bar HTML
-		var progressHtml = '<div id="wudt-backup-progress" class="wudt-backup-progress" style="display:none;">'
-			+ '<div class="wudt-progress-header">'
-			+ '<span class="wudt-progress-status">Preparing...</span>'
-			+ '<span class="wudt-progress-percent">0%</span>'
-			+ '</div>'
-			+ '<div class="wudt-progress-bar-container">'
-			+ '<div class="wudt-progress-bar" style="width:0%"></div>'
-			+ '</div>'
-			+ '</div>';
-		
-		return ''
-			+ '<div class="wudt-card"><h3>Available Backups (' + backups.length + ')</h3>'
-			+ cardsHtml
-			+ '</div>'
-			+ '<div class="wudt-card"><h3>Create New Backup</h3>'
-			+ progressHtml
-			+ '<p><strong>Components to Backup:</strong></p>'
-			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="core" checked> WordPress Core Files</label> '
-			+ '<label><input type="checkbox" class="wudt-backup-component" value="plugins" checked> Plugin Files</label> '
-			+ '<label><input type="checkbox" class="wudt-backup-component" value="themes" checked> Theme Files</label> '
-			+ '<label><input type="checkbox" class="wudt-backup-component" value="database" checked> Database</label></p>'
-			+ '<p><label><input type="checkbox" class="wudt-backup-component" value="uploads"> <strong>Uploads Directory</strong> (⚠️ can be very large)</label></p>'
-			+ '<div class="wudt-toolbar"><label><input type="checkbox" id="wudt-backup-gzip"> GZIP Compression</label>'
-			+ '<label><input type="checkbox" id="wudt-backup-autodownload" checked> Auto Download after complete</label>'
-			+ '<input id="wudt-backup-password" class="wudt-input" placeholder="Optional archive password">'
-			+ '<button class="button button-primary" id="wudt-backup-create">Create Backup</button>'
-			+ '<button class="button" id="wudt-backup-refresh">Refresh List</button></div>'
-			+ '<pre class="wudt-pre" id="wudt-backup-result" style="display:none;"></pre>'
-			+ '</div>';
+		return '<div id="wudt-backup-root"></div>';
 	}
 
 	function renderRestoreSuite() {
-		var d = tabData('backup_suite');
-		var backups = d.backups || [];
-		var restore = state.restore || {};
-		var selectedPath = restore.selectedPath || '';
-		var safeMode = restore.safeMode !== false; // default true
-		var preservePlugins = restore.preservePlugins !== false; // default true
-		var components = restore.components || ['plugins', 'themes', 'database'];
-		var mediaBase = restore.mediaBase || '';
-
-		// Helper to check if component is selected
-		function isComponentChecked(name) {
-			return components.indexOf(name) !== -1 ? 'checked' : '';
-		}
-
-		// Build backup list HTML
-		var backupListHtml = '<div class="wudt-restore-backups-list">';
-		if (backups.length === 0) {
-			backupListHtml += '<p class="wudt-fm-empty">No backups found. Create a backup first or click Refresh to load.</p>';
-		} else {
-			backupListHtml += '<table class="wudt-fm-table"><thead><tr><th>Select</th><th>Backup</th><th>Size</th><th>Date</th></tr></thead><tbody>';
-			for (var i = 0; i < backups.length; i++) {
-				var b = backups[i];
-				var size = formatSize(b.size || 0);
-				var name = b.name || 'backup.zip';
-				var path = b.path || '';
-				var time = b.time_formatted || '';
-				var isSelected = (selectedPath === path) ? 'checked' : '';
-				var rowSelected = (selectedPath === path) ? 'is-selected' : '';
-				backupListHtml += '<tr class="wudt-restore-backup-row ' + rowSelected + '" data-path="' + esc(path) + '">'
-					+ '<td><input type="radio" name="wudt-restore-select" class="wudt-restore-select" value="' + esc(path) + '" ' + isSelected + '></td>'
-					+ '<td><strong>' + esc(name) + '</strong></td>'
-					+ '<td>' + esc(size) + '</td>'
-					+ '<td>' + esc(time) + '</td>'
-					+ '</tr>';
-			}
-			backupListHtml += '</tbody></table>';
-		}
-		backupListHtml += '</div>';
-
-		// Progress bar HTML with enhanced status
-		var progressHtml = '<div id="wudt-restore-progress" class="wudt-backup-progress" style="display:none;">'
-			+ '<div class="wudt-progress-bar-container"><div class="wudt-progress-bar" style="width:0%"></div></div>'
-			+ '<div class="wudt-progress-percent">0%</div>'
-			+ '<div class="wudt-progress-status"></div>'
-			+ '<div class="wudt-progress-details" style="font-size:11px;color:#666;margin-top:5px;"></div>'
-			+ '</div>';
-
-		// Pre-restore checks section
-		var checksHtml = '<div id="wudt-restore-checks" class="wudt-restore-checks" style="display:none;margin:15px 0;padding:15px;background:#f0f6fc;border-radius:8px;">'
-			+ '<h4 style="margin:0 0 10px;">Pre-Restore System Checks</h4>'
-			+ '<div id="wudt-restore-checks-content"></div>'
-			+ '</div>';
-
-		// Warnings section
-		var warningsHtml = '<div id="wudt-restore-warnings" class="wudt-restore-warnings" style="display:none;margin:15px 0;padding:15px;background:#fff3cd;border:1px solid #ffeaa7;border-radius:8px;color:#856404;">'
-			+ '<h4 style="margin:0 0 10px;">Warnings</h4>'
-			+ '<div id="wudt-restore-warnings-content"></div>'
-			+ '</div>';
-
-		var safeChecked = safeMode ? 'checked' : '';
-		var preserveChecked = preservePlugins ? 'checked' : '';
-		var downloadUrl = restore.downloadUrl || '';
-
-		return ''
-			+ '<div class="wudt-card"><h3>Available Backups</h3>'
-			+ '<div class="wudt-toolbar"><button class="button" id="wudt-restore-refresh">Refresh List</button></div>'
-			+ backupListHtml
-			+ '</div>'
-			+ '<div class="wudt-card" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;"><h3 style="color:#fff;">📥 Download & Restore</h3>'
-			+ '<p style="margin:0 0 10px;opacity:0.9;">Enter a backup file URL from another site to download and restore automatically.</p>'
-			+ '<input id="wudt-restore-download-url" class="wudt-input" placeholder="https://example.com/wp-content/uploads/wudt-backups/backup-xxx.zip" value="' + esc(downloadUrl) + '" style="background:#fff;color:#333;">'
-			+ '<div class="wudt-toolbar" style="margin-top:10px;">'
-			+ '<button class="button" id="wudt-restore-download-btn" style="background:#fff;color:#667eea;border-color:#fff;font-weight:600;">⬇️ Download & Prepare</button>'
-			+ '<button class="button button-primary" id="wudt-restore-download-run" style="background:#d63638;border-color:#b32d2e;margin-left:10px;display:none;">🚀 Download & Restore Now</button>'
-			+ '</div>'
-			+ '<div id="wudt-restore-download-status" style="margin-top:10px;font-size:13px;"></div>'
-			+ '</div>'
-			+ '<div class="wudt-card"><h3>Restore Engine</h3>'
-			+ '<div class="wudt-restore-notice" style="padding:12px 15px;background:#d63638;color:#fff;border-radius:6px;margin-bottom:15px;font-weight:500;">'
-			+ '⚠️ Warning: Restore will COMPLETELY REPLACE all selected components with backup versions. This action cannot be undone!'
-			+ '</div>'
-			+ '<label class="wudt-label">Selected Backup:</label>'
-			+ '<input id="wudt-restore-path" class="wudt-input" placeholder="Select a backup from the list above or enter absolute path" value="' + esc(selectedPath) + '">'
-			+ checksHtml
-			+ warningsHtml
-			+ '<div class="wudt-toolbar">'
-			+ '<button class="button" id="wudt-restore-preview">Preview Contents</button>'
-			+ '<button class="button" id="wudt-restore-check-btn">Run Pre-Checks</button>'
-			+ '</div>'
-			+ '<div style="margin:15px 0;padding:12px;background:#f6f7f7;border-radius:6px;">'
-			+ '<label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;">'
-			+ '<input type="checkbox" id="wudt-restore-safe" ' + safeChecked + ' style="width:18px;height:18px;">'
-			+ '<span>Safe Mode: Create automatic backup before restoring</span>'
-			+ '</label>'
-			+ '<label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;margin-top:8px;">'
-			+ '<input type="checkbox" id="wudt-restore-preserve-plugins" ' + preserveChecked + ' style="width:18px;height:18px;">'
-			+ '<span>Preserve current plugins (skip plugin restore)</span>'
-			+ '</label>'
-			+ '</div>'
-			+ '<h4>Components to Restore:</h4>'
-			+ '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0;">'
-			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="core" ' + isComponentChecked('core') + '> <strong>Core Files</strong></label>'
-			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="plugins" ' + isComponentChecked('plugins') + '> <strong>Plugins</strong></label>'
-			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f6f7f7;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="themes" ' + isComponentChecked('themes') + '> <strong>Themes</strong></label>'
-			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#fff3cd;border-radius:6px;cursor:pointer;border:1px solid #ffeaa7;"><input type="checkbox" class="wudt-restore-component" value="uploads" ' + isComponentChecked('uploads') + '> <strong>Uploads</strong> ⚠️</label>'
-			+ '<label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#d63638;color:#fff;border-radius:6px;cursor:pointer;"><input type="checkbox" class="wudt-restore-component" value="database" ' + isComponentChecked('database') + '> <strong>Database</strong> ⚠️</label>'
-			+ '</div>'
-			+ '<input id="wudt-restore-media-base" class="wudt-input" placeholder="Optional: Media CDN/domain fallback URL" style="margin-top:10px;">'
-			+ '<div class="wudt-toolbar" style="margin-top:15px;">'
-			+ '<button class="button button-primary" id="wudt-restore-run" style="background:#d63638;border-color:#b32d2e;font-size:14px;padding:8px 20px;">🔄 Run Complete Restore</button>'
-			+ '</div>'
-			+ progressHtml
-			+ '<pre class="wudt-pre" id="wudt-restore-result" style="margin-top:15px;"></pre></div>';
+		return '<div id="wudt-backup-root"></div>';
 	}
 
 	function renderAIAssistant() {
@@ -1087,127 +904,7 @@
 	}
 
 	function renderMalwareEnterprise() {
-		var d = tabData('malware_enterprise') || {};
-		var summary = d.summary || {};
-		var results = d.results || [];
-		var schedule = d.schedule || {};
-		var threats = summary.threats || 0;
-		var filesScanned = summary.files_scanned || 0;
-		var riskLevel = summary.risk_level || 'Low';
-		
-		// Determine risk color
-		var riskClass = 'wudt-card-ok';
-		var riskIcon = '✅';
-		if (riskLevel === 'High') {
-			riskClass = 'wudt-card-warning';
-			riskIcon = '🔴';
-		} else if (riskLevel === 'Medium') {
-			riskClass = 'wudt-card-warning';
-			riskIcon = '🟡';
-		} else if (threats > 0) {
-			riskClass = 'wudt-card-warning';
-			riskIcon = '⚠️';
-		}
-		
-		var html = '<div class="wudt-dashboard">';
-		
-		// Malware Status Section
-		html += '<div class="wudt-dashboard-section">'
-			+ '<h3 class="wudt-dashboard-title">🛡️ Malware Scanner</h3>'
-			+ '<div class="wudt-dashboard-grid">';
-		
-		// Threats Detected
-		html += '<div class="wudt-dashboard-card ' + (threats > 0 ? 'wudt-card-warning' : 'wudt-card-ok') + '">'
-			+ '<div class="wudt-dashboard-icon">' + (threats > 0 ? '⚠️' : '✅') + '</div>'
-			+ '<div class="wudt-dashboard-label">Threats Detected</div>'
-			+ '<div class="wudt-dashboard-value">' + threats + '</div>'
-			+ '</div>';
-		
-		// Files Scanned
-		html += '<div class="wudt-dashboard-card">'
-			+ '<div class="wudt-dashboard-icon">📁</div>'
-			+ '<div class="wudt-dashboard-label">Files Scanned</div>'
-			+ '<div class="wudt-dashboard-value">' + filesScanned + '</div>'
-			+ '</div>';
-		
-		// Risk Level
-		html += '<div class="wudt-dashboard-card ' + riskClass + '">'
-			+ '<div class="wudt-dashboard-icon">' + riskIcon + '</div>'
-			+ '<div class="wudt-dashboard-label">Risk Level</div>'
-			+ '<div class="wudt-dashboard-value">' + esc(riskLevel) + '</div>'
-			+ '</div>';
-		
-		// Schedule Status
-		var isScheduled = schedule && schedule.enabled;
-		html += '<div class="wudt-dashboard-card ' + (isScheduled ? 'wudt-card-ok' : '') + '">'
-			+ '<div class="wudt-dashboard-icon">📅</div>'
-			+ '<div class="wudt-dashboard-label">Auto Scan</div>'
-			+ '<div class="wudt-dashboard-value">' + (isScheduled ? 'Enabled' : 'Disabled') + '</div>'
-			+ (isScheduled ? '<div class="wudt-dashboard-sub">' + esc(schedule.frequency || '') + '</div>' : '')
-			+ '</div>';
-		
-		html += '</div></div>';
-		
-		// Action Buttons Section
-		html += '<div class="wudt-dashboard-section">'
-			+ '<div class="wudt-toolbar" style="margin-bottom:20px;">'
-			+ '<button class="button button-primary" id="wudt-mw-start-scan">🚀 Start Scan</button>'
-			+ '<button class="button" id="wudt-mw-refresh">🔄 Refresh</button>'
-			+ '<button class="button" id="wudt-mw-schedule">📅 Schedule</button>'
-			+ '</div>'
-			+ '<div id="wudt-mw-progress-container" style="display:none;margin-bottom:20px;">'
-			+ '<div class="wudt-progress" style="height:20px;background:#f0f0f1;border-radius:4px;overflow:hidden;">'
-			+ '<div class="wudt-progress-bar" style="height:100%;width:0%;background:#2271b1;transition:width 0.3s;"></div>'
-			+ '</div>'
-			+ '<div id="wudt-mw-progress-text" style="margin-top:5px;font-size:12px;color:#646970;">Initializing...</div>'
-			+ '</div>'
-			+ '</div>';
-		
-		// Scan Results Section
-		if (results.length > 0) {
-			html += '<div class="wudt-dashboard-section">'
-				+ '<h3 class="wudt-dashboard-title">⚠️ Scan Results</h3>'
-				+ '<div class="wudt-dashboard-issues">'
-				+ '<table class="wudt-fm-table"><thead><tr><th>File</th><th>Threat</th><th>Severity</th><th>Detected</th></tr></thead><tbody>';
-			
-			for (var i = 0; i < results.length && i < 20; i++) {
-				var r = results[i];
-				var severityClass = '';
-				if (r.severity === 'high') severityClass = 'style="color:#d63638;font-weight:600;"';
-				else if (r.severity === 'medium') severityClass = 'style="color:#dba617;font-weight:600;"';
-				else severityClass = 'style="color:#2271b1;"';
-				
-				html += '<tr>'
-					+ '<td title="' + esc(r.file || '') + '">' + esc((r.file || '-').substring(0, 50)) + '</td>'
-					+ '<td>' + esc(r.threat || '-') + '</td>'
-					+ '<td ' + severityClass + '>' + esc((r.severity || '-').toUpperCase()) + '</td>'
-					+ '<td>' + esc(r.detected_at || '') + '</td>'
-					+ '</tr>';
-			}
-			
-			if (results.length > 20) {
-				html += '<tr><td colspan="4" style="text-align:center;font-style:italic;color:#646970;">... and ' + (results.length - 20) + ' more results</td></tr>';
-			}
-			
-			html += '</tbody></table></div></div>';
-		} else if (filesScanned > 0) {
-			html += '<div class="wudt-dashboard-section">'
-				+ '<div class="wudt-dashboard-issues" style="text-align:center;padding:40px;">'
-				+ '<div style="font-size:48px;margin-bottom:16px;">✅</div>'
-				+ '<h4>No Threats Detected</h4>'
-				+ '<p>Your site appears clean. Last scan checked ' + filesScanned + ' files.</p>'
-				+ '</div></div>';
-		} else {
-			html += '<div class="wudt-dashboard-section">'
-				+ '<div class="wudt-dashboard-issues" style="text-align:center;padding:40px;">'
-				+ '<div style="font-size:48px;margin-bottom:16px;">🔍</div>'
-				+ '<h4>No Scan Data</h4>'
-				+ '<p>Run your first malware scan to check for threats.</p>'
-				+ '</div></div>';
-		}
-		
-		html += '</div>';
-		return html;
+		return '<div id="wudt-malware-root"></div>';
 	}
 
 	function renderPerformance() {

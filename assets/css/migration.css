@@ -93,3 +93,35 @@
 .wudt-rescue-card h3 { margin-top: 0; }
 .wudt-rescue-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
 .wudt-rescue-row input { flex: 1; min-width: 260px; font-family: Menlo, Consolas, monospace; font-size: 12px; }
+
+.wudt-mig-override { display: block; margin-top: 12px; padding: 10px 12px; border: 1px dashed #dba617; border-radius: 6px; background: #fffdf3; cursor: pointer; }
+.wudt-mig-override.is-on { border-style: solid; background: #fcf9e8; }
+.wudt-mig-override span { display: block; margin: 2px 0 0 24px; color: #646970; font-size: 12px; }
+.wudt-mig-status.is-override { background: #fcf9e8; color: #996800; }
+
+/* Backup & Restore */
+.wudt-bk-focus { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; }
+.wudt-bk-upload { margin-top: 14px; padding: 12px; background: #f6f7f7; border-radius: 6px; }
+.wudt-bk-upload input[type=file] { margin-top: 6px; }
+.wudt-bk-upbar { display: inline-block; width: 200px; height: 8px; background: #dcdcde; border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.wudt-bk-upbar span { display: block; height: 100%; background: #2271b1; }
+
+/* Malware scanner */
+.wudt-mw-sev.is-critical strong { color: #b32d2e; }
+.wudt-mw-sev.is-high strong { color: #c45500; }
+.wudt-mw-sev.is-medium strong { color: #996800; }
+.wudt-mw-item { border: 1px solid #dcdcde; border-left-width: 4px; border-radius: 6px; margin-top: 8px; }
+.wudt-mw-item.is-critical { border-left-color: #d63638; }
+.wudt-mw-item.is-high { border-left-color: #e26f0d; }
+.wudt-mw-item.is-medium { border-left-color: #dba617; }
+.wudt-mw-item.is-low { border-left-color: #72aee6; }
+.wudt-mw-item-head { display: flex; gap: 10px; align-items: center; padding: 10px 12px; cursor: pointer; }
+.wudt-mw-item-title { flex: 1; min-width: 0; }
+.wudt-mw-item-title code { display: block; font-size: 12px; word-break: break-all; background: none; padding: 0; color: #50575e; }
+.wudt-mw-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; color: #fff; background: #72aee6; text-transform: uppercase; }
+.wudt-mw-badge.is-critical { background: #d63638; }
+.wudt-mw-badge.is-high { background: #e26f0d; }
+.wudt-mw-badge.is-medium { background: #dba617; }
+.wudt-mw-item-body { padding: 0 12px 6px; }
+.wudt-mw-item-body pre { background: #1d2327; color: #f0f0f1; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; font-size: 12px; max-height: 200px; overflow: auto; }
+.wudt-mw-item-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 0 12px 10px; }

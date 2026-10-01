@@ -90,7 +90,9 @@ class Migration_Runner {
 			'transport'  => (string) ($site['transport'] ?? ''),
 			'components' => $components,
 			'tables'     => $tables,
-			'skip_unchanged' => ! empty($options['skip_unchanged']),
+			'override'   => ! empty($options['override']),
+			// Override replaces everything, so tables are never skipped as "unchanged".
+			'skip_unchanged' => empty($options['override']) && ! empty($options['skip_unchanged']),
 			'excludes'   => array_values(array_filter(array_map('trim', (array) ($options['excludes'] ?? array())))),
 			'src'        => self::slim_info($src),
 			'dst'        => self::slim_info($dst),
@@ -176,6 +178,7 @@ class Migration_Runner {
 			'direction'  => $s['direction'],
 			'site'       => $s['site'],
 			'components' => $s['components'],
+			'override'   => ! empty($s['override']),
 			'tables'     => count($s['tables']),
 			'created'    => $s['created'],
 			'updated'    => $s['updated'],
@@ -442,9 +445,11 @@ class Migration_Runner {
 		$component = (string) $components[$f['ci']];
 		$this->state['message'] = sprintf('Comparing %s files… (%s checked)', $component, number_format_i18n($f['scanned']));
 		if (0 === $f['offset'] && 0 === $f['ci'] && file_exists($this->queue_file())) {
-			if (file_exists($this->queue_file())) {
 			unlink($this->queue_file());
 		}
+		$override = ! empty($this->state['override']);
+		if ($override) {
+			$this->state['message'] = sprintf('Listing %s files (override: no comparison)… %s found', $component, number_format_i18n($f['scanned']));
 		}
 
 		$page = (array) $this->call('src', 'manifest', array(
@@ -453,12 +458,16 @@ class Migration_Runner {
 			'offset'    => $f['offset'],
 			'excludes'  => $this->state['excludes'],
 			'budget'    => 12,
+			'hash'      => ! $override,
 		));
 		$entries = (array) ($page['entries'] ?? array());
 		if (! empty($entries)) {
-			$diff = (array) $this->call('dst', 'diff', array('component' => $component, 'entries' => $entries, 'budget' => 12));
+			// Override mode sends every file without asking the destination what it has.
+			$changed = $override
+				? $entries
+				: (array) (((array) $this->call('dst', 'diff', array('component' => $component, 'entries' => $entries, 'budget' => 12)))['changed'] ?? array());
 			$lines = '';
-			foreach ((array) ($diff['changed'] ?? array()) as $entry) {
+			foreach ($changed as $entry) {
 				$lines .= wp_json_encode(array('c' => $component, 'p' => $entry['p'], 's' => (int) $entry['s'])) . "\n";
 				$f['changed']++;
 				$f['bytes_total'] += (int) $entry['s'];
@@ -469,7 +478,9 @@ class Migration_Runner {
 			$f['scanned'] += count($entries);
 		}
 		$f['offset'] = (int) ($page['next'] ?? 0);
-		$this->state['message'] = sprintf('Comparing %s files… (%s checked, %s changed)', $component, number_format_i18n($f['scanned']), number_format_i18n($f['changed']));
+		$this->state['message'] = $override
+			? sprintf('Listing %s files (override)… %s queued', $component, number_format_i18n($f['changed']))
+			: sprintf('Comparing %s files… (%s checked, %s changed)', $component, number_format_i18n($f['scanned']), number_format_i18n($f['changed']));
 		if (! empty($page['done'])) {
 			$this->log(sprintf('Checked %s files.', $component));
 			$f['ci']++;

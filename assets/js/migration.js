@@ -21,7 +21,7 @@
 	};
 	var PHASES = [
 		{ key: 'database', label: 'Database' },
-		{ key: 'scan', label: 'Compare files' },
+		{ key: 'scan', label: 'Prepare files' },
 		{ key: 'transfer', label: 'Transfer' },
 		{ key: 'finalize_files', label: 'Apply' },
 		{ key: 'done', label: 'Done' }
@@ -286,11 +286,15 @@
 		});
 		h += '</div>';
 
+		h += '<label class="wudt-mig-override' + (w.override ? ' is-on' : '') + '"><input type="checkbox" data-mig-field="override"' + (w.override ? ' checked' : '') + '> '
+			+ '<strong>Override everything</strong> — don’t compare; send every selected file and table and replace them on the destination. '
+			+ '<span>Slower, but guarantees an exact copy (use it if a previous migration missed something).</span></label>';
+
 		if (w.db) {
 			h += '<div class="wudt-mig-sub">'
 				+ '<label><input type="radio" name="wudt-mig-tmode" value="all"' + (w.tableMode === 'all' ? ' checked' : '') + '> All tables</label> '
 				+ '<label><input type="radio" name="wudt-mig-tmode" value="custom"' + (w.tableMode === 'custom' ? ' checked' : '') + '> Choose tables</label>'
-				+ '<label class="wudt-mig-inline"><input type="checkbox" data-mig-field="skip"' + (w.skipUnchanged ? ' checked' : '') + '> Skip tables that are already identical</label>';
+				+ (w.override ? '' : '<label class="wudt-mig-inline"><input type="checkbox" data-mig-field="skip"' + (w.skipUnchanged ? ' checked' : '') + '> Skip tables that are already identical</label>');
 			if (w.tableMode === 'custom') {
 				var prefix = (pf.source && pf.source.prefix) || '';
 				h += '<div class="wudt-mig-table-tools"><button class="button button-small" data-mig="tables-all">All</button> '
@@ -332,7 +336,7 @@
 
 		var h = '<div class="wudt-mig-card">';
 		h += '<div class="wudt-mig-progress-head"><h3>' + (isPull ? '⬇ Pulling from ' : '⬆ Pushing to ') + esc(j.site.label || j.site.url) + '</h3>'
-			+ '<span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.status) + '</span></div>';
+			+ '<span>' + (j.override ? '<span class="wudt-mig-status is-override">override</span> ' : '') + '<span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.status) + '</span></span></div>';
 		h += '<ol class="wudt-mig-phases">';
 		PHASES.forEach(function (p, idx) {
 			var cls = idx < phaseIdx ? 'is-done' : (idx === phaseIdx ? 'is-current' : '');
@@ -413,7 +417,7 @@
 		S.wizard = {
 			siteId: siteId, direction: direction, loading: true, error: '', preflight: null,
 			db: true, components: ['plugins', 'themes', 'uploads'], tableMode: 'all', tables: [],
-			skipUnchanged: true, excludes: '', dbSize: 0
+			skipUnchanged: true, override: false, excludes: '', dbSize: 0
 		};
 		render();
 		ajax('wudt_migration_preflight', { site_id: siteId, direction: direction }, 120000).done(function (r) {
@@ -440,7 +444,7 @@
 		if (tables.length) { parts.push(tables.length + ' database tables'); }
 		w.components.forEach(function (c) { parts.push(COMPONENT_LABELS[c] || c); });
 		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
-		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
+		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
 			return;
 		}
 		S.busy = true;
@@ -450,7 +454,8 @@
 			direction: w.direction,
 			components: JSON.stringify(w.components),
 			tables: JSON.stringify(tables),
-			skip_unchanged: w.skipUnchanged ? 1 : '',
+			skip_unchanged: w.skipUnchanged && !w.override ? 1 : '',
+			override: w.override ? 1 : '',
 			excludes: w.excludes
 		}, 120000).done(function (r) {
 			S.busy = false;
@@ -655,6 +660,7 @@
 			var $i = $(this);
 			if ($i.is('[data-mig-field="db"]')) { w.db = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="skip"]')) { w.skipUnchanged = $i.is(':checked'); }
+			if ($i.is('[data-mig-field="override"]')) { w.override = $i.is(':checked'); }
 			if ($i.is('[name="wudt-mig-tmode"]')) { w.tableMode = $i.val(); }
 			var comp = $i.data('mig-comp');
 			if (comp) {

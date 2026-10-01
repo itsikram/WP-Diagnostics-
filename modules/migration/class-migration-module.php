@@ -281,6 +281,7 @@ class Migration_Module extends Module_Base {
 					'components'     => is_array($components) ? $components : array(),
 					'tables'         => is_array($tables) ? $tables : array(),
 					'skip_unchanged' => ! empty($_POST['skip_unchanged']),
+					'override'       => ! empty($_POST['override']),
 					'excludes'       => $excludes,
 				),
 				$remote,

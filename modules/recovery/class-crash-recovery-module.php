@@ -17,6 +17,8 @@ if (! defined('ABSPATH')) {
 class Crash_Recovery_Module extends Module_Base {
 	private const OPTION_LAST = 'wudt_crash_recovery_events';
 	private const OPTION_WHITELIST = 'wudt_recovery_plugin_protectlist';
+	private const CRASH_THRESHOLD = 3;
+	private const CRASH_WINDOW = 600;
 
 	public function register_hooks(): void {
 		add_action('shutdown', array($this, 'handle_fatal_shutdown'));
@@ -41,25 +43,61 @@ class Crash_Recovery_Module extends Module_Base {
 
 	public function handle_fatal_shutdown(): void {
 		$error = error_get_last();
-		if (! is_array($error) || ! in_array((int) ($error['type'] ?? 0), array(E_ERROR, E_PARSE, E_COMPILE_ERROR, E_CORE_ERROR), true)) {
+		if (! is_array($error) || ! in_array((int) ($error['type'] ?? 0), array(E_ERROR, E_PARSE, E_COMPILE_ERROR, E_CORE_ERROR, E_USER_ERROR), true)) {
+			return;
+		}
+		self::report_fatal($error, 'shutdown');
+	}
+
+	/**
+	 * Shared crash policy (also used by the log scanner of Auto_Recovery_Module).
+	 *
+	 * A plugin is deactivated only when it caused real fatal errors in at least
+	 * CRASH_THRESHOLD separate web requests within CRASH_WINDOW seconds. Single
+	 * errors, command-line/cron runs and WP Diagnostics itself never trigger it.
+	 *
+	 * @param array<string,mixed> $error
+	 */
+	public static function report_fatal(array $error, string $source): void {
+		if ('cli' === PHP_SAPI || (defined('WP_CLI') && WP_CLI) || wp_doing_cron()) {
 			return;
 		}
 		$file = wp_normalize_path((string) ($error['file'] ?? ''));
+		// Uncaught exceptions report where they were thrown; the message holds the same file.
+		if (! str_contains($file, '/plugins/') && preg_match('# in (.+?\.php)(?::| on line )#', (string) ($error['message'] ?? ''), $m)) {
+			$file = wp_normalize_path($m[1]);
+		}
 		if (! str_contains($file, '/plugins/')) {
 			return;
 		}
-		$plugin = $this->plugin_from_path($file);
-		if ('' === $plugin || $this->is_protected_plugin($plugin)) {
+		$self = new self();
+		$plugin = $self->plugin_from_path($file);
+		if ('' === $plugin || $self->is_protected_plugin($plugin)) {
 			return;
 		}
-		$confidence = $this->confidence_from_error((string) ($error['message'] ?? ''), $file);
-		if ($confidence < 70) {
-			$this->log_event('detected', $plugin, $error, $confidence);
+
+		$counts = get_option('wudt_crash_counts', array());
+		$counts = is_array($counts) ? $counts : array();
+		$now = time();
+		$recent = array_values(array_filter((array) ($counts[$plugin] ?? array()), static function ($t) use ($now) {
+			return ($now - (int) $t) < self::CRASH_WINDOW;
+		}));
+		$recent[] = $now;
+		$counts[$plugin] = array_slice($recent, -10);
+		update_option('wudt_crash_counts', $counts, false);
+
+		if (count($recent) < self::CRASH_THRESHOLD || ! get_option('wudt_auto_disable_crashing', true)) {
+			$self->log_event('detected', $plugin, $error, count($recent) * 30);
 			return;
+		}
+		if (! function_exists('deactivate_plugins')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 		deactivate_plugins($plugin, true);
-		$this->log_event('disabled', $plugin, $error, $confidence);
-		Operation_Logger::log('recovery', 'Auto-disabled crashing plugin', array('plugin' => $plugin, 'confidence' => $confidence));
+		unset($counts[$plugin]);
+		update_option('wudt_crash_counts', $counts, false);
+		$self->log_event('disabled', $plugin, $error, 100);
+		Operation_Logger::log('recovery', 'Auto-disabled crashing plugin', array('plugin' => $plugin, 'source' => $source, 'crashes' => count($recent)));
 		update_option('wudt_recovery_last_notice', array('plugin' => $plugin, 'time' => current_time('mysql')), false);
 	}
 
@@ -80,7 +118,7 @@ class Crash_Recovery_Module extends Module_Base {
 		update_option(self::OPTION_LAST, array_slice($events, -200), false);
 	}
 
-	private function plugin_from_path(string $file): string {
+	public function plugin_from_path(string $file): string {
 		$marker = '/plugins/';
 		$pos = strpos($file, $marker);
 		if (false === $pos) {
@@ -106,6 +144,10 @@ class Crash_Recovery_Module extends Module_Base {
 	}
 
 	private function is_protected_plugin(string $plugin): bool {
+		// Never switch off WP Diagnostics itself: it is the tool used to recover the site.
+		if ('wp-ultimate-diagnostics.php' === basename($plugin) || plugin_basename(WUDT_PLUGIN_FILE) === $plugin) {
+			return true;
+		}
 		$list = (array) get_option(self::OPTION_WHITELIST, array('query-monitor/query-monitor.php'));
 		return in_array($plugin, $list, true);
 	}

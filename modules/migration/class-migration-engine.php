@@ -316,7 +316,7 @@ class Migration_Engine {
 	/**
 	 * Import an exported chunk into the temporary table for $dest_table.
 	 */
-	public function import_table_chunk(string $job_id, array $chunk, string $source_prefix): array {
+	public function import_table_chunk(string $job_id, array $chunk, string $source_prefix, array $pairs = array()): array {
 		global $wpdb;
 
 		$job_id = self::sanitize_job_id($job_id);
@@ -355,6 +355,9 @@ class Migration_Engine {
 		foreach ($rows as $row) {
 			$parts = array();
 			foreach ((array) $row as $value) {
+				if (! empty($pairs) && is_string($value)) {
+					$value = Migration_Replacer::replace($value, $pairs);
+				}
 				$parts[] = $this->sql_literal($value);
 			}
 			$tuple = '(' . implode(',', $parts) . ')';
@@ -610,7 +613,7 @@ class Migration_Engine {
 	 * Page through the files of a component. The first call (offset 0)
 	 * walks the directory tree and caches the listing; later pages hash files.
 	 */
-	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000): array {
+	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000, bool $hash = true): array {
 		$job_id = self::sanitize_job_id($job_id);
 		$root = self::component_root($component);
 		$list_file = self::storage_dir('work') . '/' . $job_id . '-list-' . $component . '.txt';
@@ -646,7 +649,7 @@ class Migration_Engine {
 			$entries[] = array(
 				'p' => $line,
 				's' => (int) filesize($abs),
-				'h' => (string) md5_file($abs),
+				'h' => $hash ? (string) md5_file($abs) : '',
 			);
 			$next++;
 		}
@@ -665,6 +668,128 @@ class Migration_Engine {
 			'done'      => $eof,
 			'total'     => $total,
 		);
+	}
+
+	/**
+	 * Write the list of files of a component to a work file (one relative path per line).
+	 *
+	 * @return array{file:string,count:int,root:string}
+	 */
+	public function prepare_file_list(string $job_id, string $component, array $excludes = array()): array {
+		$job_id = self::sanitize_job_id($job_id);
+		$root = self::component_root($component);
+		$list_file = self::storage_dir('work') . '/' . $job_id . '-files-' . $component . '.txt';
+		$this->build_file_list($root, $component, $excludes, $list_file);
+		return array('file' => $list_file, 'count' => (int) get_transient('wudt_mig_count_' . md5($list_file)), 'root' => $root);
+	}
+
+	/**
+	 * Import one statement from a legacy (v1) SQL dump into the job's temporary tables.
+	 *
+	 * @return string|null Source table name when the statement created a table.
+	 */
+	public function import_legacy_statement(string $job_id, string $sql, string $source_prefix): ?string {
+		global $wpdb;
+		$job_id = self::sanitize_job_id($job_id);
+		$sql = trim($sql);
+		if ('' === $sql || 0 === strpos($sql, '--')) {
+			return null;
+		}
+		// Old backups replaced every "%" with a per-request placeholder; restore it.
+		$sql = (string) preg_replace('/\{[0-9a-f]{64}\}/', '%', $sql);
+		static $session = false;
+		if (! $session) {
+			$this->prepare_session();
+			$session = true;
+		}
+		// Legacy dumps contained every table in the database; only restore this site's own.
+		if (preg_match('/^(?:CREATE TABLE|INSERT INTO)\s+`([^`]+)`/i', $sql, $t) && ! self::is_site_table($t[1], $source_prefix)) {
+			return null;
+		}
+		if (preg_match('/^CREATE TABLE\s+`([^`]+)`/i', $sql, $m)) {
+			$dest = $this->map_table_name($m[1], $source_prefix);
+			$tmp = self::tmp_table($job_id, $dest);
+			$wpdb->query('DROP TABLE IF EXISTS `' . $tmp . '`'); // phpcs:ignore WordPress.DB.PreparedSQL
+			$wpdb->query($this->rewrite_create_statement($sql, $tmp, $source_prefix, $job_id)); // phpcs:ignore WordPress.DB.PreparedSQL
+			if ($wpdb->last_error) {
+				throw new \RuntimeException('Could not create table ' . $dest . ': ' . $wpdb->last_error);
+			}
+			return $m[1];
+		}
+		if (preg_match('/^INSERT INTO\s+`([^`]+)`/i', $sql, $m)) {
+			$dest = $this->map_table_name($m[1], $source_prefix);
+			$tmp = self::tmp_table($job_id, $dest);
+			$sql = 'REPLACE INTO `' . $tmp . '`' . substr($sql, strlen($m[0]));
+			$wpdb->query($sql); // phpcs:ignore WordPress.DB.PreparedSQL
+			if ($wpdb->last_error) {
+				throw new \RuntimeException('Import failed for ' . $dest . ': ' . substr($wpdb->last_error, 0, 300));
+			}
+			$wpdb->queries = array();
+		}
+		return null;
+	}
+
+	public static function is_site_table(string $table, string $prefix): bool {
+		if (0 === strpos($table, self::TMP_PREFIX) || 0 === strpos($table, self::BAK_PREFIX)) {
+			return false;
+		}
+		return '' === $prefix || 0 === strpos($table, $prefix);
+	}
+
+	/**
+	 * Serialization-safe search & replace inside an imported temporary table.
+	 *
+	 * @return array{cursor:int,done:bool}
+	 */
+	public function replace_in_tmp_table(string $job_id, string $source_table, string $source_prefix, array $pairs, int $offset, float $budget = 12.0): array {
+		global $wpdb;
+		$dest = $this->map_table_name($source_table, $source_prefix);
+		$tmp = self::tmp_table(self::sanitize_job_id($job_id), $dest);
+		$pk = $this->primary_key($tmp);
+		if (empty($pairs) || empty($pk)) {
+			return array('cursor' => 0, 'done' => true);
+		}
+		$columns = $this->table_columns($tmp);
+		$text_cols = array();
+		foreach ($columns as $col) {
+			if (! $col['generated'] && preg_match('/(char|text|blob|json)/', $col['type']) && ! in_array($col['name'], $pk, true)) {
+				$text_cols[] = $col['name'];
+			}
+		}
+		if (empty($text_cols)) {
+			return array('cursor' => 0, 'done' => true);
+		}
+		$select = '`' . implode('`, `', array_merge($pk, $text_cols)) . '`';
+		$order = '`' . implode('`, `', $pk) . '`';
+		while ($this->time_left($budget)) {
+			$rows = $wpdb->get_results("SELECT {$select} FROM `{$tmp}` ORDER BY {$order} LIMIT {$offset}, 500", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+			if (empty($rows)) {
+				return array('cursor' => $offset, 'done' => true);
+			}
+			foreach ($rows as $row) {
+				$changes = array();
+				foreach ($text_cols as $col) {
+					if (is_string($row[$col]) && '' !== $row[$col]) {
+						$new = Migration_Replacer::replace($row[$col], $pairs);
+						if ($new !== $row[$col]) {
+							$changes[$col] = $new;
+						}
+					}
+				}
+				if (! empty($changes)) {
+					$where = array();
+					foreach ($pk as $k) {
+						$where[$k] = $row[$k];
+					}
+					$wpdb->update($tmp, $changes, $where);
+				}
+			}
+			$offset += count($rows);
+			if (count($rows) < 500) {
+				return array('cursor' => $offset, 'done' => true);
+			}
+		}
+		return array('cursor' => $offset, 'done' => false);
 	}
 
 	private function build_file_list(string $root, string $component, array $excludes, string $list_file): void {

@@ -55,7 +55,9 @@ class Pro_Admin_Page {
 		wp_enqueue_script('wudt-migration', WUDT_PLUGIN_URL . 'assets/js/migration.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/migration.js'), true);
 		wp_enqueue_style('wudt-ai-agent', WUDT_PLUGIN_URL . 'assets/css/ai-agent.css', array('wudt-admin'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/ai-agent.css'));
 		wp_enqueue_script('wudt-ai-agent', WUDT_PLUGIN_URL . 'assets/js/ai-agent.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/ai-agent.js'), true);
-		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery', 'wudt-migration', 'wudt-ai-agent'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/pro-admin.js'), true);
+		wp_enqueue_script('wudt-malware', WUDT_PLUGIN_URL . 'assets/js/malware.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/malware.js'), true);
+		wp_enqueue_script('wudt-backup', WUDT_PLUGIN_URL . 'assets/js/backup.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/backup.js'), true);
+		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery', 'wudt-migration', 'wudt-ai-agent', 'wudt-backup', 'wudt-malware'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/pro-admin.js'), true);
 		$data = array(
 			'generated_at' => current_time('mysql'),
 			'tabs'         => array(),
