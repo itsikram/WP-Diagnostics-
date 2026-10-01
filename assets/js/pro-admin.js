@@ -168,6 +168,35 @@
 		return $.post(window.wudtProAdmin.ajaxUrl, $.extend({ action: action, nonce: window.wudtProAdmin.nonce }, data));
 	}
 
+	/**
+	 * File manager request: shows the server's error message on failure and
+	 * resolves only on success.
+	 */
+	function fmPost(action, data, successTitle) {
+		var d = $.Deferred();
+		post(action, data).done(function (r) {
+			if (r && r.success) {
+				if (successTitle) {
+					showToast(successTitle, (r.data && r.data.message) ? r.data.message : '', 'success', 3000);
+				}
+				d.resolve(r);
+			} else {
+				var msg = (r && r.data && r.data.message) ? r.data.message : 'The operation failed.';
+				showToast('File manager', msg, 'error', 7000);
+				status(msg);
+				d.reject(r);
+			}
+		}).fail(function (xhr) {
+			var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message)
+				? xhr.responseJSON.data.message
+				: 'Server error (HTTP ' + (xhr ? xhr.status : '?') + '). Check the PHP error log.';
+			showToast('File manager', msg, 'error', 7000);
+			status(msg);
+			d.reject(xhr);
+		});
+		return d.promise();
+	}
+
 	function render() {
 		var tabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp', 'site_migration'];
 		var tabsHtml = '';
@@ -2538,8 +2567,8 @@
 			});
 		});
 		$('#wudt-fm-zip').on('click', function () {
-			post('wudt_fm_download_zip', { path: $('#wudt-fm-path').val() }).done(function (r) {
-				if (r && r.success) { window.open(r.data.url, '_blank'); }
+			fmPost('wudt_fm_download_zip', { path: $('#wudt-fm-path').val() }).done(function (r) {
+				window.location.href = r.data.url;
 			});
 		});
 
@@ -2815,7 +2844,7 @@
 			var name = prompt('Folder name');
 			if (!name) { return; }
 			var target = normalizePath(state.currentPath + '/' + name);
-			post('wudt_fm_create', { path: target, entry_type: 'dir' }).done(function () {
+			fmPost('wudt_fm_create', { path: target, entry_type: 'dir' }, 'Folder created').done(function () {
 				loadDirectory(state.currentPath, false);
 			});
 		});
@@ -2829,21 +2858,38 @@
 			fd.append('path', state.currentPath);
 			fd.append('file', file);
 			status('Uploading...');
+			var input = this;
 			$.ajax({
 				url: window.wudtProAdmin.ajaxUrl,
 				type: 'POST',
 				data: fd,
 				processData: false,
-				contentType: false
-			}).done(function () {
-				loadDirectory(state.currentPath, false);
-				status('Upload complete');
+				contentType: false,
+				dataType: 'json'
+			}).done(function (r) {
+				if (r && r.success) {
+					showToast('Uploaded', r.data.message || '', 'success', 3000);
+					status('Upload complete');
+					loadDirectory(state.currentPath, false);
+				} else {
+					var msg = (r && r.data && r.data.message) ? r.data.message : 'Upload failed.';
+					showToast('Upload failed', msg, 'error', 7000);
+					status(msg);
+				}
+			}).fail(function (xhr) {
+				var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) ? xhr.responseJSON.data.message : 'Upload failed (HTTP ' + xhr.status + '). The file may exceed the server upload limit.';
+				showToast('Upload failed', msg, 'error', 7000);
+				status(msg);
+			}).always(function () {
+				input.value = '';
 			});
 		});
 		$('#wudt-fm-download').on('click', function () {
 			var path = state.selected.length ? state.selected[0] : state.currentPath;
-			post('wudt_fm_download_zip', { path: path }).done(function (r) {
-				if (r && r.success) { window.open(r.data.url, '_blank'); }
+			status('Preparing download...');
+			fmPost('wudt_fm_download_zip', { path: path }).done(function (r) {
+				status('');
+				window.location.href = r.data.url;
 			});
 		});
 		$(document).off('click.wudtfmcompress').on('click.wudtfmcompress', '#wudt-fm-compress-selected', function () {
@@ -2860,8 +2906,10 @@
 					status('Failed to create archive');
 					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
 				}
-			}).fail(function () {
-				status('Failed to create archive');
+			}).fail(function (xhr) {
+				var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) ? xhr.responseJSON.data.message : 'Failed to create archive';
+				status(msg);
+				showToast('Archive failed', msg, 'error', 7000);
 			});
 		});
 		$('#wudt-ed-restore').on('click', function () {
@@ -3000,7 +3048,8 @@
 			if (!sourcePath) { return; }
 			var base = pathBasename(sourcePath);
 			var destination = normalizePath(targetDir + '/' + base);
-			post('wudt_fm_rename', { old_path: sourcePath, new_path: destination }).done(function () {
+			if (normalizePath(sourcePath) === destination) { return; }
+			fmPost('wudt_fm_rename', { old_path: sourcePath, new_path: destination }, 'Moved').done(function () {
 				loadDirectory(state.currentPath, false);
 			});
 		});
@@ -3429,18 +3478,25 @@
 			var name = prompt('New name', item.name);
 			if (!name) { return; }
 			var parent = item.path.substring(0, item.path.lastIndexOf('/'));
-			post('wudt_fm_rename', { old_path: item.path, new_path: normalizePath(parent + '/' + name) }).done(function () {
+			fmPost('wudt_fm_rename', { old_path: item.path, new_path: normalizePath(parent + '/' + name) }, 'Renamed').done(function () {
 				loadDirectory(state.currentPath, false);
 			});
 			return;
 		}
 		if (action === 'delete' && item) {
 			if (!confirm('Delete ' + item.name + '?')) { return; }
-			post('wudt_fm_delete', { path: item.path }).done(function () { loadDirectory(state.currentPath, false); });
+			var targets = (state.selected.length > 1 && state.selected.indexOf(item.path) !== -1) ? state.selected.slice() : [item.path];
+			if (targets.length > 1 && !confirm('Delete all ' + targets.length + ' selected items?')) { return; }
+			status('Deleting...');
+			fmPost('wudt_fm_delete', { paths: targets }, 'Deleted').always(function () {
+				state.selected = [];
+				loadDirectory(state.currentPath, false);
+			});
 			return;
 		}
 		if (action === 'download' && item) {
-			post('wudt_fm_download_zip', { path: item.path }).done(function (r) { if (r && r.success) { window.open(r.data.url, '_blank'); } });
+			status('Preparing download...');
+			fmPost('wudt_fm_download_zip', { path: item.path }).done(function (r) { status(''); window.location.href = r.data.url; });
 			return;
 		}
 		if (action === 'compress' && item) {
@@ -3456,8 +3512,10 @@
 					status('Failed to create archive');
 					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
 				}
-			}).fail(function () {
-				status('Failed to create archive');
+			}).fail(function (xhr) {
+				var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) ? xhr.responseJSON.data.message : 'Failed to create archive';
+				status(msg);
+				showToast('Archive failed', msg, 'error', 7000);
 			});
 			return;
 		}
@@ -3474,8 +3532,10 @@
 					status('Failed to create archive');
 					alert(r && r.data && r.data.message ? r.data.message : 'Failed to create archive');
 				}
-			}).fail(function () {
-				status('Failed to create archive');
+			}).fail(function (xhr) {
+				var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) ? xhr.responseJSON.data.message : 'Failed to create archive';
+				status(msg);
+				showToast('Archive failed', msg, 'error', 7000);
 			});
 			return;
 		}
@@ -3490,8 +3550,10 @@
 					status('Failed to extract archive');
 					alert(r && r.data && r.data.message ? r.data.message : 'Failed to extract archive');
 				}
-			}).fail(function () {
-				status('Failed to extract archive');
+			}).fail(function (xhr) {
+				var msg = (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) ? xhr.responseJSON.data.message : 'Failed to extract archive';
+				status(msg);
+				showToast('Extract failed', msg, 'error', 7000);
 			});
 			return;
 		}
@@ -3509,7 +3571,8 @@
 		if (action === 'paste') {
 			if (!state.clipboardPath) { return; }
 			var base = pathBasename(state.clipboardPath);
-			post('wudt_fm_rename', { old_path: state.clipboardPath, new_path: normalizePath(state.currentPath + '/' + base) }).done(function () {
+			fmPost('wudt_fm_rename', { old_path: state.clipboardPath, new_path: normalizePath(state.currentPath + '/' + base) }, 'Moved').done(function () {
+				state.clipboardPath = '';
 				loadDirectory(state.currentPath, false);
 			});
 		}

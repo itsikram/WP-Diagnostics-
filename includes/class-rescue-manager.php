@@ -115,10 +115,13 @@ class Rescue_Manager {
 
 	private static function loader_code(string $basename, string $marker): string {
 		$basename_export = var_export($basename, true);
+		// Assembled at runtime: a literal header line in this file would make WordPress's
+		// plugin installer mistake this class file for the plugin's main file.
+		$header = 'Plugin' . ' Name';
 		return <<<PHP
 <?php
 /**
- * Plugin Name: WP Diagnostics Safe Loader
+ * {$header}: WP Diagnostics Safe Loader
  * Description: Lets an authenticated WP Diagnostics rescue session open wp-admin with all other plugins and the theme disabled (for that browser only). Installed automatically by WP Diagnostics; safe to delete.
  * Version: 1.0
  */
