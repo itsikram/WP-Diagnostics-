@@ -59,6 +59,12 @@ class Plugin {
 	 * @var array<int,\WUDT\Includes\Module_Base>
 	 */
 	private array $pro_modules = array();
+	/**
+	 * One instance per module class, shared by both module sets.
+	 *
+	 * @var array<string,\WUDT\Includes\Module_Base>
+	 */
+	private array $instances = array();
 
 	public function register(): void {
 		$failsafe = new Failsafe_Manager();
@@ -106,10 +112,7 @@ class Plugin {
 			$emergency
 		);
 
-		foreach ($this->modules as $module) {
-			$module->register_hooks();
-		}
-		foreach ($this->pro_modules as $module) {
+		foreach ($this->instances as $module) {
 			$module->register_hooks();
 		}
 
@@ -147,8 +150,13 @@ class Plugin {
 			if ($emergency && in_array($class, array(File_Integrity_Module::class, Malware_Scanner_Module::class), true)) {
 				continue;
 			}
+			if (isset($this->instances[$class])) {
+				$modules[] = $this->instances[$class];
+				continue;
+			}
 			try {
 				$instance = new $class();
+				$this->instances[$class] = $instance;
 				$modules[] = $instance;
 			} catch (\Throwable $e) {
 				Operation_Logger::log(

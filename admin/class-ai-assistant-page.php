@@ -30,12 +30,15 @@ class AI_Assistant_Page {
 
 	public function enqueue_assets(string $hook): void {
 		$page = isset($_GET['page']) ? sanitize_text_field((string) wp_unslash($_GET['page'])) : '';
-		if ('wp-diagnostics_page_wudt-ai-assistant' !== $hook && 'wudt-ai-assistant' !== $page) {
+		if ('wudt-ai-assistant' !== $page && false === strpos($hook, 'wudt-ai-assistant')) {
 			return;
 		}
 		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
 		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
-		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery'), WUDT_VERSION, true);
+		wp_enqueue_style('wudt-ai-agent', WUDT_PLUGIN_URL . 'assets/css/ai-agent.css', array('wudt-admin'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/ai-agent.css'));
+		wp_enqueue_script('wudt-ai-agent', WUDT_PLUGIN_URL . 'assets/js/ai-agent.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/ai-agent.js'), true);
+		wp_enqueue_script('wudt-migration', WUDT_PLUGIN_URL . 'assets/js/migration.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/migration.js'), true);
+		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery', 'wudt-ai-agent', 'wudt-migration'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/pro-admin.js'), true);
 		wp_localize_script('wudt-pro-admin', 'wudtProAdmin', array(
 			'ajaxUrl' => admin_url('admin-ajax.php'),
 			'nonce'   => wp_create_nonce('wudt_admin_nonce'),

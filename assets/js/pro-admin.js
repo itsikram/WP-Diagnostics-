@@ -192,6 +192,15 @@
 			+ '</div>';
 		$('#wudt-pro-admin-app').html(html);
 		bind();
+		if (state.tab === 'site_migration' && !state.tabLoading) {
+			mountSiteMigration();
+		}
+		if (state.tab === 'ai_assistant' && !state.tabLoading) {
+			var agentRoot = document.getElementById('wudt-ai-agent-root');
+			if (agentRoot && window.WUDTAgent) {
+				window.WUDTAgent.mount(agentRoot);
+			}
+		}
 	}
 
 	function renderLoadingPanel() {
@@ -1008,315 +1017,7 @@
 	}
 
 	function renderAIAssistant() {
-		var messages = state.ai.history || [];
-		var mode = state.ai.mode || 'ask';
-		var model = state.ai.model || '';
-		var models = state.ai.models || [];
-		var modelOptions = '<option value="">Default Model</option>';
-		for (var mo = 0; mo < models.length; mo++) {
-			var mName = String(models[mo] || '');
-			modelOptions += '<option value="' + esc(mName) + '" ' + (model === mName ? 'selected' : '') + '>' + esc(mName) + '</option>';
-		}
-
-		// Icons
-		var iconPlus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>';
-		var iconMessage = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-		var iconSend = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
-		var iconCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-		var iconRefresh = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
-		var iconSparkles = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L14 8L20 10L14 12L12 18L10 12L4 10L10 8L12 2Z"/></svg>';
-		var iconContext = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
-		var iconUpload = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
-		var iconUser = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
-		var iconBot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>';
-		var iconWarning = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-		var iconHistory = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-		var iconSettings = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m4.22-10.22l4.24-4.24M6.34 6.34L2.1 2.1m17.8 17.8l-4.24-4.24M6.34 17.66l-4.24 4.24M23 12h-6m-6 0H1m20.07-4.93l-4.24 4.24M6.34 6.34l-4.24-4.24"/></svg>';
-		var iconArrowLeft = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>';
-		var iconFile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-		var iconDatabase = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>';
-		var iconDownload = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-
-		// Sidebar threads with more items
-		var threads = '<div class="wudt-ai-thread-list">'
-			+ '<div class="wudt-ai-thread-item is-active">' + iconMessage + ' Current Session</div>'
-			+ '<div class="wudt-ai-thread-item">' + iconHistory + ' Previous Chat</div>'
-			+ '</div>';
-
-		// Quick actions in sidebar
-		var quickActions = '<div class="wudt-ai-quick-actions" style="margin-top:24px;">'
-			+ '<h3>Quick Actions</h3>'
-			+ '<div class="wudt-ai-thread-item" id="wudt-ai-file-manager-link">' + iconFile + ' File Manager</div>'
-			+ '<div class="wudt-ai-thread-item" id="wudt-ai-database-link">' + iconDatabase + ' Database Manager</div>'
-			+ '</div>';
-
-		// Chat messages
-		var bubble = '';
-		if (messages.length === 0) {
-			// Empty state with enhanced welcome
-			bubble = '<div class="wudt-ai-chat-empty">'
-				+ '<div class="wudt-ai-chat-empty-icon">' + iconBot + '</div>'
-				+ '<h4>WP Diagnostics AI Assistant</h4>'
-				+ '<p>Ask me anything about your WordPress site - from debugging errors to optimizing performance, security checks, and more. I can help you fix issues, analyze code, and manage your database.</p>'
-				+ '</div>';
-		} else {
-			for (var i = 0; i < messages.length; i++) {
-				var m = messages[i];
-				var isUser = m.role === 'user';
-				var isStatus = m.isStatus;
-				var isError = m.isError;
-				var isCompletion = m.isCompletion;
-				var cls = isUser ? 'wudt-ai-msg user' : 'wudt-ai-msg ai';
-				if (isStatus) { cls += ' status'; }
-				if (isError) { cls += ' error'; }
-				if (isCompletion) { cls += ' completion'; }
-				var avatar = isUser ? iconUser : (isStatus || isCompletion ? iconSparkles : iconBot);
-				var contentClass = 'wudt-ai-msg-content';
-				if (isStatus) { contentClass += ' status-msg'; }
-				if (isError) { contentClass += ' error-msg'; }
-				if (isCompletion) { contentClass += ' completion-msg'; }
-				bubble += '<div class="' + cls + '">'
-					+ '<div class="wudt-ai-msg-avatar">' + avatar + '</div>'
-					+ '<div class="' + contentClass + '">' + renderMarkdownLite(m.content || '') + ''
-					+ (isUser ? '' : '<div class="wudt-ai-msg-actions"><button class="wudt-ai-msg-action wudt-ai-copy" data-copy-index="' + i + '">' + iconCopy + ' Copy</button></div>')
-					+ '</div>'
-					+ '</div>';
-			}
-		}
-
-		if (state.ai.typing) {
-			bubble += '<div class="wudt-ai-msg ai">'
-				+ '<div class="wudt-ai-msg-avatar">' + iconBot + '</div>'
-				+ '<div class="wudt-ai-msg-content"><div class="wudt-ai-typing"><span></span><span></span><span></span></div></div>'
-				+ '</div>';
-		}
-
-		// Suggested prompts (only when empty) - more comprehensive
-		var suggestions = '';
-		if (messages.length === 0) {
-			suggestions = '<div class="wudt-ai-suggestions">'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Why is my site slow?"><span class="wudt-ai-suggestion-icon">🐌</span><span>Why is my site slow?</span></div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Check for security issues"><span class="wudt-ai-suggestion-icon">🔒</span><span>Check for security issues</span></div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Debug PHP errors"><span class="wudt-ai-suggestion-icon">🐛</span><span>Debug PHP errors</span></div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Optimize database"><span class="wudt-ai-suggestion-icon">⚡</span><span>Optimize database</span></div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Check plugin conflicts"><span class="wudt-ai-suggestion-icon">🔌</span><span>Check plugin conflicts</span></div>'
-				+ '<div class="wudt-ai-suggestion" data-prompt="Analyze error logs"><span class="wudt-ai-suggestion-icon">📊</span><span>Analyze error logs</span></div>'
-				+ '</div>';
-		}
-
-		// Action box for suggested fixes
-		var actionBox = '';
-		if (state.ai.lastActions && state.ai.lastActions.length > 0) {
-			var actionButtons = '';
-			for (var ai = 0; ai < state.ai.lastActions.length; ai++) {
-				var act = state.ai.lastActions[ai];
-				var btnClass = 'wudt-ai-apply-action';
-				var icon = iconWarning;
-				var label = act.action;
-				
-				// Customize based on action type
-				switch (act.action) {
-					case 'run_sql':
-						icon = iconDatabase;
-						label = 'Run SQL: ' + (act.description || 'Query');
-						btnClass += ' is-sql';
-						break;
-					case 'edit_file':
-						icon = iconFile;
-						label = 'Edit File: ' + (act.path ? act.path.split('/').pop() : 'File');
-						btnClass += ' is-file';
-						break;
-					case 'create_file':
-						icon = iconFile;
-						label = 'Create File: ' + (act.path ? act.path.split('/').pop() : 'File');
-						btnClass += ' is-file';
-						break;
-					case 'delete_file':
-						icon = iconWarning;
-						label = 'Delete File: ' + (act.path ? act.path.split('/').pop() : 'File');
-						btnClass += ' is-danger';
-						break;
-					case 'read_file':
-						icon = iconFile;
-						label = 'Read File: ' + (act.path ? act.path.split('/').pop() : 'File');
-						btnClass += ' is-info';
-						break;
-					case 'disable_plugin':
-						icon = iconWarning;
-						label = 'Disable Plugin: ' + (act.plugin || 'Plugin');
-						btnClass += ' is-warning';
-						break;
-					case 'activate_plugin':
-						icon = iconSparkles;
-						label = 'Activate Plugin: ' + (act.plugin || 'Plugin');
-						btnClass += ' is-success';
-						break;
-					case 'install_plugin':
-						icon = iconDownload;
-						label = 'Install Plugin: ' + (act.plugin_slug || act.plugin || 'Plugin');
-						if (act.activate) label += ' (+activate)';
-						btnClass += ' is-primary';
-						break;
-					case 'toggle_wp_debug':
-						icon = iconSettings;
-						label = (act.enable ? 'Enable' : 'Disable') + ' WP_DEBUG' + (act.enable_log ? ' + LOG' : '');
-						btnClass += act.enable ? ' is-warning' : ' is-success';
-						break;
-					case 'install_theme':
-						icon = iconDownload;
-						label = 'Install Theme: ' + (act.theme_slug || 'Theme');
-						if (act.activate) label += ' (+activate)';
-						btnClass += ' is-primary';
-						break;
-					case 'activate_theme':
-						icon = iconSettings;
-						label = 'Switch Theme: ' + (act.theme_slug || 'Theme');
-						btnClass += ' is-warning';
-						break;
-					case 'schedule_cron':
-						icon = iconClock;
-						label = 'Schedule: ' + (act.hook || 'Cron');
-						btnClass += ' is-info';
-						break;
-					case 'unschedule_cron':
-						icon = iconClock;
-						label = 'Unschedule: ' + (act.hook || 'Cron');
-						btnClass += ' is-warning';
-						break;
-					case 'search_replace_db':
-						icon = iconSearch;
-						label = (act.dry_run ? 'Find' : 'Replace') + ': ' + (act.search || 'DB');
-						btnClass += act.dry_run ? ' is-info' : ' is-danger';
-						break;
-					case 'search_files':
-						icon = iconSearch;
-						label = 'Search: ' + (act.query || 'Files');
-						btnClass += ' is-info';
-						break;
-					case 'chmod':
-						icon = iconSettings;
-						label = 'Chmod: ' + (act.path ? pathBasename(act.path) : 'File');
-						btnClass += ' is-warning';
-						break;
-					case 'compress':
-						icon = iconDownload;
-						label = 'Compress: ' + ((act.paths || []).length) + ' item(s)';
-						btnClass += ' is-primary';
-						break;
-					case 'extract':
-						icon = iconFile;
-						label = 'Extract: ' + (act.archive ? pathBasename(act.archive) : 'Archive');
-						btnClass += ' is-primary';
-						break;
-					case 'rename':
-						icon = iconArrowRight;
-						label = 'Rename: ' + (act.old_path ? pathBasename(act.old_path) : 'File');
-						btnClass += ' is-warning';
-						break;
-					case 'list_directory':
-						icon = iconFile;
-						label = 'List: ' + (act.path ? pathBasename(act.path) : 'Root');
-						btnClass += ' is-info';
-						break;
-					case 'optimize_tables':
-						icon = iconSparkles;
-						label = 'Optimize: ' + ((act.tables || []).length || 'All') + ' tables';
-						btnClass += ' is-success';
-						break;
-					case 'repair_tables':
-						icon = iconWarning;
-						label = 'Repair: ' + ((act.tables || []).length || 'All') + ' tables';
-						btnClass += ' is-danger';
-						break;
-					case 'get_system_info':
-						icon = iconSparkles;
-						label = 'System Info';
-						btnClass += ' is-info';
-						break;
-				}
-				
-				actionButtons += '<div class="wudt-ai-action-item" data-action-idx="' + ai + '">'
-						+ '<div class="wudt-ai-action-content">' + icon + '<span>' + esc(label) + '</span></div>'
-						+ '<button class="' + btnClass + ' button button-primary" data-action-idx="' + ai + '">Execute</button>'
-						+ '</div>';
-				}
-				
-			actionBox = '<div class="wudt-ai-action-panel">'
-				+ '<h4>🤖 AI Proposed Actions</h4>'
-				+ '<p class="wudt-ai-action-desc">The AI has suggested the following actions. Review before executing:</p>'
-				+ actionButtons
-				+ '<button id="wudt-ai-dismiss-actions" class="button">Dismiss All</button>'
-				+ '</div>';
-		} else if (state.ai.lastAction && state.ai.lastAction.action) {
-			// Backward compatibility - single action
-			actionBox = '<div class="wudt-ai-action">'
-				+ '<div class="wudt-ai-action-content">' + iconWarning + '<span>Suggested action: <strong>' + esc(state.ai.lastAction.action) + '</strong></span></div>'
-				+ '<button id="wudt-ai-apply-fix" class="button button-primary">Apply Fix</button>'
-				+ '</div>';
-		}
-
-		var backUrl = (window.wudtProAdmin && window.wudtProAdmin.diagnosticsUrl) ? window.wudtProAdmin.diagnosticsUrl : 'admin.php?page=wp-ultimate-diagnostics';
-
-		return ''
-			+ '<div class="wudt-ai-layout">'
-			// Sidebar
-			+ '<aside class="wudt-ai-sidebar">'
-			+ '<a href="' + backUrl + '" class="wudt-ai-back-link">' + iconArrowLeft + ' Back to Dashboard</a>'
-			+ '<div class="wudt-ai-new-chat" id="wudt-ai-clear-chat">' + iconPlus + ' New Chat</div>'
-			+ '<h3>Recent Conversations</h3>'
-			+ threads
-			+ quickActions
-			+ '<div class="wudt-ai-sidebar-footer">AI Assistant v2.0 • Gemini Ready</div>'
-			+ '</aside>'
-			// Main area
-			+ '<section class="wudt-ai-main">'
-			// Header
-			+ '<div class="wudt-ai-header">'
-			+ '<div class="wudt-ai-header-left">'
-			+ '<span class="wudt-ai-header-title">' + iconSparkles + ' AI Assistant</span>'
-			+ '</div>'
-			+ '<div class="wudt-ai-model-selector">'
-			+ '<select id="wudt-ai-model">' + modelOptions + '</select>'
-			+ '<input type="text" id="wudt-ai-model-custom" placeholder="Custom model ID" value="' + esc(model) + '" style="width:140px;padding:6px 10px;border:1px solid var(--wudt-gray-300);border-radius:6px;font-size:13px;">'
-			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-refresh-models" title="Refresh Models">' + iconRefresh + '</button>'
-			+ '<button class="wudt-btn wudt-btn--secondary wudt-btn--sm" id="wudt-ai-test-api" title="Test API Connection" style="margin-left:4px;">Test API</button>'
-			+ '<label style="margin-left:10px;display:inline-flex;align-items:center;gap:6px;font-size:13px;">'
-			+ '<input type="checkbox" id="wudt-ai-auto-execute" ' + (state.ai.autoExecute ? 'checked' : '') + '> Auto execute'
-			+ '</label>'
-			+ '</div>'
-			+ '</div>'
-			// Mode toggle
-			+ '<div class="wudt-ai-mode-toggle">'
-			+ '<button class="wudt-ai-mode-btn ' + (mode === 'ask' ? 'is-active' : '') + '" data-mode="ask">Ask Mode</button>'
-			+ '<button class="wudt-ai-mode-btn ' + (mode === 'agent' ? 'is-active' : '') + '" data-mode="agent">Agent Mode</button>'
-			+ '</div>'
-			// Suggestions
-			+ suggestions
-			// Chat window
-			+ '<div class="wudt-ai-chat" id="wudt-ai-chat-window">' + bubble + '</div>'
-			// Action box
-			+ actionBox
-			// Context panel
-			+ '<div class="wudt-ai-context-panel">'
-			+ '<span class="wudt-ai-context-title">' + iconContext + ' Context:</span>'
-			+ '<div class="wudt-ai-context-list">'
-			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="error_logs" checked> Error Logs</label>'
-			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="plugins" checked> Plugins</label>'
-			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="system" checked> System Info</label>'
-			+ '<label class="wudt-ai-context-item is-active"><input type="checkbox" class="wudt-ai-ctx" value="database" checked> Database</label>'
-			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="file"> File Content</label>'
-			+ '<label class="wudt-ai-context-item"><input type="checkbox" class="wudt-ai-ctx" value="chat_transcript"> Chat History</label>'
-			+ '</div>'
-			+ '</div>'
-			// Input area
-			+ '<div class="wudt-ai-input-area">'
-			+ (state.ai.executing ? '<div class="wudt-ai-executing-status">' + iconSparkles + ' <span>' + esc(state.ai.executionStatus || 'Executing tasks...') + '</span></div>' : '')
-			+ '<div class="wudt-ai-input-wrapper">'
-			+ '<textarea id="wudt-ai-input" class="wudt-ai-textarea" placeholder="Ask anything about your WordPress site... (Shift+Enter for new line)" rows="1" ' + (state.ai.executing ? 'disabled' : '') + '></textarea>'
-			+ '<button class="wudt-ai-send-btn" id="wudt-ai-send" ' + (state.ai.typing || state.ai.executing ? 'disabled' : '') + '>' + iconSend + '</button>'
-			+ '</div>'
-			+ '</div>'
-			+ '</section></div>';
+		return '<div id="wudt-ai-agent-root"></div>';
 	}
 
 	function renderMarkdownLite(text) {
@@ -1698,7 +1399,24 @@
 		var recentEvents = events.slice(-10).reverse();
 		
 		var html = '<div class="wudt-dashboard">';
-		
+
+		// Rescue access (works even when the site has a fatal error).
+		var rescue = d.rescue || null;
+		if (rescue) {
+			html += '<div class="wudt-dashboard-section"><div class="wudt-card wudt-rescue-card">'
+				+ '<h3>🛟 Emergency access (bookmark this)</h3>'
+				+ '<p>If a plugin or theme crashes your site (“There has been a critical error”) and wp-admin will not load, open this private link. '
+				+ 'It works without loading any plugin or theme: you can read the error, deactivate the culprit, switch theme, let the AI propose a fix, '
+				+ 'or open WP Diagnostics in <strong>safe mode</strong> (all other plugins and the theme disabled for your browser only).</p>'
+				+ '<div class="wudt-rescue-row"><input type="text" readonly class="regular-text code" id="wudt-rescue-url" value="' + esc(rescue.rescue_url) + '">'
+				+ '<button class="button button-primary" id="wudt-rescue-copy">Copy link</button>'
+				+ '<a class="button" target="_blank" rel="noopener" href="' + esc(rescue.rescue_url) + '">Open</a>'
+				+ '<button class="button" id="wudt-rescue-regen">New link</button></div>'
+				+ '<p class="description">Keep it secret — anyone with this link can manage plugins on this site. The link is also added to WordPress’s recovery-mode email. '
+				+ 'Safe-mode loader: ' + (rescue.loader_active ? '<strong style="color:#008a20">installed</strong>' : '<strong style="color:#b32d2e">not installed</strong> (make wp-content/mu-plugins writable)') + '.</p>'
+				+ '</div></div>';
+		}
+
 		// Recovery Status Section
 		html += '<div class="wudt-dashboard-section">'
 			+ '<h3 class="wudt-dashboard-title">🛡️ Crash Recovery</h3>'
@@ -3860,15 +3578,7 @@
 					state.db._loadedOnce = true;
 					loadDbTables(true);
 				}
-				if (tabKey === 'ai_assistant') {
-					state.ai._loadedOnce = true;
-					post('diagnostics_ai_history').done(function (r) {
-						if (r && r.success) { state.ai.history = r.data.history || []; render(); }
-					});
-					post('diagnostics_ai_models').done(function (r) {
-						if (r && r.success) { state.ai.models = r.data.models || []; render(); }
-					});
-				}
+
 				if (tabKey === 'file_manager') {
 					var d = tabData('file_manager');
 					if (!state.currentPath && d && d.root) {
@@ -4032,129 +3742,14 @@
 	}
 
 	function renderSiteMigration() {
-		var d = tabData('site_migration') || {};
-		var sites = d.sites || [];
-		var jobs = d.jobs || [];
-		var currentJob = d.current_job || null;
-		var localApiKey = d.local_api_key || '';
-		var localSiteUrl = d.local_site_url || window.location.origin;
+		return '<div id="wudt-migration-root"></div>';
+	}
 
-		// Site manager section
-		var html = '<div class="wudt-migration-shell">';
-
-		// Header
-		html += '<div class="wudt-migration-header">';
-		html += '<h2>🌐 Site Migration</h2>';
-		html += '<p>Asynchronously migrate WordPress sites between localhost and live servers.</p>';
-		html += '</div>';
-
-		// Local API Key Section
-		html += '<div class="wudt-card wudt-migration-api-card">';
-		html += '<h3>🔐 Your Local API Key</h3>';
-		html += '<p class="wudt-migration-api-info">Share this API key with remote sites to allow them to connect to <strong>' + esc(localSiteUrl) + '</strong></p>';
-		html += '<div class="wudt-migration-api-key-container">';
-		html += '<input type="text" id="wudt_local_api_key" class="wudt-input wudt-api-key-input" value="' + esc(localApiKey) + '" readonly>';
-		html += '<button class="button" id="wudt-copy-api-key" title="Copy to clipboard">📋 Copy</button>';
-		html += '<button class="button" id="wudt-regenerate-api-key" title="Generate new key">🔄 Regenerate</button>';
-		html += '</div>';
-		html += '<div class="wudt-migration-setup-info">';
-		html += '<p><strong>📋 How to connect to a Live Site:</strong></p>';
-		html += '<ol>';
-		html += '<li>Install this plugin on your <strong>Live Server</strong> (if not already installed)</li>';
-		html += '<li>On the Live Server, go to <strong>Tools → WP Diagnostics → Site Migration</strong></li>';
-		html += '<li>Copy the Live Server\'s API key</li>';
-		html += '<li>Return to this localhost and click <strong>"Add Remote Site"</strong> below</li>';
-		html += '<li>Paste the Live Server URL and API key</li>';
-		html += '</ol>';
-		html += '</div>';
-		html += '<p class="wudt-migration-api-note">⚠️ <strong>Note:</strong> Regenerating the key will invalidate the old one. Remote sites will need to update their configuration.</p>';
-		html += '</div>';
-
-		// Remote Sites Section
-		html += '<div class="wudt-card">';
-		html += '<h3>📡 Remote Sites</h3>';
-
-		if (sites.length === 0) {
-			html += '<p class="wudt-migration-empty">No remote sites configured yet. Add your first site below.</p>';
-		} else {
-			html += '<div class="wudt-migration-sites">';
-			for (var i = 0; i < sites.length; i++) {
-				var site = sites[i];
-				html += '<div class="wudt-migration-site" data-site-id="' + esc(site.id) + '">';
-				html += '<div class="wudt-migration-site-info">';
-				html += '<strong>' + esc(site.label) + '</strong>';
-				html += '<span class="wudt-migration-site-url">' + esc(site.url) + '</span>';
-				html += '</div>';
-				html += '<div class="wudt-migration-site-actions">';
-				html += '<button class="button wudt-migration-test" data-site-id="' + esc(site.id) + '">Test Connection</button>';
-				html += '<button class="button wudt-migration-pull" data-site-id="' + esc(site.id) + '">⬇️ Pull</button>';
-				html += '<button class="button wudt-migration-push" data-site-id="' + esc(site.id) + '">⬆️ Push</button>';
-				html += '<button class="button button-link-delete wudt-migration-delete-site" data-site-id="' + esc(site.id) + '">🗑️</button>';
-				html += '</div>';
-				// Component selection for this site
-				html += '<div class="wudt-migration-components">';
-				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-database" data-site-id="' + esc(site.id) + '" checked> <strong>Database</strong></label>';
-				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-plugins" data-site-id="' + esc(site.id) + '" checked> Plugins</label>';
-				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-themes" data-site-id="' + esc(site.id) + '" checked> Themes</label>';
-				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-uploads" data-site-id="' + esc(site.id) + '" checked> Uploads</label>';
-				html += '<label class="wudt-migration-checkbox"><input type="checkbox" class="wudt-comp-core" data-site-id="' + esc(site.id) + '"> Core Files</label>';
-				html += '</div>';
-				html += '</div>';
-			}
-			html += '</div>';
+	function mountSiteMigration() {
+		var el = document.getElementById('wudt-migration-root');
+		if (el && window.WUDTMigration) {
+			window.WUDTMigration.mount(el, tabData('site_migration'));
 		}
-
-		// Add Site Form
-		html += '<div class="wudt-migration-add-form" style="margin-top: 20px;">';
-		html += '<h4>Add Remote Site</h4>';
-		html += '<table class="form-table">';
-		html += '<tr><th><label for="migration_site_label">Label</label></th><td><input type="text" id="migration_site_label" class="regular-text" placeholder="My Live Site"></td></tr>';
-		html += '<tr><th><label for="migration_site_url">Site URL</label></th><td><input type="url" id="migration_site_url" class="regular-text" placeholder="https://example.com"></td></tr>';
-		html += '<tr><th><label for="migration_site_api_key">API Key</label></th><td><input type="text" id="migration_site_api_key" class="regular-text" placeholder="32+ character secret key"></td></tr>';
-		html += '</table>';
-		html += '<button class="button button-primary" id="wudt-migration-add-site">Add Site</button>';
-		html += '</div>';
-		html += '</div>';
-
-		// Current Migration Progress
-		if (currentJob) {
-			html += '<div class="wudt-card wudt-migration-progress-card">';
-			html += '<h3>🔄 Current Migration</h3>';
-			html += '<div class="wudt-migration-progress">';
-			html += '<div class="wudt-progress-bar">';
-			html += '<div class="wudt-progress-fill" style="width: ' + (currentJob.progress || 0) + '%"></div>';
-			html += '</div>';
-			html += '<p class="wudt-migration-status">' + esc(currentJob.message || 'Processing...') + '</p>';
-			html += '<button class="button" id="wudt-migration-cancel">Cancel Migration</button>';
-			html += '</div>';
-			html += '</div>';
-		}
-
-		// Migration History
-		if (jobs.length > 0) {
-			html += '<div class="wudt-card">';
-			html += '<h3>📜 Migration History</h3>';
-			html += '<table class="wp-list-table widefat fixed striped">';
-			html += '<thead><tr><th>Site</th><th>Type</th><th>Status</th><th>Started</th><th>Actions</th></tr></thead>';
-			html += '<tbody>';
-			for (var j = 0; j < jobs.length; j++) {
-				var job = jobs[j];
-				var statusClass = job.status === 'complete' ? 'wudt-status-success' : (job.status === 'failed' ? 'wudt-status-error' : 'wudt-status-pending');
-				html += '<tr>';
-				html += '<td>' + esc((job.source_site || {}).label || 'Unknown') + '</td>';
-				html += '<td>' + esc(job.direction || 'pull') + '</td>';
-				html += '<td><span class="' + statusClass + '">' + esc(job.status) + '</span></td>';
-				html += '<td>' + esc(job.started_at || '') + '</td>';
-				html += '<td><button class="button button-small wudt-migration-delete-job" data-job-id="' + esc(job.job_id) + '">Delete</button></td>';
-				html += '</tr>';
-			}
-			html += '</tbody>';
-			html += '</table>';
-			html += '</div>';
-		}
-
-		html += '</div>';
-		return html;
 	}
 
 	$(function () {
@@ -4260,246 +3855,28 @@
 			}
 		});
 
+		$(document).on('click', '#wudt-rescue-copy', function () {
+			var $input = $('#wudt-rescue-url');
+			$input[0].select();
+			try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+			if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText($input.val()); }
+			$(this).text('Copied ✓');
+		});
+
+		$(document).on('click', '#wudt-rescue-regen', function () {
+			if (!confirm('Create a new emergency link? The old link stops working.')) { return; }
+			post('wudt_rescue_regenerate').done(function (r) {
+				if (r && r.success) {
+					$('#wudt-rescue-url').val(r.data.rescue_url);
+					loadTabData('recovery');
+				}
+			});
+		});
+
 		$(document).on('change', '#wudt-smtp-enabled', function () {
 			var enabled = $(this).is(':checked');
 			$('#wudt-smtp-status').text(enabled ? 'Enabled' : 'Disabled');
 		});
 
-		// Migration Tab Event Handlers
-		$(document).on('click', '#wudt-copy-api-key', function () {
-			var $input = $('#wudt_local_api_key');
-			var apiKey = $input.val();
-			if (!apiKey) {
-				alert('No API key to copy.');
-				return;
-			}
-
-			// Copy to clipboard
-			if (navigator.clipboard && window.isSecureContext) {
-				navigator.clipboard.writeText(apiKey).then(function () {
-					var $btn = $('#wudt-copy-api-key');
-					var originalText = $btn.text();
-					$btn.text('✅ Copied!');
-					setTimeout(function () {
-						$btn.text(originalText);
-					}, 2000);
-				}).catch(function () {
-					fallbackCopyToClipboard(apiKey);
-				});
-			} else {
-				fallbackCopyToClipboard(apiKey);
-			}
-		});
-
-		function fallbackCopyToClipboard(text) {
-			var $temp = $('<textarea>');
-			$('body').append($temp);
-			$temp.val(text).select();
-			document.execCommand('copy');
-			$temp.remove();
-
-			var $btn = $('#wudt-copy-api-key');
-			var originalText = $btn.text();
-			$btn.text('✅ Copied!');
-			setTimeout(function () {
-				$btn.text(originalText);
-			}, 2000);
-		}
-
-		$(document).on('click', '#wudt-regenerate-api-key', function () {
-			if (!confirm('⚠️ Regenerate API Key?\n\nThis will invalidate the current key.\nRemote sites will need to update their configuration with the new key.\n\nAre you sure?')) {
-				return;
-			}
-
-			var $btn = $(this);
-			$btn.prop('disabled', true).text('Regenerating...');
-
-			post('wudt_migration_regenerate_key', {}).done(function (r) {
-				if (r && r.success && r.data.api_key) {
-					$('#wudt_local_api_key').val(r.data.api_key);
-					alert('✅ New API key generated successfully!\n\nMake sure to update remote sites with this new key.');
-				} else {
-					alert('Error: Failed to regenerate API key.');
-				}
-			}).fail(function () {
-				alert('Failed to regenerate API key. Please try again.');
-			}).always(function () {
-				$btn.prop('disabled', false).text('🔄 Regenerate');
-			});
-		});
-
-		$(document).on('click', '#wudt-migration-add-site', function () {
-			var $btn = $(this);
-			$btn.prop('disabled', true).text('Saving...');
-
-			var data = {
-				label: $('#migration_site_label').val(),
-				url: $('#migration_site_url').val(),
-				api_key: $('#migration_site_api_key').val()
-			};
-
-			post('wudt_migration_save_site', data).done(function (r) {
-				if (r && r.success) {
-					alert('Site added successfully!');
-					// Clear form
-					$('#migration_site_label').val('');
-					$('#migration_site_url').val('');
-					$('#migration_site_api_key').val('');
-					// Reload tab to show new site
-					state.tabLoading = true;
-					render();
-					loadTabData('site_migration');
-				} else {
-					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to add site'));
-				}
-			}).fail(function () {
-				alert('Failed to add site. Please check your connection.');
-			}).always(function () {
-				$btn.prop('disabled', false).text('Add Site');
-			});
-		});
-
-		$(document).on('click', '.wudt-migration-test', function () {
-			var siteId = $(this).data('site-id');
-			var $btn = $(this);
-			$btn.prop('disabled', true).text('Testing...');
-
-			post('wudt_migration_test_connection', { site_id: siteId }).done(function (r) {
-				if (r && r.success) {
-					alert('Connection successful!\n\nSite: ' + (r.data.site_info ? r.data.site_info.site_name : 'Unknown'));
-				} else {
-					alert('Connection failed: ' + ((r && r.data && r.data.message) ? r.data.message : 'Unknown error'));
-				}
-			}).fail(function () {
-				alert('Connection test failed. Please check the site URL and API key.');
-			}).always(function () {
-				$btn.prop('disabled', false).text('Test Connection');
-			});
-		});
-
-		$(document).on('click', '.wudt-migration-pull', function () {
-			var siteId = $(this).data('site-id');
-			var components = getSelectedComponents(siteId);
-			if (components.length === 0) {
-				alert('Please select at least one component to migrate.');
-				return;
-			}
-			if (!confirm('Start pull migration (download from remote)?\n\nComponents: ' + components.join(', ') + '\n\nThis will download and restore the remote site to this server.')) {
-				return;
-			}
-			startMigration(siteId, 'pull', components);
-		});
-
-		$(document).on('click', '.wudt-migration-push', function () {
-			var siteId = $(this).data('site-id');
-			var components = getSelectedComponents(siteId);
-			if (components.length === 0) {
-				alert('Please select at least one component to migrate.');
-				return;
-			}
-			if (!confirm('Start push migration (upload to remote)?\n\nComponents: ' + components.join(', ') + '\n\nThis will backup and send this site to the remote server.')) {
-				return;
-			}
-			startMigration(siteId, 'push', components);
-		});
-
-		function getSelectedComponents(siteId) {
-			var components = [];
-			var $site = $('.wudt-migration-site[data-site-id="' + siteId + '"]');
-			if ($site.find('.wudt-comp-database').is(':checked')) components.push('database');
-			if ($site.find('.wudt-comp-plugins').is(':checked')) components.push('plugins');
-			if ($site.find('.wudt-comp-themes').is(':checked')) components.push('themes');
-			if ($site.find('.wudt-comp-uploads').is(':checked')) components.push('uploads');
-			if ($site.find('.wudt-comp-core').is(':checked')) components.push('core');
-			return components;
-		}
-
-		$(document).on('click', '.wudt-migration-delete-site', function () {
-			var siteId = $(this).data('site-id');
-			if (!confirm('Delete this site configuration?\n\nThis will not affect any migrated data.')) {
-				return;
-			}
-
-			post('wudt_migration_delete_site', { site_id: siteId }).done(function (r) {
-				if (r && r.success) {
-					state.tabLoading = true;
-					render();
-					loadTabData('site_migration');
-				} else {
-					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to delete'));
-				}
-			});
-		});
-
-		$(document).on('click', '#wudt-migration-cancel', function () {
-			if (!confirm('Cancel the current migration?')) {
-				return;
-			}
-			var currentJob = (tabData('site_migration') || {}).current_job;
-			if (currentJob) {
-				post('wudt_migration_cancel', { job_id: currentJob.job_id }).done(function (r) {
-					if (r && r.success) {
-						alert('Migration cancelled.');
-						loadTabData('site_migration');
-					}
-				});
-			}
-		});
-
-		$(document).on('click', '.wudt-migration-delete-job', function () {
-			var jobId = $(this).data('job-id');
-			if (!confirm('Delete this migration job from history?')) {
-				return;
-			}
-			post('wudt_migration_delete_job', { job_id: jobId }).done(function (r) {
-				if (r && r.success) {
-					loadTabData('site_migration');
-				}
-			});
-		});
-
-		function startMigration(siteId, direction, components) {
-			components = components || ['database', 'plugins', 'themes', 'uploads']; // Default components
-			post('wudt_migration_start', {
-				site_id: siteId,
-				direction: direction,
-				components: JSON.stringify(components)
-			}).done(function (r) {
-				if (r && r.success) {
-					alert('Migration started! You can monitor progress on this page.');
-					loadTabData('site_migration');
-					// Start polling for progress
-					pollMigrationProgress(r.data.job.job_id);
-				} else {
-					alert('Error: ' + ((r && r.data && r.data.message) ? r.data.message : 'Failed to start migration'));
-				}
-			}).fail(function () {
-				alert('Failed to start migration. Please try again.');
-			});
-		}
-
-		function pollMigrationProgress(jobId) {
-			var pollInterval = setInterval(function () {
-				post('wudt_migration_progress', { job_id: jobId }).done(function (r) {
-					if (r && r.success && r.data.progress) {
-						var progress = r.data.progress;
-						// Update progress bar if visible
-						$('.wudt-progress-fill').css('width', progress.percent + '%');
-						$('.wudt-migration-status').text(progress.message || 'Processing...');
-
-						// Stop polling if complete or failed
-						if (progress.status === 'complete' || progress.status === 'failed' || progress.status === 'cancelled') {
-							clearInterval(pollInterval);
-							if (progress.status === 'complete') {
-								alert('Migration completed successfully!');
-							} else if (progress.status === 'failed') {
-								alert('Migration failed: ' + progress.message);
-							}
-							loadTabData('site_migration');
-						}
-					}
-				});
-			}, 3000); // Poll every 3 seconds
-		}
 	});
 })(jQuery);

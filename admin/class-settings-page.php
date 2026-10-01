@@ -7,6 +7,8 @@ declare(strict_types=1);
 
 namespace WUDT\Admin;
 
+use WUDT\Includes\AI_Config;
+
 if (! defined('ABSPATH')) {
 	exit;
 }
@@ -68,36 +70,7 @@ class Settings_Page {
 	public function handle_save_settings(): void {
 		$this->authorize_action('wudt_save_settings');
 
-		$ai_provider = sanitize_text_field((string) wp_unslash($_POST['ai_provider'] ?? 'gemini'));
-		update_option(self::OPTION_AI_PROVIDER, $ai_provider, false);
-
-		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
-		update_option(self::OPTION_AI_MODEL, $ai_model, false);
-
-		// Encrypt API key before saving
-		$api_key = isset($_POST['ai_api_key']) ? (string) wp_unslash($_POST['ai_api_key']) : '';
-		if ('' !== $api_key) {
-			$encrypted = base64_encode($api_key);
-			update_option(self::OPTION_AI_API_KEY, $encrypted, false);
-		}
-
-		$ai_temperature = isset($_POST['ai_temperature']) ? (float) wp_unslash($_POST['ai_temperature']) : 0.7;
-		update_option(self::OPTION_AI_TEMPERATURE, max(0, min(2, $ai_temperature)), false);
-
-		$ai_max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
-		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $ai_max_tokens)), false);
-
-		// Allow AI file operations flag (admin override)
-		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
-		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
-
-		// Allow AI file operations flag (admin override)
-		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
-		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
-
-		// Allow AI file operations flag (admin override)
-		$ai_allow_file_ops = isset($_POST['ai_allow_file_ops']) && '1' === (string) wp_unslash($_POST['ai_allow_file_ops']);
-		update_option(self::OPTION_AI_ALLOW_FILE_OPS, $ai_allow_file_ops, false);
+		$this->save_ai_fields();
 
 		// WordPress Debug Settings - Also update wp-config.php for 100% functionality
 		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
@@ -355,24 +328,7 @@ class Settings_Page {
 			return;
 		}
 
-		$ai_provider = sanitize_text_field((string) wp_unslash($_POST['ai_provider'] ?? 'gemini'));
-		update_option(self::OPTION_AI_PROVIDER, $ai_provider, false);
-
-		$ai_model = sanitize_text_field((string) wp_unslash($_POST['ai_model'] ?? 'gemini-2.5-flash'));
-		update_option(self::OPTION_AI_MODEL, $ai_model, false);
-
-		// Encrypt API key before saving
-		$api_key = isset($_POST['ai_api_key']) ? (string) wp_unslash($_POST['ai_api_key']) : '';
-		if ('' !== $api_key) {
-			$encrypted = base64_encode($api_key);
-			update_option(self::OPTION_AI_API_KEY, $encrypted, false);
-		}
-
-		$ai_temperature = isset($_POST['ai_temperature']) ? (float) wp_unslash($_POST['ai_temperature']) : 0.7;
-		update_option(self::OPTION_AI_TEMPERATURE, max(0, min(2, $ai_temperature)), false);
-
-		$ai_max_tokens = isset($_POST['ai_max_tokens']) ? (int) wp_unslash($_POST['ai_max_tokens']) : 2000;
-		update_option(self::OPTION_AI_MAX_TOKENS, max(100, min(8000, $ai_max_tokens)), false);
+		$this->save_ai_fields();
 
 		// WordPress Debug Settings
 		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
@@ -533,98 +489,52 @@ class Settings_Page {
 					<input type="hidden" name="action" value="wudt_save_settings" />
 					<?php wp_nonce_field('wudt_save_settings'); ?>
 
+					<p class="description"><?php esc_html_e('Add a key for Google Gemini and/or Anthropic Claude (both can be saved; switch any time in the AI Assistant). Keys are stored encrypted.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
 					<table class="form-table">
 						<tbody>
 							<tr>
-								<th scope="row">
-									<label for="ai_provider"><?php esc_html_e('AI Provider', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-								</th>
+								<th scope="row"><label for="ai_provider"><?php esc_html_e('Default provider', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
 								<td>
-
-						<tr>
-							<th scope="row">
-								<label for="ai_allow_file_ops"><?php esc_html_e('Allow AI File Operations', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-							</th>
-							<td>
-								<label class="wudt-toggle-switch">
-									<input type="checkbox" name="ai_allow_file_ops" value="1" <?php checked($ai_allow_file_ops); ?>>
-									<span class="slider"></span>
-								</label>
-								<span class="wudt-toggle-label">
-									<?php esc_html_e('Allow AI to create, read and write files under wp-content/plugins, wp-content/themes and wp-content/uploads (Admin only).', 'wp-ultimate-diagnostics-toolkit'); ?>
-								</span>
-								<p class="description">
-									<?php esc_html_e('Enable only if you trust the AI and the current administrator. This grants the AI increased file system access within wp-content.', 'wp-ultimate-diagnostics-toolkit'); ?>
-								</p>
-							</td>
-						</tr>
-									<select name="ai_provider" id="ai_provider" class="regular-text">
-										<option value="gemini" <?php selected($ai_provider, 'gemini'); ?>>Google Gemini</option>
-										<option value="openai" <?php selected($ai_provider, 'openai'); ?>>OpenAI</option>
-										<option value="anthropic" <?php selected($ai_provider, 'anthropic'); ?>>Anthropic (Claude)</option>
-										<option value="openrouter" <?php selected($ai_provider, 'openrouter'); ?>>OpenRouter</option>
+									<select name="ai_provider" id="ai_provider">
+										<?php foreach (AI_Config::providers() as $pid => $pinfo) : ?>
+											<option value="<?php echo esc_attr($pid); ?>" <?php selected(AI_Config::active_provider(), $pid); ?>><?php echo esc_html($pinfo['label']); ?></option>
+										<?php endforeach; ?>
 									</select>
-									<p class="description">Select the AI provider to use.</p>
+								</td>
+							</tr>
+							<?php foreach (AI_Config::providers() as $pid => $pinfo) : $preview = AI_Config::key_preview($pid); ?>
+							<tr>
+								<th scope="row"><label for="ai_key_<?php echo esc_attr($pid); ?>"><?php echo esc_html($pinfo['label']); ?></label></th>
+								<td>
+									<input type="password" autocomplete="new-password" name="ai_key[<?php echo esc_attr($pid); ?>]" id="ai_key_<?php echo esc_attr($pid); ?>" class="regular-text"
+										placeholder="<?php echo esc_attr($preview ? sprintf(__('Saved (%s) — leave blank to keep', 'wp-ultimate-diagnostics-toolkit'), $preview) : sprintf(__('API key (%s)', 'wp-ultimate-diagnostics-toolkit'), $pinfo['key_hint'])); ?>" />
+									<input type="text" name="ai_model[<?php echo esc_attr($pid); ?>]" value="<?php echo esc_attr(AI_Config::get_model($pid)); ?>" class="regular-text" list="wudt-models-<?php echo esc_attr($pid); ?>" style="max-width:240px" aria-label="<?php esc_attr_e('Model', 'wp-ultimate-diagnostics-toolkit'); ?>" />
+									<datalist id="wudt-models-<?php echo esc_attr($pid); ?>">
+										<?php foreach ($pinfo['models'] as $m) : ?><option value="<?php echo esc_attr($m); ?>"></option><?php endforeach; ?>
+									</datalist>
+									<?php if ($preview) : ?>
+										<label style="margin-left:8px"><input type="checkbox" name="ai_key_remove[<?php echo esc_attr($pid); ?>]" value="1"> <?php esc_html_e('Remove key', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<?php endif; ?>
+									<p class="description"><a href="<?php echo esc_url($pinfo['key_url']); ?>" target="_blank" rel="noopener"><?php esc_html_e('Get an API key', 'wp-ultimate-diagnostics-toolkit'); ?></a></p>
+								</td>
+							</tr>
+							<?php endforeach; ?>
+							<tr>
+								<th scope="row"><?php esc_html_e('Agent changes', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<td>
+									<label><input type="checkbox" name="ai_auto_approve" value="1" <?php checked(AI_Config::auto_approve()); ?>> <?php esc_html_e('Let the agent make changes without asking for approval each time', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<p class="description"><?php esc_html_e('Every change is backed up and can be undone from the AI Assistant either way.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
 								</td>
 							</tr>
 							<tr>
-								<th scope="row">
-									<label for="ai_model"><?php esc_html_e('AI Model', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="text" name="ai_model" id="ai_model" class="regular-text" value="<?php echo esc_attr($ai_model); ?>" placeholder="e.g. gemini-2.5-flash-preview-05-20, gpt-4o, claude-3-sonnet" />
-									<p class="description">Enter the exact model name for the selected provider.</p>
-								</td>
+								<th scope="row"><label for="ai_temperature"><?php esc_html_e('Temperature', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
+								<td><input type="number" name="ai_temperature" id="ai_temperature" value="<?php echo esc_attr((string) AI_Config::temperature()); ?>" step="0.1" min="0" max="1" class="small-text" /></td>
 							</tr>
-
 							<tr>
-								<th scope="row">
-									<label for="ai_api_key"><?php esc_html_e('API Key', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-								</th>
+								<th scope="row"><label for="ai_max_tokens"><?php esc_html_e('Max output tokens', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
 								<td>
-									<input type="password" name="ai_api_key" id="ai_api_key" class="regular-text" 
-										value="<?php echo $ai_api_key ? esc_attr(str_repeat('*', 20)) : ''; ?>" 
-										placeholder="<?php echo empty($ai_api_key) ? esc_attr__('Enter your API key', 'wp-ultimate-diagnostics-toolkit') : esc_attr__('Leave blank to keep existing key', 'wp-ultimate-diagnostics-toolkit'); ?>" />
-									<button type="button" class="button" id="wudt-toggle-api-key">
-										<?php esc_html_e('Show', 'wp-ultimate-diagnostics-toolkit'); ?>
-									</button>
-									<p class="description">
-										<?php esc_html_e('Enter your API key for the selected AI service. This will be securely stored.', 'wp-ultimate-diagnostics-toolkit'); ?>
-										<br>
-										<?php esc_html_e('Get your API key from:', 'wp-ultimate-diagnostics-toolkit'); ?>
-										<a href="https://makersuite.google.com/app/apikey" target="_blank"><?php esc_html_e('Google AI Studio', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
-										<a href="https://platform.openai.com/api-keys" target="_blank"><?php esc_html_e('OpenAI', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
-										<a href="https://console.anthropic.com/settings/keys" target="_blank"><?php esc_html_e('Anthropic', 'wp-ultimate-diagnostics-toolkit'); ?></a> | 
-										<a href="https://openrouter.ai/keys" target="_blank"><?php esc_html_e('OpenRouter', 'wp-ultimate-diagnostics-toolkit'); ?></a>
-									</p>
-								</td>
-							</tr>
-
-							<tr>
-								<th scope="row">
-									<label for="ai_temperature"><?php esc_html_e('Temperature', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="number" name="ai_temperature" id="ai_temperature" 
-										value="<?php echo esc_attr($ai_temperature); ?>" 
-										step="0.1" min="0" max="2" class="small-text" />
-									<p class="description">
-										<?php esc_html_e('Controls randomness: 0 = deterministic, 1 = balanced, 2 = more creative.', 'wp-ultimate-diagnostics-toolkit'); ?>
-									</p>
-								</td>
-							</tr>
-
-							<tr>
-								<th scope="row">
-									<label for="ai_max_tokens"><?php esc_html_e('Max Tokens', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="number" name="ai_max_tokens" id="ai_max_tokens" 
-										value="<?php echo esc_attr($ai_max_tokens); ?>" 
-										step="100" min="100" max="8000" class="small-text" />
-									<p class="description">
-										<?php esc_html_e('Maximum response length in tokens.', 'wp-ultimate-diagnostics-toolkit'); ?>
-									</p>
+									<input type="number" name="ai_max_tokens" id="ai_max_tokens" value="<?php echo esc_attr((string) AI_Config::max_tokens()); ?>" step="1000" min="1024" max="64000" class="small-text" />
+									<p class="description"><?php esc_html_e('Large Elementor pages need a high limit (16000 or more).', 'wp-ultimate-diagnostics-toolkit'); ?></p>
 								</td>
 							</tr>
 						</tbody>
@@ -897,20 +807,41 @@ class Settings_Page {
 				</form>
 			</div>
 
-			<script>
-				document.getElementById('wudt-toggle-api-key').addEventListener('click', function() {
-					var input = document.getElementById('ai_api_key');
-					if (input.type === 'password') {
-						input.type = 'text';
-						this.textContent = '<?php echo esc_js(__('Hide', 'wp-ultimate-diagnostics-toolkit')); ?>';
-					} else {
-						input.type = 'password';
-						this.textContent = '<?php echo esc_js(__('Show', 'wp-ultimate-diagnostics-toolkit')); ?>';
-					}
-				});
-			</script>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Save AI provider settings (per-provider keys and models).
+	 */
+	private function save_ai_fields(): void {
+		$keys = isset($_POST['ai_key']) && is_array($_POST['ai_key']) ? wp_unslash($_POST['ai_key']) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		foreach ($keys as $provider => $key) {
+			$key = trim((string) $key);
+			if ('' !== $key && AI_Config::is_provider((string) $provider)) {
+				AI_Config::set_key((string) $provider, $key);
+			}
+		}
+		$remove = isset($_POST['ai_key_remove']) && is_array($_POST['ai_key_remove']) ? array_keys(wp_unslash($_POST['ai_key_remove'])) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		foreach ($remove as $provider) {
+			AI_Config::set_key((string) $provider, '');
+		}
+		$models = isset($_POST['ai_model']) && is_array($_POST['ai_model']) ? wp_unslash($_POST['ai_model']) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		foreach ($models as $provider => $model) {
+			if (AI_Config::is_provider((string) $provider) && '' !== trim((string) $model)) {
+				AI_Config::set_model((string) $provider, sanitize_text_field((string) $model));
+			}
+		}
+		if (isset($_POST['ai_provider'])) {
+			AI_Config::set_active_provider(sanitize_key((string) wp_unslash($_POST['ai_provider'])));
+		}
+		update_option(AI_Config::OPTION_AUTO_APPROVE, ! empty($_POST['ai_auto_approve']), false);
+		if (isset($_POST['ai_temperature'])) {
+			update_option(self::OPTION_AI_TEMPERATURE, max(0, min(1, (float) wp_unslash($_POST['ai_temperature']))), false);
+		}
+		if (isset($_POST['ai_max_tokens'])) {
+			update_option(self::OPTION_AI_MAX_TOKENS, max(1024, min(64000, (int) wp_unslash($_POST['ai_max_tokens']))), false);
+		}
 	}
 
 	private function authorize_action(string $nonce_action): void {
@@ -924,14 +855,14 @@ class Settings_Page {
 	 * Get the configured AI provider.
 	 */
 	public static function get_ai_provider(): string {
-		return get_option(self::OPTION_AI_PROVIDER, 'gemini');
+		return AI_Config::active_provider();
 	}
 
 	/**
 	 * Get the configured AI model.
 	 */
 	public static function get_ai_model(): string {
-		return get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
+		return AI_Config::get_model(AI_Config::active_provider());
 	}
 
 	public static function is_ai_file_ops_allowed(): bool {
@@ -942,12 +873,7 @@ class Settings_Page {
 	 * Get the configured API key.
 	 */
 	public static function get_api_key(): string {
-		$encrypted = get_option(self::OPTION_AI_API_KEY, '');
-		if (empty($encrypted)) {
-			return '';
-		}
-		$decrypted = base64_decode($encrypted, true);
-		return false !== $decrypted ? $decrypted : '';
+		return AI_Config::get_key(AI_Config::active_provider());
 	}
 
 	/**

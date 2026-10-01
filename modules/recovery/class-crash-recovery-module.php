@@ -31,7 +31,12 @@ class Crash_Recovery_Module extends Module_Base {
 	}
 
 	public function get_dashboard_data(): array {
-		return array('events' => array_slice((array) get_option(self::OPTION_LAST, array()), -100));
+		$data = array('events' => array_slice((array) get_option(self::OPTION_LAST, array()), -100));
+		if (class_exists('\\WUDT\\Includes\\Rescue_Manager')) {
+			$data['rescue'] = \WUDT\Includes\Rescue_Manager::status();
+		}
+		$data['last_fatal'] = get_option('wudt_last_fatal_error') ?: null;
+		return $data;
 	}
 
 	public function handle_fatal_shutdown(): void {

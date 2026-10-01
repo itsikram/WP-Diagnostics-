@@ -253,7 +253,7 @@ class Search_Controller extends Module_Base {
 	/**
 	 * AJAX: Get columns for a table
 	 */
-	public function ajax_ajax_get_table_columns(): void {
+	public function ajax_get_table_columns(): void {
 		Security_Guard::assert_ajax_admin();
 
 		$table = isset($_POST['table']) ? sanitize_text_field((string) wp_unslash($_POST['table'])) : '';

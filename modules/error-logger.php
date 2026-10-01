@@ -31,42 +31,74 @@ class Error_Logger_Module extends Module_Base {
 		return __('Error Logs', 'wp-ultimate-diagnostics-toolkit');
 	}
 
+	/**
+	 * Errors captured during this request; written once at shutdown.
+	 *
+	 * @var array<string,array<string,mixed>>
+	 */
+	private array $buffer = array();
+
 	public function setup_error_capture(): void {
-		set_error_handler(array($this, 'capture_php_error'));
+		$previous = set_error_handler(array($this, 'capture_php_error'));
+		$this->previous_handler = is_callable($previous) ? $previous : null;
 		register_shutdown_function(array($this, 'capture_shutdown_error'));
 	}
+
+	/** @var callable|null */
+	private $previous_handler = null;
 
 	/**
 	 * @return bool
 	 */
 	public function capture_php_error(int $errno, string $errstr, string $errfile, int $errline): bool {
-		$this->store_log(
-			array(
-				'type'      => 'php',
-				'severity'  => (string) $errno,
-				'message'   => $errstr,
-				'file'      => $errfile,
-				'line'      => $errline,
-				'logged_at' => current_time('mysql'),
-			)
-		);
+		// Respect error_reporting() and the @ operator, and skip deprecation noise.
+		if ((error_reporting() & $errno) && ! in_array($errno, array(E_DEPRECATED, E_USER_DEPRECATED), true)) {
+			$key = md5($errno . '|' . $errfile . '|' . $errline . '|' . $errstr);
+			if (! isset($this->buffer[$key]) && count($this->buffer) < 50) {
+				$this->buffer[$key] = array(
+					'type'      => 'php',
+					'severity'  => (string) $errno,
+					'message'   => $errstr,
+					'file'      => $errfile,
+					'line'      => $errline,
+					'logged_at' => current_time('mysql'),
+				);
+			}
+		}
+		if ($this->previous_handler) {
+			return (bool) call_user_func($this->previous_handler, $errno, $errstr, $errfile, $errline);
+		}
 		return false;
 	}
 
 	public function capture_shutdown_error(): void {
 		$error = error_get_last();
-		if (! empty($error)) {
-			$this->store_log(
-				array(
-					'type'      => 'fatal',
-					'severity'  => (string) ($error['type'] ?? ''),
-					'message'   => (string) ($error['message'] ?? ''),
-					'file'      => (string) ($error['file'] ?? ''),
-					'line'      => (int) ($error['line'] ?? 0),
-					'logged_at' => current_time('mysql'),
-				)
+		$fatal_types = array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR);
+		if (! empty($error) && in_array((int) ($error['type'] ?? 0), $fatal_types, true)) {
+			$this->buffer['fatal'] = array(
+				'type'      => 'fatal',
+				'severity'  => (string) ($error['type'] ?? ''),
+				'message'   => (string) ($error['message'] ?? ''),
+				'file'      => (string) ($error['file'] ?? ''),
+				'line'      => (int) ($error['line'] ?? 0),
+				'logged_at' => current_time('mysql'),
 			);
 		}
+		if (empty($this->buffer)) {
+			return;
+		}
+		try {
+			$entries = (array) get_option(self::OPTION_KEY, array());
+			$entries = array_merge($entries, array_values($this->buffer));
+			if (count($entries) > 300) {
+				$entries = array_slice($entries, -300);
+			}
+			update_option(self::OPTION_KEY, $entries, false);
+		} catch (\Throwable $e) {
+			// The database may be unavailable during shutdown; never make things worse.
+			unset($e);
+		}
+		$this->buffer = array();
 	}
 
 	public function get_dashboard_data(): array {

@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace WUDT\Modules\AIAssistant;
 
+use WUDT\Includes\AI_Config;
 use WUDT\Includes\Module_Base;
 use WUDT\Includes\Operation_Logger;
 use WUDT\Includes\Security_Guard;
@@ -19,11 +20,13 @@ class AI_Controller extends Module_Base {
 	private Context_Builder $context_builder;
 	private AI_Service $service;
 	private Response_Parser $parser;
+	private AI_Agent $agent;
 
 	public function __construct() {
 		$this->context_builder = new Context_Builder();
 		$this->service         = new AI_Service();
 		$this->parser          = new Response_Parser();
+		$this->agent           = new AI_Agent();
 	}
 
 	public function register_hooks(): void {
@@ -38,6 +41,20 @@ class AI_Controller extends Module_Base {
 		add_action('wp_ajax_diagnostics_ai_autodebug', array($this, 'ajax_autodebug'));
 		add_action('wp_ajax_diagnostics_ai_models', array($this, 'ajax_models'));
 		add_action('wp_ajax_diagnostics_ai_test_api', array($this, 'ajax_test_api'));
+
+		$agent_actions = array(
+			'wudt_ai_agent_bootstrap'     => 'ajax_agent_bootstrap',
+			'wudt_ai_agent_conversation'  => 'ajax_agent_conversation',
+			'wudt_ai_agent_send'          => 'ajax_agent_send',
+			'wudt_ai_agent_continue'      => 'ajax_agent_continue',
+			'wudt_ai_agent_delete'        => 'ajax_agent_delete',
+			'wudt_ai_agent_save_settings' => 'ajax_agent_save_settings',
+			'wudt_ai_agent_models'        => 'ajax_agent_models',
+			'wudt_ai_agent_undo'          => 'ajax_agent_undo',
+		);
+		foreach ($agent_actions as $action => $method) {
+			add_action('wp_ajax_' . $action, array($this, $method));
+		}
 	}
 
 	public function get_key(): string {
@@ -53,7 +70,7 @@ class AI_Controller extends Module_Base {
 			'history' => $this->get_history(20),
 			'rate_limit' => array('max_per_minute' => 12),
 			'modes' => array('ask', 'agent'),
-			'models' => $this->service->list_models(),
+			'models' => \WUDT\Includes\AI_Config::providers()[\WUDT\Includes\AI_Config::active_provider()]['models'] ?? array(),
 		);
 	}
 
@@ -1349,195 +1366,167 @@ class AI_Controller extends Module_Base {
 
 	public function ajax_test_api(): void {
 		Security_Guard::assert_ajax_admin();
-
-		$api_key = $this->service->api_key();
-		$provider = \WUDT\Admin\Settings_Page::get_ai_provider();
-		$model_setting = \WUDT\Admin\Settings_Page::get_ai_model();
-		$model = sanitize_text_field((string) ($_POST['model'] ?? $model_setting));
-
-		if ('' === $api_key) {
-			wp_send_json_error(array('message' => 'API key not configured. Please set it in WP Diagnostics → Settings.'));
-			return;
+		$provider = sanitize_key((string) wp_unslash($_POST['provider'] ?? AI_Config::active_provider()));
+		if (! AI_Config::is_provider($provider)) {
+			$provider = AI_Config::active_provider();
 		}
-
-		// Test with a simple prompt
-		$test_prompt = 'Say "API connection successful" and nothing else.';
-
-		// Build endpoint based on provider
-		$is_gemini = 'gemini' === $provider;
-		$is_openrouter = 'openrouter' === $provider;
-
-		switch ($provider) {
-			case 'gemini':
-				$endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
-				$endpoint = add_query_arg('key', $api_key, $endpoint);
-				break;
-			case 'anthropic':
-				$endpoint = 'https://api.anthropic.com/v1/messages';
-				break;
-			case 'openrouter':
-				$endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-				break;
-			case 'openai':
-			default:
-				$endpoint = 'https://api.openai.com/v1/chat/completions';
-				break;
+		$model = sanitize_text_field((string) wp_unslash($_POST['model'] ?? ''));
+		if ('' === $model) {
+			$model = AI_Config::get_model($provider);
 		}
+		try {
+			$started = microtime(true);
+			$reply = $this->agent->client()->complete_text($provider, $model, 'You are a connection test.', 'Reply with exactly: OK', array('max_tokens' => 64));
+			wp_send_json_success(array(
+				'message' => sprintf('%s (%s) answered in %.1fs: %s', AI_Config::providers()[$provider]['label'], $model, microtime(true) - $started, mb_substr(trim($reply), 0, 80)),
+			));
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
+		}
+	}
 
-		// Build request body based on provider format
-		if ($is_gemini) {
-			$request_body = array(
-				'contents' => array(
-					array(
-						'parts' => array(
-							array('text' => $test_prompt),
-						),
-					),
-				),
-				'generationConfig' => array(
-					'temperature' => 0.1,
-					'maxOutputTokens' => 50,
-				),
-			);
-		} else {
-			$request_body = array(
-				'model' => $model,
-				'messages' => array(
-					array('role' => 'user', 'content' => $test_prompt),
-				),
-				'temperature' => 0.1,
-				'max_tokens' => 50,
+	/* ---------------------------------------------------------------------
+	 * Agent endpoints
+	 * ------------------------------------------------------------------- */
+
+	private function agent_settings_payload(): array {
+		$providers = array();
+		foreach (AI_Config::providers() as $id => $p) {
+			$providers[] = array(
+				'id'          => $id,
+				'label'       => $p['label'],
+				'configured'  => '' !== AI_Config::get_key($id),
+				'key_preview' => AI_Config::key_preview($id),
+				'model'       => AI_Config::get_model($id),
+				'models'      => $p['models'],
+				'key_url'     => $p['key_url'],
+				'key_hint'    => $p['key_hint'],
 			);
 		}
-
-		// Build headers array
-		$headers = array(
-			'Content-Type: application/json',
+		return array(
+			'providers'    => $providers,
+			'active'       => AI_Config::active_provider(),
+			'auto_approve' => AI_Config::auto_approve(),
+			'max_tokens'   => AI_Config::max_tokens(),
 		);
-		if (! $is_gemini) {
-			$headers[] = 'Authorization: Bearer ' . $api_key;
+	}
+
+	public function ajax_agent_bootstrap(): void {
+		Security_Guard::assert_ajax_admin();
+		AI_Agent::maybe_install();
+		wp_send_json_success(array(
+			'settings'      => $this->agent_settings_payload(),
+			'conversations' => $this->agent->list_conversations(),
+			'elementor'     => defined('ELEMENTOR_VERSION'),
+			'site'          => array('name' => get_bloginfo('name'), 'home' => home_url('/')),
+		));
+	}
+
+	public function ajax_agent_conversation(): void {
+		Security_Guard::assert_ajax_admin();
+		try {
+			wp_send_json_success($this->agent->get_display(sanitize_key((string) wp_unslash($_POST['id'] ?? ''))));
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
 		}
-		if ($is_openrouter) {
-			$headers[] = 'HTTP-Referer: ' . get_site_url();
-			$headers[] = 'X-Title: WP Ultimate Diagnostics Toolkit';
-		}
+	}
 
-		$body_json = wp_json_encode($request_body);
-
-		// Try cURL first (more reliable for Authorization headers)
-		if (function_exists('curl_init')) {
-			$ch = curl_init($endpoint);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-			curl_setopt($ch, CURLOPT_POST, true);
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $body_json);
-			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-			curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
-			$body = curl_exec($ch);
-			$status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-			$curl_error = curl_error($ch);
-			curl_close($ch);
-
-			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log('[WUDT AI Test] Using cURL - Status: ' . $status_code);
-				if ($curl_error) {
-					error_log('[WUDT AI Test] cURL Error: ' . $curl_error);
-				}
-			}
-
-			if ($body === false || $curl_error) {
-				wp_send_json_error(array(
-					'provider' => $provider,
-					'model_setting' => $model_setting,
-					'model_used' => $model,
-					'error' => 'cURL Error: ' . ($curl_error ?: 'Unknown error'),
-					'method' => 'curl',
-				));
-				return;
-			}
-		} else {
-			// Fallback to wp_remote_post
-			$request_args = array(
-				'timeout' => 30,
-				'headers' => array('Content-Type' => 'application/json'),
-				'body' => $body_json,
-				'sslverify' => false,
+	public function ajax_agent_send(): void {
+		Security_Guard::assert_ajax_admin();
+		AI_Agent::maybe_install();
+		$this->raise_limits();
+		try {
+			$result = $this->agent->send(
+				sanitize_key((string) wp_unslash($_POST['id'] ?? '')),
+				(string) wp_unslash($_POST['message'] ?? ''),
+				sanitize_key((string) wp_unslash($_POST['provider'] ?? '')),
+				sanitize_text_field((string) wp_unslash($_POST['model'] ?? '')),
+				! empty($_POST['auto_approve'])
 			);
-
-			if (! $is_gemini) {
-				$request_args['headers']['Authorization'] = 'Bearer ' . $api_key;
-			}
-			if ($is_openrouter) {
-				$request_args['headers']['HTTP-Referer'] = get_site_url();
-				$request_args['headers']['X-Title'] = 'WP Ultimate Diagnostics Toolkit';
-			}
-
-			$auth_filter = function($args, $url) use ($request_args) {
-				if (isset($request_args['headers']['Authorization'])) {
-					$args['headers']['Authorization'] = $request_args['headers']['Authorization'];
-				}
-				if (isset($request_args['sslverify'])) {
-					$args['sslverify'] = $request_args['sslverify'];
-				}
-				return $args;
-			};
-			add_filter('http_request_args', $auth_filter, 10, 2);
-
-			$response = wp_remote_post($endpoint, $request_args);
-			remove_filter('http_request_args', $auth_filter, 10);
-
-			if (is_wp_error($response)) {
-				wp_send_json_error(array(
-					'provider' => $provider,
-					'model_setting' => $model_setting,
-					'model_used' => $model,
-					'error' => $response->get_error_message(),
-					'error_code' => $response->get_error_code(),
-					'method' => 'wp_remote_post',
-				));
-				return;
-			}
-
-			$status_code = wp_remote_retrieve_response_code($response);
-			$body = wp_remote_retrieve_body($response);
+			wp_send_json_success($result);
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
 		}
+	}
 
-		$data = json_decode((string) $body, true);
-
-		$result = array(
-			'provider' => $provider,
-			'model_setting' => $model_setting,
-			'model_used' => $model,
-			'endpoint' => str_replace($api_key, '***', $endpoint),
-			'status_code' => $status_code,
-			'raw_response' => $data,
-		);
-
-		if ($status_code >= 200 && $status_code < 300) {
-			$response_text = '';
-			if ($is_gemini && isset($data['candidates'][0]['content']['parts'][0]['text'])) {
-				$response_text = $data['candidates'][0]['content']['parts'][0]['text'];
-			} elseif (isset($data['choices'][0]['message']['content'])) {
-				$response_text = $data['choices'][0]['message']['content'];
-			}
-
-			if (! empty($response_text)) {
-				$result['success'] = true;
-				$result['response_text'] = $response_text;
-				wp_send_json_success($result);
-			} else {
-				$result['success'] = false;
-				$result['error'] = 'No content in response';
-				wp_send_json_error($result);
-			}
-		} else {
-			$result['success'] = false;
-			$result['error'] = isset($data['error']['message']) ? $data['error']['message'] : 'HTTP ' . $status_code;
-			wp_send_json_error($result);
+	public function ajax_agent_continue(): void {
+		Security_Guard::assert_ajax_admin();
+		$this->raise_limits();
+		$decisions = json_decode((string) wp_unslash($_POST['decisions'] ?? '{}'), true);
+		try {
+			$result = $this->agent->proceed(
+				sanitize_key((string) wp_unslash($_POST['id'] ?? '')),
+				sanitize_key((string) wp_unslash($_POST['provider'] ?? '')),
+				sanitize_text_field((string) wp_unslash($_POST['model'] ?? '')),
+				is_array($decisions) ? array_map('strval', $decisions) : array(),
+				! empty($_POST['approve_all']),
+				! empty($_POST['auto_approve'])
+			);
+			wp_send_json_success($result);
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
 		}
+	}
+
+	public function ajax_agent_delete(): void {
+		Security_Guard::assert_ajax_admin();
+		$this->agent->delete_conversation(sanitize_key((string) wp_unslash($_POST['id'] ?? '')));
+		wp_send_json_success(array('conversations' => $this->agent->list_conversations()));
+	}
+
+	public function ajax_agent_save_settings(): void {
+		Security_Guard::assert_ajax_admin();
+		$keys = json_decode((string) wp_unslash($_POST['keys'] ?? '{}'), true);
+		$models = json_decode((string) wp_unslash($_POST['models'] ?? '{}'), true);
+		foreach ((array) $keys as $provider => $key) {
+			$key = trim((string) $key);
+			if (AI_Config::is_provider((string) $provider) && '' !== $key) {
+				AI_Config::set_key((string) $provider, '__delete__' === $key ? '' : $key);
+			}
+		}
+		foreach ((array) $models as $provider => $model) {
+			if (AI_Config::is_provider((string) $provider) && '' !== trim((string) $model)) {
+				AI_Config::set_model((string) $provider, (string) $model);
+			}
+		}
+		if (isset($_POST['active'])) {
+			AI_Config::set_active_provider(sanitize_key((string) wp_unslash($_POST['active'])));
+		}
+		if (isset($_POST['auto_approve'])) {
+			update_option(AI_Config::OPTION_AUTO_APPROVE, '1' === (string) $_POST['auto_approve'], false);
+		}
+		if (isset($_POST['max_tokens'])) {
+			update_option('wudt_ai_max_tokens', max(1024, min(64000, (int) $_POST['max_tokens'])), false);
+		}
+		wp_send_json_success(array('settings' => $this->agent_settings_payload()));
+	}
+
+	public function ajax_agent_models(): void {
+		Security_Guard::assert_ajax_admin();
+		$provider = sanitize_key((string) wp_unslash($_POST['provider'] ?? ''));
+		if (! AI_Config::is_provider($provider)) {
+			wp_send_json_error(array('message' => 'Unknown provider.'));
+		}
+		wp_send_json_success(array('models' => $this->agent->client()->list_models($provider, ! empty($_POST['refresh']))));
+	}
+
+	public function ajax_agent_undo(): void {
+		Security_Guard::assert_ajax_admin();
+		try {
+			wp_send_json_success(array('message' => AI_Changes::undo(sanitize_key((string) wp_unslash($_POST['change_id'] ?? '')))));
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
+		}
+	}
+
+	private function raise_limits(): void {
+		if (function_exists('set_time_limit')) {
+			@set_time_limit(600);
+		}
+		if (function_exists('ignore_user_abort')) {
+			@ignore_user_abort(true);
+		}
+		wp_raise_memory_limit('admin');
 	}
 
 	/**

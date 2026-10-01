@@ -3,7 +3,7 @@
  * Plugin Name: WP Ultimate Diagnostics Toolkit
  * Plugin URI: https://example.com/wp-ultimate-diagnostics-toolkit
  * Description: All-in-one diagnostics toolkit for performance, security, errors, conflicts, REST, cron, and database checks.
- * Version: 1..0
+ * Version: 1.6.0
  * Author: Programmer Ikram
  * Requires at least: 6.4
  * Requires PHP: 8.0
@@ -19,7 +19,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('WUDT_VERSION')) {
-	define('WUDT_VERSION', '1.5.0');
+	define('WUDT_VERSION', '1.6.0');
 }
 if (! defined('WUDT_PLUGIN_FILE')) {
 	define('WUDT_PLUGIN_FILE', __FILE__);
@@ -65,6 +65,8 @@ safe_require('includes/class-module-base.php');
 safe_require('includes/class-operation-logger.php');
 safe_require('includes/class-failsafe-manager.php');
 safe_require('includes/class-security-guard.php');
+safe_require('includes/class-ai-config.php');
+safe_require('includes/class-rescue-manager.php');
 safe_require('modules/system-info.php');
 safe_require('modules/error-logger.php');
 safe_require('modules/conflict-detector.php');
@@ -83,9 +85,11 @@ safe_require('modules/malware-scanner/class-malware-scanner-module.php');
 safe_require('modules/backup/class-backup-module.php');
 safe_require('modules/restore/class-media-url-handler.php');
 safe_require('modules/restore/class-restore-module.php');
-safe_require('modules/migration/class-migration-job.php');
+safe_require('modules/migration/class-migration-replacer.php');
+safe_require('modules/migration/class-migration-engine.php');
+safe_require('modules/migration/class-migration-api.php');
 safe_require('modules/migration/class-remote-client.php');
-safe_require('modules/migration/class-stream-importer.php');
+safe_require('modules/migration/class-migration-runner.php');
 safe_require('modules/migration/class-migration-module.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
 safe_require('modules/recovery/class-crash-recovery-module.php');
@@ -94,6 +98,10 @@ safe_require('modules/state/class-state-module.php');
 safe_require('admin/class-settings-page.php');
 safe_require('modules/ai-assistant/class-context-builder.php');
 safe_require('modules/ai-assistant/class-response-parser.php');
+safe_require('modules/ai-assistant/class-ai-client.php');
+safe_require('modules/ai-assistant/class-ai-changes.php');
+safe_require('modules/ai-assistant/class-ai-tools.php');
+safe_require('modules/ai-assistant/class-ai-agent.php');
 safe_require('modules/ai-assistant/class-ai-service.php');
 safe_require('modules/ai-assistant/class-ai-controller.php');
 safe_require('modules/progress-monitor/class-progress-tracker.php');
@@ -126,3 +134,22 @@ function bootstrap(): void {
 }
 
 add_action('plugins_loaded', __NAMESPACE__ . '\\bootstrap');
+
+// Rescue access is registered outside the main bootstrap so it keeps working
+// even if a module fails to load.
+if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
+	(new Includes\Rescue_Manager())->register_hooks();
+}
+
+register_activation_hook(__FILE__, static function (): void {
+	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
+		Includes\Rescue_Manager::get_key();
+		Includes\Rescue_Manager::install_loader();
+	}
+});
+
+register_deactivation_hook(__FILE__, static function (): void {
+	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
+		Includes\Rescue_Manager::remove_loader();
+	}
+});
