@@ -67,6 +67,10 @@
 .wudt-mig-tables { max-height: 280px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2px 12px; padding: 8px; background: #fff; border: 1px solid var(--mig-line); border-radius: 4px; }
 .wudt-mig-tables label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wudt-mig-tables small { color: var(--mig-muted); }
+.wudt-mig-ptpick { margin-top: 10px; }
+.wudt-mig-ptpick #wudt-mig-ptsearch { max-width: 320px; margin-bottom: 8px; }
+.wudt-mig-ptgroup { margin-bottom: 10px; }
+.wudt-mig-ptgroup .wudt-mig-status { font-size: 10px; padding: 0 5px; }
 .wudt-mig-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
 .wudt-mig-progress-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .wudt-mig-phases { display: flex; gap: 0; margin: 12px 0 14px; padding: 0; list-style: none; counter-reset: ph; }

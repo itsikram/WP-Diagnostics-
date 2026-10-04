@@ -306,6 +306,7 @@ class Migration_Module extends Module_Base {
 			'source'    => $this->public_info($src),
 			'dest'      => $this->public_info($dst),
 			'tables'    => $src['tables'],
+			'items'     => $this->plugin_theme_items($src, $dst),
 			'errors'    => $errors,
 			'warnings'  => $warnings,
 		));
@@ -323,6 +324,8 @@ class Migration_Module extends Module_Base {
 		$db_mode = 'merge' === sanitize_key(wp_unslash($_POST['db_mode'] ?? '')) ? 'merge' : 'replace';
 		$merge_groups = json_decode(sanitize_text_field(wp_unslash($_POST['merge_groups'] ?? '[]')), true);
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
+		$pt_plugins = json_decode(sanitize_text_field(wp_unslash($_POST['pt_plugins'] ?? '[]')), true);
+		$pt_themes = json_decode(sanitize_text_field(wp_unslash($_POST['pt_themes'] ?? '[]')), true);
 
 		$active = Migration_Runner::active_job();
 		if ($active) {
@@ -363,6 +366,8 @@ class Migration_Module extends Module_Base {
 					'db_mode'        => $db_mode,
 					'merge_groups'   => is_array($merge_groups) ? $merge_groups : array(),
 					'pt_filter'      => $pt_filter,
+					'pt_plugins'     => is_array($pt_plugins) ? $pt_plugins : array(),
+					'pt_themes'      => is_array($pt_themes) ? $pt_themes : array(),
 				),
 				$remote,
 				$local
@@ -511,6 +516,50 @@ class Migration_Module extends Module_Base {
 			'rollback'    => $info['rollback'] ?? array('available' => false),
 			'features'    => array_values((array) ($info['features'] ?? array())),
 		);
+	}
+
+	/**
+	 * Source plugins and themes for the "choose specific" picker, with their
+	 * status on the source and whether the destination already has them.
+	 */
+	private function plugin_theme_items(array $src, array $dst): array {
+		$names = (array) ($src['names'] ?? array());
+		$active_plugins = (array) ($src['active_plugins'] ?? array());
+		$dst_plugins = (array) ($dst['plugins'] ?? array());
+		$plugins = array();
+		foreach ((array) ($src['plugins'] ?? array()) as $file => $version) {
+			$file = (string) $file;
+			$dir = dirname($file);
+			if (('.' === $dir ? $file : $dir) === (string) ($src['self_plugin_dir'] ?? '')) {
+				continue;
+			}
+			$plugins[] = array(
+				'id'          => $file,
+				'name'        => (string) ($names['plugins'][$file] ?? '') ?: ('.' === $dir ? $file : $dir),
+				'version'     => (string) $version,
+				'active'      => in_array($file, $active_plugins, true),
+				'dst_version' => isset($dst_plugins[$file]) ? (string) $dst_plugins[$file] : null,
+			);
+		}
+		$active_themes = array((string) ($src['stylesheet'] ?? ''), (string) ($src['template'] ?? ''));
+		$dst_themes = (array) ($dst['themes'] ?? array());
+		$themes = array();
+		foreach ((array) ($src['themes'] ?? array()) as $slug => $version) {
+			$slug = (string) $slug;
+			$themes[] = array(
+				'id'          => $slug,
+				'name'        => (string) ($names['themes'][$slug] ?? '') ?: $slug,
+				'version'     => (string) $version,
+				'active'      => in_array($slug, $active_themes, true),
+				'dst_version' => isset($dst_themes[$slug]) ? (string) $dst_themes[$slug] : null,
+			);
+		}
+		$by_name = static function ($a, $b) {
+			return strcasecmp($a['name'], $b['name']);
+		};
+		usort($plugins, $by_name);
+		usort($themes, $by_name);
+		return array('plugins' => $plugins, 'themes' => $themes);
 	}
 
 	/**

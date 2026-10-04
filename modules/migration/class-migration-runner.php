@@ -79,7 +79,18 @@ class Migration_Runner {
 				$total_rows += $src_tables[$t];
 			}
 		}
-		$pt_filter = in_array($options['pt_filter'] ?? '', array('active', 'inactive'), true) ? (string) $options['pt_filter'] : 'all';
+		$pt_filter = in_array($options['pt_filter'] ?? '', array('active', 'inactive', 'selected'), true) ? (string) $options['pt_filter'] : 'all';
+		$pt_selected = array(
+			'plugins' => array_values(array_filter(array_map('strval', (array) ($options['pt_plugins'] ?? array())))),
+			'themes'  => array_values(array_filter(array_map('strval', (array) ($options['pt_themes'] ?? array())))),
+		);
+		if ('selected' === $pt_filter) {
+			foreach (array('plugins' => 'plugin', 'themes' => 'theme') as $c => $noun) {
+				if (in_array($c, $components, true) && empty($pt_selected[$c])) {
+					throw new \RuntimeException(sprintf('Select at least one %s to migrate, or untick %s.', $noun, ucfirst($c)));
+				}
+			}
+		}
 
 		$state = array(
 			'id'         => $id,
@@ -108,7 +119,8 @@ class Migration_Runner {
 			'db_mode'    => $merge ? 'merge' : 'replace',
 			'merge_groups' => $merge_groups,
 			'pt_filter'  => $pt_filter,
-			'component_excludes' => self::plugin_theme_excludes($src, $pt_filter),
+			'pt_selected' => 'selected' === $pt_filter ? $pt_selected : array(),
+			'component_excludes' => self::plugin_theme_excludes($src, $pt_filter, $pt_selected),
 			'src'        => self::slim_info($src),
 			'dst'        => self::slim_info($dst),
 			'pairs'      => Migration_Replacer::build_pairs($src, $dst),
@@ -146,41 +158,68 @@ class Migration_Runner {
 
 		$runner = new self($state);
 		$runner->log(sprintf('%s migration %s %s', ucfirst($state['direction']), $is_pull ? 'from' : 'to', $state['site']['url']));
+		$pt_note = '';
+		if ('selected' === $pt_filter) {
+			$picked = array();
+			foreach (array('plugins', 'themes') as $c) {
+				if (in_array($c, $components, true)) {
+					$picked[] = $c . ': ' . implode(', ', array_map(array(self::class, 'plugin_folder'), $pt_selected[$c]));
+				}
+			}
+			$pt_note = ' (only ' . implode('; ', $picked) . ')';
+		} elseif ('all' !== $pt_filter) {
+			$pt_note = ' (' . $pt_filter . ' plugins & themes only)';
+		}
 		$runner->log(sprintf(
 			'Selected — database: %s; files: %s.',
 			empty($tables) ? 'not included' : ($merge ? 'add as new content (' . implode(', ', $merge_groups) . ')' : count($tables) . ' tables'),
-			empty($components) ? 'not included' : implode(', ', $components) . ('all' === $pt_filter ? '' : ' (' . $pt_filter . ' plugins & themes only)')
+			empty($components) ? 'not included' : implode(', ', $components) . $pt_note
 		));
 		$runner->save();
 		return $runner;
 	}
 
 	/**
-	 * Plugin and theme folders to leave out when only active or only deactivated ones are wanted.
+	 * Plugin and theme folders to leave out when only active, only deactivated or
+	 * only specific plugins and themes are wanted.
 	 *
+	 * @param array $selected {plugins:string[] plugin files, themes:string[] theme slugs} for the "selected" filter.
 	 * @return array<string,array<int,string>>
 	 */
-	private static function plugin_theme_excludes(array $src, string $filter): array {
+	private static function plugin_theme_excludes(array $src, string $filter, array $selected = array()): array {
 		if ('all' === $filter) {
 			return array();
 		}
 		$keep_active = 'active' === $filter;
 		$out = array('plugins' => array(), 'themes' => array());
 		$active_plugins = (array) ($src['active_plugins'] ?? array());
+		$keep_plugins = array_map(array(self::class, 'plugin_folder'), (array) ($selected['plugins'] ?? array()));
 		foreach (array_keys((array) ($src['plugins'] ?? array())) as $file) {
-			if (in_array($file, $active_plugins, true) !== $keep_active) {
-				$dir = dirname((string) $file);
-				$out['plugins'][] = '.' === $dir ? (string) $file : $dir;
+			$dir = self::plugin_folder((string) $file);
+			$keep = 'selected' === $filter ? in_array($dir, $keep_plugins, true) : in_array($file, $active_plugins, true) === $keep_active;
+			if (! $keep) {
+				$out['plugins'][] = $dir;
 			}
 		}
 		$active_themes = array((string) ($src['stylesheet'] ?? ''), (string) ($src['template'] ?? ''));
+		$keep_themes = array_map('strval', (array) ($selected['themes'] ?? array()));
 		foreach (array_keys((array) ($src['themes'] ?? array())) as $slug) {
-			if (in_array((string) $slug, $active_themes, true) !== $keep_active) {
+			$keep = 'selected' === $filter ? in_array((string) $slug, $keep_themes, true) : in_array((string) $slug, $active_themes, true) === $keep_active;
+			if (! $keep) {
 				$out['themes'][] = (string) $slug;
 			}
 		}
-		$out['plugins'] = array_values(array_unique($out['plugins']));
+		// A folder shared by a kept plugin file must not be excluded.
+		$out['plugins'] = array_values(array_diff(array_unique($out['plugins']), $keep_plugins));
 		return $out;
+	}
+
+	/**
+	 * Folder of a plugin ("akismet/akismet.php" → "akismet"), or the file itself for single-file plugins.
+	 */
+	private static function plugin_folder(string $file): string {
+		$dir = dirname($file);
+		return '.' === $dir ? $file : $dir;
 	}
 
 	private static function slim_info(array $info): array {
@@ -230,6 +269,7 @@ class Migration_Runner {
 			'tables'     => count($s['tables']),
 			'db_mode'    => $s['db_mode'] ?? 'replace',
 			'pt_filter'  => $s['pt_filter'] ?? 'all',
+			'pt_selected' => $s['pt_selected'] ?? array(),
 			'created'    => $s['created'],
 			'updated'    => $s['updated'],
 			'log'        => array_slice($s['log'], -40),

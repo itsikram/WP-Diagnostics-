@@ -102,15 +102,18 @@ class Migration_Engine {
 		global $wpdb;
 
 		$plugins = array();
+		$names = array('plugins' => array(), 'themes' => array());
 		if (! function_exists('get_plugins')) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 		foreach ((array) get_plugins() as $file => $plugin) {
 			$plugins[$file] = (string) ($plugin['Version'] ?? '');
+			$names['plugins'][$file] = (string) ($plugin['Name'] ?? '');
 		}
 		$themes = array();
 		foreach (wp_get_themes() as $slug => $theme) {
 			$themes[(string) $slug] = (string) $theme->get('Version');
+			$names['themes'][(string) $slug] = (string) $theme->get('Name');
 		}
 
 		$uploads = wp_get_upload_dir();
@@ -142,6 +145,7 @@ class Migration_Engine {
 			'plugins'         => $plugins,
 			'active_plugins'  => array_values((array) get_option('active_plugins', array())),
 			'themes'          => $themes,
+			'names'           => $names,
 			'stylesheet'      => (string) get_option('stylesheet'),
 			'template'        => (string) get_option('template'),
 			'self_plugin_dir' => basename(dirname(WUDT_PLUGIN_FILE)),

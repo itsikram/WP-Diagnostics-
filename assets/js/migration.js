@@ -264,7 +264,11 @@
 		var parts = [];
 		if (j.tables > 0) { parts.push(j.db_mode === 'merge' ? 'DB: added as new content' : 'DB: ' + esc(j.stats.tables_done) + ' tables'); }
 		if ((j.components || []).length) {
-			parts.push('Files: ' + j.components.map(function (c) { return esc(COMPONENT_LABELS[c] || c); }).join(', ') + ' (' + esc(num(j.stats.files_done)) + ' files)');
+			var sel = j.pt_filter === 'selected' ? (j.pt_selected || {}) : null;
+			parts.push('Files: ' + j.components.map(function (c) {
+				var n = sel && sel[c] ? ' (' + sel[c].length + ' selected)' : '';
+				return esc((COMPONENT_LABELS[c] || c) + n);
+			}).join(', ') + ' (' + esc(num(j.stats.files_done)) + ' files)');
 		}
 		return parts.join(' · ');
 	}
@@ -371,10 +375,14 @@
 		if (w.components.indexOf('plugins') !== -1 || w.components.indexOf('themes') !== -1) {
 			h += '<div class="wudt-mig-sub"><label class="wudt-mig-block">Plugins &amp; themes to include '
 				+ '<select id="wudt-mig-ptfilter" class="wudt-mig-select">'
-				+ [['all', 'All (active and deactivated)'], ['active', 'Active only'], ['inactive', 'Deactivated only']].map(function (o) {
+				+ [['all', 'All (active and deactivated)'], ['active', 'Active only'], ['inactive', 'Deactivated only'], ['selected', 'Choose specific plugins / themes…']].map(function (o) {
 					return '<option value="' + o[0] + '"' + (w.ptFilter === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
 				}).join('')
-				+ '</select></label></div>';
+				+ '</select></label>';
+			if (w.ptFilter === 'selected') {
+				h += renderPtPicker(w);
+			}
+			h += '</div>';
 		}
 
 		if (w.components.length) {
@@ -383,11 +391,61 @@
 		}
 
 		var dbOk = w.db && (w.dbMode === 'merge' ? w.mergeGroups.length > 0 && (pf.tables || []).length > 0 : (w.tableMode === 'all' ? (pf.tables || []).length > 0 : w.tables.length > 0));
-		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0);
+		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0) && !ptMissing(w).length;
 		h += '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>'
 			+ '<button class="button button-primary button-hero" data-mig="start"' + (canStart && !S.busy ? '' : ' disabled') + '>'
 			+ (isPull ? '⬇ Start pull' : '⬆ Start push') + '</button></div>';
 		h += '</div>';
+		return h;
+	}
+
+	// Ticked Plugins/Themes components that have nothing chosen in "Choose specific" mode.
+	function ptMissing(w) {
+		if (w.ptFilter !== 'selected') { return []; }
+		return ['plugins', 'themes'].filter(function (c) {
+			return w.components.indexOf(c) !== -1 && !w.ptSelected[c].length;
+		});
+	}
+
+	function ptMatches(item, q) {
+		q = (q || '').toLowerCase();
+		return !q || (item.name + ' ' + item.id).toLowerCase().indexOf(q) !== -1;
+	}
+
+	// Checklist of the source site's plugins and themes for "Choose specific".
+	function renderPtPicker(w) {
+		var items = (w.preflight && w.preflight.items) || { plugins: [], themes: [] };
+		var h = '<div class="wudt-mig-ptpick">'
+			+ '<input type="search" class="wudt-mig-input" id="wudt-mig-ptsearch" placeholder="Filter by name…" value="' + esc(w.ptSearch) + '">';
+		[['plugins', 'Plugins'], ['themes', 'Themes']].forEach(function (g) {
+			var c = g[0];
+			if (w.components.indexOf(c) === -1) { return; }
+			var list = items[c] || [];
+			h += '<div class="wudt-mig-ptgroup"><div class="wudt-mig-table-tools"><strong>' + esc(g[1]) + '</strong> '
+				+ '<small class="wudt-mig-muted">' + esc(w.ptSelected[c].length) + ' of ' + esc(list.length) + ' selected</small> '
+				+ '<button class="button button-small" data-mig="pt-all" data-pt="' + c + '">All</button> '
+				+ '<button class="button button-small" data-mig="pt-none" data-pt="' + c + '">None</button> '
+				+ '<button class="button button-small" data-mig="pt-active" data-pt="' + c + '">Active</button></div>'
+				+ '<div class="wudt-mig-tables">';
+			if (!list.length) {
+				h += '<p class="wudt-mig-muted">None found on the source site.</p>';
+			}
+			list.forEach(function (it) {
+				var dst = it.dst_version === null || it.dst_version === undefined
+					? 'not on destination'
+					: (it.dst_version === it.version ? 'same version on destination' : 'destination has ' + (it.dst_version || '?'));
+				h += '<label data-pt-item="' + esc((it.name + ' ' + it.id).toLowerCase()) + '"' + (ptMatches(it, w.ptSearch) ? '' : ' style="display:none"') + '>'
+					+ '<input type="checkbox" data-mig-pt="' + c + '" value="' + esc(it.id) + '"' + (w.ptSelected[c].indexOf(it.id) !== -1 ? ' checked' : '') + '> '
+					+ esc(it.name) + (it.active ? ' <span class="wudt-mig-status is-done">active</span>' : '')
+					+ ' <small>' + (it.version ? 'v' + esc(it.version) + ' · ' : '') + esc(dst) + '</small></label>';
+			});
+			h += '</div></div>';
+		});
+		var missing = ptMissing(w);
+		if (missing.length) {
+			h += '<p class="wudt-mig-error-inline">Tick at least one item under ' + missing.map(function (c) { return COMPONENT_LABELS[c]; }).join(' and ') + ', or untick that component above.</p>';
+		}
+		h += '<p class="wudt-mig-muted">Only the ticked plugin and theme folders are copied; all others on the destination are left as they are. Tip: choose <strong>Files only</strong> above to migrate just these without touching the database.</p></div>';
 		return h;
 	}
 
@@ -499,7 +557,8 @@
 			siteId: siteId, direction: direction, loading: true, error: '', preflight: null,
 			db: true, components: DEFAULT_COMPONENTS.slice(), tableMode: 'all', tables: [],
 			skipUnchanged: true, override: false, excludes: '', dbSize: 0,
-			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all'
+			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all',
+			ptSelected: { plugins: [], themes: [] }, ptSearch: ''
 		};
 		render();
 		ajax('wudt_migration_preflight', { site_id: siteId, direction: direction }, 120000).done(function (r) {
@@ -523,13 +582,17 @@
 		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
 		var tables = w.db ? (merge ? (w.mergeGroups.length ? allTables : []) : (w.tableMode === 'all' ? allTables : w.tables)) : [];
 		if (!tables.length && !w.components.length) { return; }
+		if (ptMissing(w).length) { return; }
 		var s = site(w.siteId);
 		var parts = [];
 		if (tables.length) {
 			parts.push(merge ? 'Database: ADD as new content (' + w.mergeGroups.join(', ') + ') — existing content is kept' : tables.length + ' database tables (replaced)');
 		}
 		w.components.forEach(function (c) {
-			var pt = (c === 'plugins' || c === 'themes') && w.ptFilter !== 'all' ? (w.ptFilter === 'active' ? ' (active only)' : ' (deactivated only)') : '';
+			var pt = '';
+			if ((c === 'plugins' || c === 'themes') && w.ptFilter !== 'all') {
+				pt = w.ptFilter === 'selected' ? ': ' + ptNames(w, c).join(', ') : (w.ptFilter === 'active' ? ' (active only)' : ' (deactivated only)');
+			}
 			parts.push((COMPONENT_LABELS[c] || c) + pt);
 		});
 		var skipped = [];
@@ -551,7 +614,9 @@
 			excludes: w.excludes,
 			db_mode: merge ? 'merge' : 'replace',
 			merge_groups: JSON.stringify(w.mergeGroups),
-			pt_filter: w.ptFilter
+			pt_filter: w.ptFilter,
+			pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
+			pt_themes: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.themes : [])
 		}, 120000).done(function (r) {
 			S.busy = false;
 			if (!r || !r.success) { setNotice('error', errMsg(r)); render(); return; }
@@ -566,6 +631,11 @@
 			setNotice('error', errMsg(null, xhr));
 			render();
 		});
+	}
+
+	function ptNames(w, c) {
+		var list = ((w.preflight && w.preflight.items) || {})[c] || [];
+		return list.filter(function (it) { return w.ptSelected[c].indexOf(it.id) !== -1; }).map(function (it) { return it.name; });
 	}
 
 	function run() {
@@ -703,6 +773,16 @@
 				case 'files-all':
 					S.wizard.components = availableComponents(S.wizard); render();
 					break;
+				case 'pt-all':
+				case 'pt-none':
+				case 'pt-active':
+					var ptc = $b.data('pt');
+					var ptList = ((S.wizard.preflight && S.wizard.preflight.items) || {})[ptc] || [];
+					S.wizard.ptSelected[ptc] = act === 'pt-none' ? [] : ptList.filter(function (it) {
+						return (act === 'pt-all' || it.active) && ptMatches(it, S.wizard.ptSearch);
+					}).map(function (it) { return it.id; });
+					render();
+					break;
 				case 'tables-none':
 					S.wizard.tables = []; render();
 					break;
@@ -755,7 +835,7 @@
 			}
 		});
 
-		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root [data-mig-group], #wudt-mig-ptfilter', function () {
+		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root [data-mig-group], #wudt-migration-root [data-mig-pt], #wudt-mig-ptfilter', function () {
 			var w = S.wizard;
 			if (!w) { return; }
 			w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
@@ -783,6 +863,12 @@
 				w.mergeGroups = w.mergeGroups.filter(function (g) { return g !== group; });
 				if ($i.is(':checked')) { w.mergeGroups.push(group); }
 			}
+			var ptGroup = $i.data('mig-pt');
+			if (ptGroup) {
+				var ptId = String($i.val());
+				w.ptSelected[ptGroup] = w.ptSelected[ptGroup].filter(function (x) { return x !== ptId; });
+				if ($i.is(':checked')) { w.ptSelected[ptGroup].push(ptId); }
+			}
 			var comp = $i.data('mig-comp');
 			if (comp) {
 				w.components = w.components.filter(function (c) { return c !== comp; });
@@ -798,6 +884,15 @@
 
 		$(document).on('input.wudtmig', '#wudt-mig-excludes', function () {
 			if (S.wizard) { S.wizard.excludes = $(this).val(); }
+		});
+
+		// Filter in place so the search box keeps focus while typing.
+		$(document).on('input.wudtmig', '#wudt-mig-ptsearch', function () {
+			if (!S.wizard) { return; }
+			var q = (S.wizard.ptSearch = $(this).val()).toLowerCase();
+			$('#wudt-migration-root [data-pt-item]').each(function () {
+				this.style.display = !q || this.getAttribute('data-pt-item').indexOf(q) !== -1 ? '' : 'none';
+			});
 		});
 	}
 
