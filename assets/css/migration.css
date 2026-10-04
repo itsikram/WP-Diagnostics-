@@ -42,7 +42,20 @@
 .wudt-mig-flow-box.is-dest { border-color: var(--mig-warn); background: #fcf9e8; }
 .wudt-mig-flow-arrow { align-self: center; font-size: 22px; color: var(--mig-muted); }
 .wudt-mig-warnings { margin: 0 0 14px 18px; list-style: disc; color: #50575e; }
-.wudt-mig-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.wudt-mig-scope { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--mig-line); border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+.wudt-mig-scope label { padding: 8px 14px; cursor: pointer; border-right: 1px solid var(--mig-line); }
+.wudt-mig-scope label:last-child { border-right: 0; }
+.wudt-mig-scope label.is-on { background: var(--mig-accent); color: #fff; font-weight: 600; }
+.wudt-mig-scope input { margin: 0 4px 0 0; }
+.wudt-mig-check.is-disabled, .wudt-mig-mode.is-disabled { opacity: .55; cursor: not-allowed; }
+.wudt-mig-sub-title { display: block; margin-bottom: 6px; }
+.wudt-mig-mode { display: block; margin: 0 0 6px; }
+.wudt-mig-tmodes { margin-top: 10px; }
+.wudt-mig-merge { margin: 8px 0 0 22px; }
+.wudt-mig-merge label { display: block; margin: 4px 0; }
+.wudt-mig-merge small, .wudt-mig-mode em { color: var(--mig-muted); }
+.wudt-mig-select { margin-left: 8px; font-weight: normal; }
+.wudt-mig-grid {display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .wudt-mig-check { display: block; padding: 10px 12px; border: 1px solid var(--mig-line); border-radius: 6px; cursor: pointer; }
 .wudt-mig-check small { display: block; color: var(--mig-muted); margin: 2px 0 0 24px; }
 .wudt-mig-sub { margin-top: 14px; padding: 12px 14px; background: var(--mig-soft); border-radius: 6px; }

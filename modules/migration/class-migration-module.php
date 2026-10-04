@@ -179,11 +179,73 @@ class Migration_Module extends Module_Base {
 		update_option(self::OPTION_SITES, $sites, false);
 		Operation_Logger::log('migration', 'Site connection saved', array('site_id' => $site_id, 'url' => $url));
 
+		// Connect back: save this site on the other one, so it is listed there too.
+		$peer = '';
+		if (is_array($info)) {
+			if (in_array('peers', (array) ($info['features'] ?? array()), true)) {
+				try {
+					$client->call('register_peer', array(
+						'url'   => untrailingslashit(home_url()),
+						'key'   => Migration_API::get_local_key(),
+						'label' => get_bloginfo('name'),
+					), 30);
+					$peer = 'added';
+				} catch (\Throwable $e) {
+					$peer = 'failed: ' . $e->getMessage();
+				}
+			} else {
+				$peer = 'unsupported';
+			}
+		}
+
 		wp_send_json_success(array(
 			'site_id' => $site_id,
 			'warning' => $warning,
+			'peer'    => $peer,
 			'state'   => $this->build_state(),
 		));
+	}
+
+	/**
+	 * Save the site that just connected to this one (called through the signed API,
+	 * so the caller already holds this site's key).
+	 */
+	public static function register_peer(string $url, string $key, string $label): array {
+		$url = esc_url_raw(untrailingslashit(trim($url)));
+		if ('' === $url || ! preg_match('#^https?://#i', $url)) {
+			throw new \RuntimeException('Invalid site URL.');
+		}
+		if (strlen($key) < 32 || ! preg_match('/^[A-Za-z0-9]+$/', $key)) {
+			throw new \RuntimeException('Invalid connection key.');
+		}
+		if (untrailingslashit(home_url()) === $url) {
+			throw new \RuntimeException('A site cannot connect to itself.');
+		}
+		$label = sanitize_text_field($label);
+		if ('' === $label) {
+			$label = (string) wp_parse_url($url, PHP_URL_HOST);
+		}
+
+		$sites = get_option(self::OPTION_SITES, array());
+		$sites = is_array($sites) ? $sites : array();
+		$site_id = '';
+		foreach ($sites as $id => $site) {
+			if (untrailingslashit((string) ($site['url'] ?? '')) === $url) {
+				$site_id = (string) $id;
+				break;
+			}
+		}
+		if ('' === $site_id) {
+			$site_id = 'site_' . strtolower(wp_generate_password(10, false, false));
+			$sites[$site_id] = array('id' => $site_id, 'label' => $label, 'url' => $url, 'transport' => '', 'created_at' => current_time('mysql'));
+		}
+		$sites[$site_id]['api_key'] = $key;
+		// This side usually cannot reach the caller (e.g. localhost), so it is not tested here.
+		$sites[$site_id]['last_check'] = array('ok' => true, 'time' => time(), 'name' => $label, 'auto' => true);
+		update_option(self::OPTION_SITES, $sites, false);
+		Operation_Logger::log('migration', 'Site connected back automatically', array('site_id' => $site_id, 'url' => $url));
+
+		return array('site_id' => $site_id, 'site_name' => get_bloginfo('name'));
 	}
 
 	public function ajax_delete_site(): void {
@@ -258,6 +320,9 @@ class Migration_Module extends Module_Base {
 		$tables = json_decode((string) wp_unslash($_POST['tables'] ?? '[]'), true);
 		$excludes_raw = (string) wp_unslash($_POST['excludes'] ?? '');
 		$excludes = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array()));
+		$db_mode = 'merge' === ($_POST['db_mode'] ?? '') ? 'merge' : 'replace';
+		$merge_groups = json_decode((string) wp_unslash($_POST['merge_groups'] ?? '[]'), true);
+		$pt_filter = sanitize_key((string) ($_POST['pt_filter'] ?? 'all'));
 
 		$active = Migration_Runner::active_job();
 		if ($active) {
@@ -270,6 +335,18 @@ class Migration_Module extends Module_Base {
 			$src = 'pull' === $direction ? $remote : $local;
 			$dst = 'pull' === $direction ? $local : $remote;
 			list($errors) = $this->compatibility_checks($src, $dst, $direction);
+			$needs = 'merge' === $db_mode && ! empty($tables) ? array('merge') : array();
+			foreach (array('content', 'core') as $c) {
+				if (is_array($components) && in_array($c, $components, true)) {
+					$needs[] = $c;
+				}
+			}
+			foreach ($needs as $feature) {
+				if (! in_array($feature, (array) ($remote['features'] ?? array()), true)) {
+					$errors[] = __('The remote site runs an older WP Diagnostics version that does not support the selected options. Update the plugin on the remote site and try again.', 'wp-ultimate-diagnostics-toolkit');
+					break;
+				}
+			}
 			if (! empty($errors)) {
 				throw new \RuntimeException(implode(' ', $errors));
 			}
@@ -283,6 +360,9 @@ class Migration_Module extends Module_Base {
 					'skip_unchanged' => ! empty($_POST['skip_unchanged']),
 					'override'       => ! empty($_POST['override']),
 					'excludes'       => $excludes,
+					'db_mode'        => $db_mode,
+					'merge_groups'   => is_array($merge_groups) ? $merge_groups : array(),
+					'pt_filter'      => $pt_filter,
 				),
 				$remote,
 				$local
@@ -347,7 +427,11 @@ class Migration_Module extends Module_Base {
 				__('Rollback complete: %1$d tables and %2$d files restored.', 'wp-ultimate-diagnostics-toolkit'),
 				(int) ($result['tables'] ?? 0),
 				(int) ($result['files'] ?? 0)
-			),
+			) . (empty($result['merged_removed']) ? '' : ' ' . sprintf(
+				/* translators: %d: number of items */
+				__('%d added items removed.', 'wp-ultimate-diagnostics-toolkit'),
+				(int) $result['merged_removed']
+			)),
 		));
 	}
 
@@ -425,6 +509,7 @@ class Migration_Module extends Module_Base {
 			'plugins'     => count((array) ($info['active_plugins'] ?? array())),
 			'free_space'  => (int) ($info['free_space'] ?? 0),
 			'rollback'    => $info['rollback'] ?? array('available' => false),
+			'features'    => array_values((array) ($info['features'] ?? array())),
 		);
 	}
 
@@ -480,9 +565,9 @@ class Migration_Module extends Module_Base {
 			$warnings[] = sprintf(__('Low disk space on the destination (%s free).', 'wp-ultimate-diagnostics-toolkit'), size_format((int) $dst['free_space']));
 		}
 		if ('pull' === $direction) {
-			$warnings[] = __('After the database is pulled you will log in to this site with the remote site’s username and password.', 'wp-ultimate-diagnostics-toolkit');
+			$warnings[] = __('When the database is replaced (not added as new content), you will log in to this site with the remote site’s username and password afterwards.', 'wp-ultimate-diagnostics-toolkit');
 		} else {
-			$warnings[] = __('Pushing the users table replaces the remote site’s users with this site’s users.', 'wp-ultimate-diagnostics-toolkit');
+			$warnings[] = __('When the database is replaced (not added as new content), pushing the users table replaces the remote site’s users with this site’s users.', 'wp-ultimate-diagnostics-toolkit');
 		}
 		return array($errors, $warnings);
 	}

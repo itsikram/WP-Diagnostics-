@@ -25,7 +25,16 @@ if (! defined('ABSPATH')) {
 
 class Migration_Engine {
 	public const API_VERSION = 2;
-	public const COMPONENTS = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages');
+	// 'core' stays last so WordPress core files are moved into place after everything else.
+	public const COMPONENTS = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages', 'content', 'core');
+	// Capabilities newer than API v2; the other side must list one before it is used.
+	public const FEATURES = array('merge', 'content', 'core', 'peers');
+	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
+	// Tables (without prefix) that "add as new content" mode reads.
+	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
+	// Files the whole-folder components never overwrite: they hold this server's own settings.
+	private const CORE_KEEP = array('wp-config.php', '.htaccess', 'web.config', '.user.ini', 'php.ini', '.maintenance');
+	private const CONTENT_SKIP = array('wudt-migrations', 'cache', 'upgrade', 'upgrade-temp-backup', 'ai1wm-backups', 'updraft', 'wpvividbackups', 'backups-dup-lite', 'wflogs', 'et-cache', 'litespeed','object-cache.php', 'advanced-cache.php');
 
 	private const TMP_PREFIX = 'wudt_tmp_';
 	private const BAK_PREFIX = 'wudt_bak_';
@@ -108,6 +117,7 @@ class Migration_Engine {
 
 		return array(
 			'api_version'     => self::API_VERSION,
+			'features'        => self::FEATURES,
 			'plugin_version'  => defined('WUDT_VERSION') ? WUDT_VERSION : '',
 			'site_name'       => get_bloginfo('name'),
 			'home'            => untrailingslashit((string) get_option('home')),
@@ -556,8 +566,43 @@ class Migration_Engine {
 				return wp_normalize_path(WPMU_PLUGIN_DIR);
 			case 'languages':
 				return wp_normalize_path(WP_LANG_DIR);
+			case 'content':
+				return untrailingslashit(wp_normalize_path(WP_CONTENT_DIR));
+			case 'core':
+				return untrailingslashit(wp_normalize_path(ABSPATH));
 		}
 		throw new \RuntimeException('Unknown component: ' . $component);
+	}
+
+	/**
+	 * Folders (relative to a whole-folder component) that belong to another
+	 * component, so each file is migrated by exactly one component.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function nested_roots(string $component): array {
+		static $cache = array();
+		if (isset($cache[$component])) {
+			return $cache[$component];
+		}
+		$children = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages');
+		if ('core' === $component) {
+			$children[] = 'content';
+		}
+		$root = self::component_root($component);
+		$out = array();
+		foreach ($children as $child) {
+			try {
+				$path = self::component_root($child);
+			} catch (\Throwable $e) {
+				continue;
+			}
+			if (0 === strpos($path, $root . '/')) {
+				$out[] = substr($path, strlen($root) + 1);
+			}
+		}
+		$cache[$component] = $out;
+		return $out;
 	}
 
 	/**
@@ -586,6 +631,19 @@ class Migration_Engine {
 		if ('uploads' === $component) {
 			if (is_string($first) && (0 === strpos($first, 'wudt-') || in_array($first, array('ai1wm-backups', 'wpvivid_uploads', 'wpvividbackups', 'backwpup-temp', 'cache'), true))) {
 				return true;
+			}
+		}
+		if ('core' === $component && in_array($rel, self::CORE_KEEP, true)) {
+			return true;
+		}
+		if ('content' === $component && is_string($first) && (0 === strpos($first, 'wudt-') || in_array($first, self::CONTENT_SKIP, true))) {
+			return true;
+		}
+		if ('core' === $component || 'content' === $component) {
+			foreach (self::nested_roots($component) as $nested) {
+				if ($rel === $nested || 0 === strpos($rel, $nested . '/')) {
+					return true;
+				}
 			}
 		}
 		foreach ($extra as $pattern) {
@@ -807,6 +865,10 @@ class Migration_Engine {
 					if ($current->isLink()) {
 						return false;
 					}
+					// Another WordPress install inside this one is not part of this site.
+					if ('core' === $component && $current->isDir() && (is_file($current->getPathname() . '/wp-config.php') || is_file($current->getPathname() . '/wp-load.php'))) {
+						return false;
+					}
 					$rel = substr(wp_normalize_path($current->getPathname()), $root_len);
 					return ! self::is_excluded($component, $rel, $excludes);
 				}
@@ -983,12 +1045,14 @@ class Migration_Engine {
 			if ($line_no++ < $offset) {
 				continue;
 			}
-			if (! $this->time_left($budget)) {
+			$line = rtrim($line, "\r\n");
+			// Core files are all swapped in one request: a half-replaced WordPress
+			// core might not be able to load the request that finishes the job.
+			if (0 !== strpos($line, 'core|') && ! $this->time_left($budget)) {
 				$done = false;
 				break;
 			}
 			$next++;
-			$line = rtrim($line, "\r\n");
 			if ('' === $line || false === strpos($line, '|')) {
 				continue;
 			}
@@ -1209,6 +1273,482 @@ class Migration_Engine {
 	}
 
 	/* ---------------------------------------------------------------------
+	 * Merge: add imported content as new items instead of replacing tables
+	 * ------------------------------------------------------------------- */
+
+	private array $mc = array();
+
+	/**
+	 * Table that maps source IDs to the IDs they got here. It doubles as the
+	 * rollback record (rows with created = 1 were inserted by the merge).
+	 */
+	public static function merge_map_table(string $job_id): string {
+		return self::BAK_PREFIX . 'm' . substr(md5('merge|' . $job_id), 0, 13);
+	}
+
+	/**
+	 * Add the content in the job's temporary tables to this site's live tables
+	 * with new IDs. Existing posts, users, terms and comments are never changed.
+	 * Resumable: call repeatedly until 'done' is true.
+	 *
+	 * @param string $source_key Identifies the source site so a repeated merge skips posts it already added.
+	 * @param array  $groups     Subset of MERGE_GROUPS to add.
+	 */
+	public function merge_database(string $job_id, string $source_prefix, string $source_key, array $groups, float $budget = 12.0): array {
+		global $wpdb;
+		$job_id = self::sanitize_job_id($job_id);
+		$state_file = self::storage_dir('work') . '/' . $job_id . '-merge.json';
+		$st = $this->read_json($state_file);
+		if (empty($st)) {
+			$st = array('step' => 0, 'cursor' => 0, 'stats' => array('posts' => 0, 'skipped' => 0, 'terms' => 0, 'comments' => 0, 'users' => 0));
+		}
+		$map = self::merge_map_table($job_id);
+
+		$this->prepare_session();
+		if (empty($st['started'])) {
+			if (! $this->rollback_set_matches($job_id)) {
+				$this->start_rollback_set($job_id);
+			}
+			$wpdb->query("CREATE TABLE IF NOT EXISTS `{$map}` (kind CHAR(1) NOT NULL, old_id BIGINT UNSIGNED NOT NULL, new_id BIGINT UNSIGNED NOT NULL, created TINYINT(1) NOT NULL DEFAULT 0, PRIMARY KEY (kind, old_id), KEY new_lookup (kind, new_id))"); // phpcs:ignore WordPress.DB.PreparedSQL
+			if ($wpdb->last_error) {
+				throw new \RuntimeException('Could not create the merge map table: ' . $wpdb->last_error);
+			}
+			$meta = $this->read_json($this->rollback_meta_file());
+			$meta['merge_map'] = $map;
+			file_put_contents($this->rollback_meta_file(), wp_json_encode($meta));
+			$st['started'] = true;
+		}
+
+		$tmp = array();
+		foreach (self::MERGE_TABLES as $suffix) {
+			$name = self::tmp_table($job_id, $wpdb->prefix . $suffix);
+			$tmp[$suffix] = ($name === $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $name))) ? $name : '';
+		}
+		$this->mc = array(
+			'map'      => $map,
+			'tmp'      => $tmp,
+			'groups'   => array_values(array_intersect(self::MERGE_GROUPS, $groups)),
+			'src_pfx'  => $source_prefix,
+			'src_key'  => substr(preg_replace('/[^a-z0-9]/', '', strtolower($source_key)) ?: 'src', 0, 32),
+			'fallback' => $this->merge_fallback_author(),
+			'budget'   => $budget,
+		);
+
+		$steps = array('users', 'usermeta', 'terms', 'term_parents', 'termmeta', 'posts_seen', 'posts', 'post_parents', 'postmeta', 'postmeta_ids', 'relationships', 'comments', 'comment_parents', 'commentmeta', 'recount');
+		while ($st['step'] < count($steps) && $this->time_left($budget)) {
+			$method = 'merge_step_' . $steps[$st['step']];
+			$res = $this->$method((int) $st['cursor'], $st['stats']);
+			if (! empty($res['done'])) {
+				$st['step']++;
+				$st['cursor'] = 0;
+			} else {
+				$st['cursor'] = (int) $res['cursor'];
+			}
+			file_put_contents($state_file, wp_json_encode($st), LOCK_EX);
+		}
+
+		$done = $st['step'] >= count($steps);
+		if ($done) {
+			wp_cache_flush();
+			self::schedule_rewrite_flush();
+		}
+		return array(
+			'done'  => $done,
+			'step'  => $done ? 'done' : $steps[$st['step']],
+			'stats' => $st['stats'],
+		);
+	}
+
+	private function merge_has(string $group): bool {
+		return in_array($group, $this->mc['groups'], true);
+	}
+
+	private function merge_fallback_author(): int {
+		$ids = get_users(array('role' => 'administrator', 'number' => 1, 'fields' => 'ID', 'orderby' => 'ID'));
+		return empty($ids) ? 0 : (int) $ids[0];
+	}
+
+	private function map_put(string $kind, int $old, int $new, bool $created): void {
+		global $wpdb;
+		$wpdb->query($wpdb->prepare("INSERT IGNORE INTO `{$this->mc['map']}` (kind, old_id, new_id, created) VALUES (%s, %d, %d, %d)", $kind, $old, $new, $created ? 1 : 0)); // phpcs:ignore WordPress.DB.PreparedSQL
+	}
+
+	/**
+	 * @return array<int,int> old ID => new ID
+	 */
+	private function map_get(string $kind, array $old_ids, bool $created_only = false): array {
+		global $wpdb;
+		$old_ids = array_values(array_unique(array_filter(array_map('intval', $old_ids))));
+		if (empty($old_ids)) {
+			return array();
+		}
+		$rows = $wpdb->get_results(
+			$wpdb->prepare("SELECT old_id, new_id FROM `{$this->mc['map']}` WHERE kind = %s AND old_id IN (" . implode(',', $old_ids) . ')' . ($created_only ? ' AND created = 1' : ''), $kind), // phpcs:ignore WordPress.DB.PreparedSQL
+			ARRAY_A
+		);
+		$out = array();
+		foreach ((array) $rows as $row) {
+			$out[(int) $row['old_id']] = (int) $row['new_id'];
+		}
+		return $out;
+	}
+
+	/**
+	 * Keep only the columns the live table has (the source may have extra ones).
+	 */
+	private function live_row(string $table, array $row): array {
+		static $cols = array();
+		if (! isset($cols[$table])) {
+			$cols[$table] = array();
+			foreach ($this->table_columns($table) as $col) {
+				if (! $col['generated']) {
+					$cols[$table][$col['name']] = true;
+				}
+			}
+		}
+		return array_intersect_key($row, $cols[$table]);
+	}
+
+	private function merge_insert(string $table, array $row): int {
+		global $wpdb;
+		if (false === $wpdb->insert($table, $this->live_row($table, $row))) {
+			throw new \RuntimeException('Could not add a row to ' . $table . ': ' . $wpdb->last_error);
+		}
+		$wpdb->queries = array();
+		return (int) $wpdb->insert_id;
+	}
+
+	/**
+	 * Run an INSERT … SELECT over a source table in ID ranges, bounded in time.
+	 *
+	 * @param string $sql Statement with two %d placeholders for the range (exclusive, inclusive).
+	 */
+	private function merge_range(string $tmp, string $id_col, int $cursor, string $sql): array {
+		global $wpdb;
+		$max = (int) $wpdb->get_var("SELECT MAX(`{$id_col}`) FROM `{$tmp}`"); // phpcs:ignore WordPress.DB.PreparedSQL
+		while ($cursor < $max && $this->time_left($this->mc['budget'])) {
+			$to = $cursor + 5000;
+			$wpdb->query(sprintf($sql, $cursor, $to)); // phpcs:ignore WordPress.DB.PreparedSQL
+			if ($wpdb->last_error) {
+				throw new \RuntimeException('Merge failed: ' . substr($wpdb->last_error, 0, 300));
+			}
+			$cursor = $to;
+		}
+		return array('done' => $cursor >= $max, 'cursor' => $cursor);
+	}
+
+	private function merge_query(string $sql): void {
+		global $wpdb;
+		$wpdb->query($sql); // phpcs:ignore WordPress.DB.PreparedSQL
+		if ($wpdb->last_error) {
+			throw new \RuntimeException('Merge failed: ' . substr($wpdb->last_error, 0, 300));
+		}
+	}
+
+	private function merge_step_users(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['users'];
+		if ('' === $t) {
+			return array('done' => true);
+		}
+		$rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM `{$t}` WHERE ID > %d ORDER BY ID LIMIT 200", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		foreach ((array) $rows as $row) {
+			$old = (int) $row['ID'];
+			$cursor = $old;
+			$existing = 0;
+			if ('' !== (string) $row['user_email']) {
+				$existing = (int) $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->users} WHERE user_email = %s LIMIT 1", $row['user_email']));
+			}
+			if (! $existing) {
+				$existing = (int) $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->users} WHERE user_login = %s LIMIT 1", $row['user_login']));
+			}
+			if ($existing) {
+				$this->map_put('u', $old, $existing, false);
+			} elseif ($this->merge_has('users')) {
+				unset($row['ID']);
+				$new = $this->merge_insert($wpdb->users, $row);
+				$this->map_put('u', $old, $new, true);
+				$stats['users']++;
+			} elseif ($this->mc['fallback']) {
+				$this->map_put('u', $old, $this->mc['fallback'], false);
+			}
+		}
+		return array('done' => count((array) $rows) < 200, 'cursor' => $cursor);
+	}
+
+	private function merge_step_usermeta(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['usermeta'];
+		if ('' === $t || ! $this->merge_has('users')) {
+			return array('done' => true);
+		}
+		$src = esc_sql($this->mc['src_pfx']);
+		$len = strlen($this->mc['src_pfx']);
+		$dst = esc_sql($wpdb->prefix);
+		// Role and capability keys carry the table prefix; rename them for this site.
+		$key = '' === $src ? 'o.meta_key' : "IF(LEFT(o.meta_key, {$len}) = '{$src}', CONCAT('{$dst}', SUBSTRING(o.meta_key, " . ($len + 1) . ')), o.meta_key)';
+		$sql = "INSERT INTO {$wpdb->usermeta} (user_id, meta_key, meta_value) SELECT m.new_id, {$key}, o.meta_value FROM `{$t}` o"
+			. " JOIN `{$this->mc['map']}` m ON m.kind = 'u' AND m.old_id = o.user_id AND m.created = 1"
+			. " WHERE o.umeta_id > %d AND o.umeta_id <= %d AND o.meta_key <> 'session_tokens'";
+		return $this->merge_range($t, 'umeta_id', $cursor, $sql);
+	}
+
+	private function merge_step_terms(int $cursor, array &$stats): array {
+		global $wpdb;
+		$tt = $this->mc['tmp']['term_taxonomy'];
+		$terms = $this->mc['tmp']['terms'];
+		if ('' === $tt || '' === $terms) {
+			return array('done' => true);
+		}
+		$rows = $wpdb->get_results(
+			$wpdb->prepare("SELECT tt.term_taxonomy_id, tt.term_id, tt.taxonomy, tt.description, t.name, t.slug, t.term_group FROM `{$tt}` tt JOIN `{$terms}` t ON t.term_id = tt.term_id WHERE tt.term_taxonomy_id > %d ORDER BY tt.term_taxonomy_id LIMIT 300", $cursor), // phpcs:ignore WordPress.DB.PreparedSQL
+			ARRAY_A
+		);
+		foreach ((array) $rows as $row) {
+			$cursor = (int) $row['term_taxonomy_id'];
+			$existing = $wpdb->get_row(
+				$wpdb->prepare("SELECT tt.term_id, tt.term_taxonomy_id FROM {$wpdb->term_taxonomy} tt JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tt.taxonomy = %s AND t.slug = %s LIMIT 1", $row['taxonomy'], $row['slug']),
+				ARRAY_A
+			);
+			if ($existing) {
+				$this->map_put('t', (int) $row['term_id'], (int) $existing['term_id'], false);
+				$this->map_put('x', (int) $row['term_taxonomy_id'], (int) $existing['term_taxonomy_id'], false);
+			} elseif ($this->merge_has('terms')) {
+				$term_id = $this->merge_insert($wpdb->terms, array('name' => $row['name'], 'slug' => $row['slug'], 'term_group' => $row['term_group']));
+				$tt_id = $this->merge_insert($wpdb->term_taxonomy, array('term_id' => $term_id, 'taxonomy' => $row['taxonomy'], 'description' => $row['description'], 'parent' => 0, 'count' => 0));
+				$this->map_put('t', (int) $row['term_id'], $term_id, true);
+				$this->map_put('x', (int) $row['term_taxonomy_id'], $tt_id, true);
+				$stats['terms']++;
+			}
+		}
+		return array('done' => count((array) $rows) < 300, 'cursor' => $cursor);
+	}
+
+	private function merge_step_term_parents(int $cursor, array &$stats): array {
+		global $wpdb;
+		$tt = $this->mc['tmp']['term_taxonomy'];
+		if ('' !== $tt) {
+			$m = $this->mc['map'];
+			$this->merge_query("UPDATE {$wpdb->term_taxonomy} l JOIN `{$m}` mx ON mx.kind = 'x' AND mx.new_id = l.term_taxonomy_id AND mx.created = 1 JOIN `{$tt}` o ON o.term_taxonomy_id = mx.old_id JOIN `{$m}` mt ON mt.kind = 't' AND mt.old_id = o.parent SET l.parent = mt.new_id WHERE o.parent > 0");
+		}
+		return array('done' => true);
+	}
+
+	private function merge_step_termmeta(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['termmeta'];
+		if ('' === $t) {
+			return array('done' => true);
+		}
+		$sql = "INSERT INTO {$wpdb->termmeta} (term_id, meta_key, meta_value) SELECT m.new_id, o.meta_key, o.meta_value FROM `{$t}` o"
+			. " JOIN `{$this->mc['map']}` m ON m.kind = 't' AND m.old_id = o.term_id AND m.created = 1"
+			. ' WHERE o.meta_id > %d AND o.meta_id <= %d';
+		return $this->merge_range($t, 'meta_id', $cursor, $sql);
+	}
+
+	/**
+	 * Map posts that an earlier merge from the same source already added, so they are skipped.
+	 */
+	private function merge_step_posts_seen(int $cursor, array &$stats): array {
+		global $wpdb;
+		$prefix = $this->mc['src_key'] . ':';
+		$this->merge_query($wpdb->prepare(
+			"INSERT IGNORE INTO `{$this->mc['map']}` (kind, old_id, new_id, created) SELECT 'p', CAST(SUBSTRING(pm.meta_value, %d) AS UNSIGNED), pm.post_id, 0 FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.meta_key = '_wudt_merge_source' AND pm.meta_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL
+			strlen($prefix) + 1,
+			$wpdb->esc_like($prefix) . '%'
+		));
+		return array('done' => true);
+	}
+
+	private function merge_step_posts(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['posts'];
+		if ('' === $t || ! $this->merge_has('posts')) {
+			return array('done' => true);
+		}
+		$rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM `{$t}` WHERE ID > %d ORDER BY ID LIMIT 200", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		$seen = $this->map_get('p', array_column($rows, 'ID'));
+		$authors = $this->map_get('u', array_column($rows, 'post_author'));
+		foreach ($rows as $row) {
+			$old = (int) $row['ID'];
+			$cursor = $old;
+			if (isset($seen[$old])) {
+				$stats['skipped']++;
+				continue;
+			}
+			// Revisions and unsaved drafts are not content worth duplicating.
+			if ('revision' === $row['post_type'] || 'auto-draft' === $row['post_status']) {
+				continue;
+			}
+			unset($row['ID']);
+			$row['post_author'] = $authors[(int) $row['post_author']] ?? $this->mc['fallback'];
+			$row['post_parent'] = 0; // Set once every post has its new ID.
+			$new = $this->merge_insert($wpdb->posts, $row);
+			if ('' !== (string) $row['post_name'] && $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE post_name = %s AND post_type = %s AND ID <> %d LIMIT 1", $row['post_name'], $row['post_type'], $new))) {
+				$slug = wp_unique_post_slug((string) $row['post_name'], $new, (string) $row['post_status'], (string) $row['post_type'], 0);
+				$wpdb->update($wpdb->posts, array('post_name' => $slug), array('ID' => $new));
+			}
+			$wpdb->insert($wpdb->postmeta, array('post_id' => $new, 'meta_key' => '_wudt_merge_source', 'meta_value' => $this->mc['src_key'] . ':' . $old)); // phpcs:ignore WordPress.DB.SlowDBQuery
+			$this->map_put('p', $old, $new, true);
+			$stats['posts']++;
+		}
+		return array('done' => count($rows) < 200, 'cursor' => $cursor);
+	}
+
+	private function merge_step_post_parents(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['posts'];
+		if ('' !== $t) {
+			$m = $this->mc['map'];
+			$this->merge_query("UPDATE {$wpdb->posts} l JOIN `{$m}` mp ON mp.kind = 'p' AND mp.new_id = l.ID AND mp.created = 1 JOIN `{$t}` o ON o.ID = mp.old_id JOIN `{$m}` pp ON pp.kind = 'p' AND pp.old_id = o.post_parent SET l.post_parent = pp.new_id WHERE o.post_parent > 0");
+		}
+		return array('done' => true);
+	}
+
+	private function merge_step_postmeta(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['postmeta'];
+		if ('' === $t) {
+			return array('done' => true);
+		}
+		$sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) SELECT m.new_id, o.meta_key, o.meta_value FROM `{$t}` o"
+			. " JOIN `{$this->mc['map']}` m ON m.kind = 'p' AND m.old_id = o.post_id AND m.created = 1"
+			. " WHERE o.meta_id > %d AND o.meta_id <= %d AND o.meta_key NOT IN ('_edit_lock', '_wudt_merge_source')";
+		return $this->merge_range($t, 'meta_id', $cursor, $sql);
+	}
+
+	/**
+	 * Point meta values that hold post, term or user IDs at the new IDs.
+	 */
+	private function merge_step_postmeta_ids(int $cursor, array &$stats): array {
+		global $wpdb;
+		$m = $this->mc['map'];
+		$pm = $wpdb->postmeta;
+		$own = "JOIN `{$m}` mp ON mp.kind = 'p' AND mp.new_id = l.post_id AND mp.created = 1";
+		$num = "l.meta_value REGEXP '^[0-9]+$'";
+
+		// A featured image that was not migrated would point at an unrelated post here.
+		$this->merge_query("DELETE l FROM {$pm} l {$own} LEFT JOIN `{$m}` ma ON ma.kind = 'p' AND ma.old_id = CAST(l.meta_value AS UNSIGNED) WHERE l.meta_key = '_thumbnail_id' AND ma.old_id IS NULL");
+		$this->merge_query("UPDATE {$pm} l {$own} JOIN `{$m}` ma ON ma.kind = 'p' AND ma.old_id = CAST(l.meta_value AS UNSIGNED) SET l.meta_value = ma.new_id WHERE l.meta_key IN ('_thumbnail_id', '_menu_item_menu_item_parent') AND {$num}");
+		$this->merge_query("UPDATE {$pm} l {$own} JOIN {$pm} ty ON ty.post_id = l.post_id AND ty.meta_key = '_menu_item_type' JOIN `{$m}` ma ON ma.kind = IF(ty.meta_value = 'taxonomy', 't', 'p') AND ma.old_id = CAST(l.meta_value AS UNSIGNED) SET l.meta_value = ma.new_id WHERE l.meta_key = '_menu_item_object_id' AND ty.meta_value IN ('post_type', 'taxonomy') AND {$num}");
+		$this->merge_query("UPDATE {$pm} l {$own} JOIN `{$m}` mu ON mu.kind = 'u' AND mu.old_id = CAST(l.meta_value AS UNSIGNED) SET l.meta_value = mu.new_id WHERE l.meta_key = '_edit_last' AND {$num}");
+
+		// WooCommerce product galleries: comma-separated attachment IDs.
+		$rows = (array) $wpdb->get_results("SELECT l.meta_id, l.meta_value FROM {$pm} l {$own} WHERE l.meta_key = '_product_image_gallery' AND l.meta_value <> ''", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		foreach ($rows as $row) {
+			$ids = array_filter(array_map('intval', explode(',', (string) $row['meta_value'])));
+			$mapped = $this->map_get('p', $ids);
+			$new = array();
+			foreach ($ids as $id) {
+				if (isset($mapped[$id])) {
+					$new[] = $mapped[$id];
+				}
+			}
+			$wpdb->update($pm, array('meta_value' => implode(',', $new)), array('meta_id' => (int) $row['meta_id'])); // phpcs:ignore WordPress.DB.SlowDBQuery
+		}
+		return array('done' => true);
+	}
+
+	private function merge_step_relationships(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['term_relationships'];
+		if ('' !== $t) {
+			$m = $this->mc['map'];
+			$this->merge_query("INSERT IGNORE INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id, term_order) SELECT mp.new_id, mx.new_id, o.term_order FROM `{$t}` o JOIN `{$m}` mp ON mp.kind = 'p' AND mp.old_id = o.object_id AND mp.created = 1 JOIN `{$m}` mx ON mx.kind = 'x' AND mx.old_id = o.term_taxonomy_id");
+		}
+		return array('done' => true);
+	}
+
+	private function merge_step_comments(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['comments'];
+		if ('' === $t || ! $this->merge_has('comments')) {
+			return array('done' => true);
+		}
+		$rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM `{$t}` WHERE comment_ID > %d ORDER BY comment_ID LIMIT 300", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		// Only comments of posts added by this merge, so a repeated merge adds no duplicates.
+		$posts = $this->map_get('p', array_column($rows, 'comment_post_ID'), true);
+		$users = $this->map_get('u', array_column($rows, 'user_id'));
+		foreach ($rows as $row) {
+			$old = (int) $row['comment_ID'];
+			$cursor = $old;
+			if (! isset($posts[(int) $row['comment_post_ID']])) {
+				continue;
+			}
+			unset($row['comment_ID']);
+			$row['comment_post_ID'] = $posts[(int) $row['comment_post_ID']];
+			$row['user_id'] = $users[(int) $row['user_id']] ?? 0;
+			$row['comment_parent'] = 0;
+			$new = $this->merge_insert($wpdb->comments, $row);
+			$this->map_put('c', $old, $new, true);
+			$stats['comments']++;
+		}
+		return array('done' => count($rows) < 300, 'cursor' => $cursor);
+	}
+
+	private function merge_step_comment_parents(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['comments'];
+		if ('' !== $t) {
+			$m = $this->mc['map'];
+			$this->merge_query("UPDATE {$wpdb->comments} l JOIN `{$m}` mc ON mc.kind = 'c' AND mc.new_id = l.comment_ID AND mc.created = 1 JOIN `{$t}` o ON o.comment_ID = mc.old_id JOIN `{$m}` pc ON pc.kind = 'c' AND pc.old_id = o.comment_parent SET l.comment_parent = pc.new_id WHERE o.comment_parent > 0");
+		}
+		return array('done' => true);
+	}
+
+	private function merge_step_commentmeta(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['commentmeta'];
+		if ('' === $t) {
+			return array('done' => true);
+		}
+		$sql = "INSERT INTO {$wpdb->commentmeta} (comment_id, meta_key, meta_value) SELECT m.new_id, o.meta_key, o.meta_value FROM `{$t}` o"
+			. " JOIN `{$this->mc['map']}` m ON m.kind = 'c' AND m.old_id = o.comment_id AND m.created = 1"
+			. ' WHERE o.meta_id > %d AND o.meta_id <= %d';
+		return $this->merge_range($t, 'meta_id', $cursor, $sql);
+	}
+
+	private function merge_step_recount(int $cursor, array &$stats): array {
+		$this->merge_recount($this->mc['map']);
+		return array('done' => true);
+	}
+
+	private function merge_recount(string $map): void {
+		global $wpdb;
+		$this->merge_query("UPDATE {$wpdb->term_taxonomy} tt JOIN `{$map}` mx ON mx.kind = 'x' AND mx.new_id = tt.term_taxonomy_id SET tt.count = (SELECT COUNT(*) FROM {$wpdb->term_relationships} tr WHERE tr.term_taxonomy_id = tt.term_taxonomy_id)");
+		$this->merge_query("UPDATE {$wpdb->posts} p JOIN `{$map}` mp ON mp.kind = 'p' AND mp.new_id = p.ID AND mp.created = 1 SET p.comment_count = (SELECT COUNT(*) FROM {$wpdb->comments} c WHERE c.comment_post_ID = p.ID AND c.comment_approved = '1')");
+	}
+
+	/**
+	 * Delete everything a merge added (used by rollback).
+	 */
+	private function rollback_merge(string $map): int {
+		global $wpdb;
+		if ($map !== $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $map))) {
+			return 0;
+		}
+		$removed = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$map}` WHERE created = 1"); // phpcs:ignore WordPress.DB.PreparedSQL
+		$deletes = array(
+			array($wpdb->postmeta, 'post_id', 'p'),
+			array($wpdb->term_relationships, 'object_id', 'p'),
+			array($wpdb->posts, 'ID', 'p'),
+			array($wpdb->commentmeta, 'comment_id', 'c'),
+			array($wpdb->comments, 'comment_ID', 'c'),
+			array($wpdb->termmeta, 'term_id', 't'),
+			array($wpdb->term_taxonomy, 'term_taxonomy_id', 'x'),
+			array($wpdb->terms, 'term_id', 't'),
+			array($wpdb->usermeta, 'user_id', 'u'),
+			array($wpdb->users, 'ID', 'u'),
+		);
+		foreach ($deletes as $d) {
+			$this->merge_query("DELETE l FROM {$d[0]} l JOIN `{$map}` m ON m.kind = '{$d[2]}' AND m.created = 1 AND m.new_id = l.`{$d[1]}`");
+		}
+		$this->merge_recount($map);
+		$wpdb->query("DROP TABLE IF EXISTS `{$map}`"); // phpcs:ignore WordPress.DB.PreparedSQL
+		return $removed;
+	}
+
+	/* ---------------------------------------------------------------------
 	 * Rollback
 	 * ------------------------------------------------------------------- */
 
@@ -1298,6 +1838,8 @@ class Migration_Engine {
 			}
 		}
 
+		$merged = empty($meta['merge_map']) ? 0 : $this->rollback_merge((string) $meta['merge_map']);
+
 		// Restore preserved plugin options (the restored tables are older).
 		foreach ($preserved as $row) {
 			if (in_array($row['option_name'], array('siteurl', 'home'), true)) {
@@ -1332,7 +1874,7 @@ class Migration_Engine {
 		self::schedule_rewrite_flush();
 		$this->discard_rollback(false);
 
-		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored);
+		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored, 'merged_removed' => $merged);
 	}
 
 	public function discard_rollback(bool $drop_tables = true): void {
@@ -1343,6 +1885,10 @@ class Migration_Engine {
 				if ('' !== $bak && 0 === strpos((string) $bak, self::BAK_PREFIX)) {
 					$wpdb->query('DROP TABLE IF EXISTS `' . esc_sql((string) $bak) . '`'); // phpcs:ignore WordPress.DB.PreparedSQL
 				}
+			}
+			$map = (string) ($meta['merge_map'] ?? '');
+			if (0 === strpos($map, self::BAK_PREFIX)) {
+				$wpdb->query('DROP TABLE IF EXISTS `' . esc_sql($map) . '`'); // phpcs:ignore WordPress.DB.PreparedSQL
 			}
 		}
 		self::delete_tree(self::storage_dir() . '/rollback');

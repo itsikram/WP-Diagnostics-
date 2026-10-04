@@ -62,14 +62,24 @@ class Migration_Runner {
 		foreach ((array) ($src['tables'] ?? array()) as $t) {
 			$src_tables[$t['name']] = (int) $t['rows'];
 		}
+		$merge = 'merge' === ($options['db_mode'] ?? '');
+		$wanted = (array) ($options['tables'] ?? array());
+		$merge_groups = array_values(array_intersect(Migration_Engine::MERGE_GROUPS, (array) ($options['merge_groups'] ?? array())));
+		if ($merge) {
+			// Adding content needs the WordPress content tables only; settings and plugin tables are never merged.
+			$wanted = empty($wanted) || empty($merge_groups) ? array() : array_map(static function ($suffix) use ($src) {
+				return (string) ($src['prefix'] ?? '') . $suffix;
+			}, Migration_Engine::MERGE_TABLES);
+		}
 		$tables = array();
 		$total_rows = 0;
-		foreach ((array) ($options['tables'] ?? array()) as $t) {
+		foreach ($wanted as $t) {
 			if (isset($src_tables[$t])) {
 				$tables[] = (string) $t;
 				$total_rows += $src_tables[$t];
 			}
 		}
+		$pt_filter = in_array($options['pt_filter'] ?? '', array('active', 'inactive'), true) ? (string) $options['pt_filter'] : 'all';
 
 		$state = array(
 			'id'         => $id,
@@ -91,9 +101,14 @@ class Migration_Runner {
 			'components' => $components,
 			'tables'     => $tables,
 			'override'   => ! empty($options['override']),
-			// Override replaces everything, so tables are never skipped as "unchanged".
-			'skip_unchanged' => empty($options['override']) && ! empty($options['skip_unchanged']),
+			// Override replaces everything, so tables are never skipped as "unchanged";
+			// a merge needs every content table imported to map IDs.
+			'skip_unchanged' => ! $merge && empty($options['override']) && ! empty($options['skip_unchanged']),
 			'excludes'   => array_values(array_filter(array_map('trim', (array) ($options['excludes'] ?? array())))),
+			'db_mode'    => $merge ? 'merge' : 'replace',
+			'merge_groups' => $merge_groups,
+			'pt_filter'  => $pt_filter,
+			'component_excludes' => self::plugin_theme_excludes($src, $pt_filter),
 			'src'        => self::slim_info($src),
 			'dst'        => self::slim_info($dst),
 			'pairs'      => Migration_Replacer::build_pairs($src, $dst),
@@ -131,8 +146,41 @@ class Migration_Runner {
 
 		$runner = new self($state);
 		$runner->log(sprintf('%s migration %s %s', ucfirst($state['direction']), $is_pull ? 'from' : 'to', $state['site']['url']));
+		$runner->log(sprintf(
+			'Selected — database: %s; files: %s.',
+			empty($tables) ? 'not included' : ($merge ? 'add as new content (' . implode(', ', $merge_groups) . ')' : count($tables) . ' tables'),
+			empty($components) ? 'not included' : implode(', ', $components) . ('all' === $pt_filter ? '' : ' (' . $pt_filter . ' plugins & themes only)')
+		));
 		$runner->save();
 		return $runner;
+	}
+
+	/**
+	 * Plugin and theme folders to leave out when only active or only deactivated ones are wanted.
+	 *
+	 * @return array<string,array<int,string>>
+	 */
+	private static function plugin_theme_excludes(array $src, string $filter): array {
+		if ('all' === $filter) {
+			return array();
+		}
+		$keep_active = 'active' === $filter;
+		$out = array('plugins' => array(), 'themes' => array());
+		$active_plugins = (array) ($src['active_plugins'] ?? array());
+		foreach (array_keys((array) ($src['plugins'] ?? array())) as $file) {
+			if (in_array($file, $active_plugins, true) !== $keep_active) {
+				$dir = dirname((string) $file);
+				$out['plugins'][] = '.' === $dir ? (string) $file : $dir;
+			}
+		}
+		$active_themes = array((string) ($src['stylesheet'] ?? ''), (string) ($src['template'] ?? ''));
+		foreach (array_keys((array) ($src['themes'] ?? array())) as $slug) {
+			if (in_array((string) $slug, $active_themes, true) !== $keep_active) {
+				$out['themes'][] = (string) $slug;
+			}
+		}
+		$out['plugins'] = array_values(array_unique($out['plugins']));
+		return $out;
 	}
 
 	private static function slim_info(array $info): array {
@@ -180,6 +228,8 @@ class Migration_Runner {
 			'components' => $s['components'],
 			'override'   => ! empty($s['override']),
 			'tables'     => count($s['tables']),
+			'db_mode'    => $s['db_mode'] ?? 'replace',
+			'pt_filter'  => $s['pt_filter'] ?? 'all',
 			'created'    => $s['created'],
 			'updated'    => $s['updated'],
 			'log'        => array_slice($s['log'], -40),
@@ -306,6 +356,9 @@ class Migration_Runner {
 		$this->state['message'] = 'Migration cancelled. The destination site was not changed.';
 		if (in_array($this->state['phase'], array('finalize_files', 'finalize_db'), true) && $this->state['fin']['moved'] > 0) {
 			$this->state['message'] = 'Migration cancelled. Some files were already replaced — use Rollback to restore them.';
+		}
+		if ('finalize_db' === $this->state['phase'] && 'merge' === ($this->state['db_mode'] ?? '')) {
+			$this->state['message'] = 'Migration cancelled. Some content may already have been added — use Rollback to remove it.';
 		}
 		$this->log('Cancelled by user.');
 		$this->save();
@@ -456,7 +509,7 @@ class Migration_Runner {
 			'job'       => $this->state['id'],
 			'component' => $component,
 			'offset'    => $f['offset'],
-			'excludes'  => $this->state['excludes'],
+			'excludes'  => array_merge($this->state['excludes'], (array) ($this->state['component_excludes'][$component] ?? array())),
 			'budget'    => 12,
 			'hash'      => ! $override,
 		));
@@ -612,6 +665,30 @@ class Migration_Runner {
 
 	private function phase_finalize_db(): void {
 		$imported = $this->state['db']['imported'];
+		if (! empty($imported) && empty($this->state['db']['finalized']) && 'merge' === ($this->state['db_mode'] ?? '')) {
+			$this->state['message'] = 'Adding content as new items…';
+			$res = (array) $this->call('dst', 'merge_db', array(
+				'job'           => $this->state['id'],
+				'source_prefix' => $this->state['src']['prefix'],
+				'source_key'    => substr(md5((string) $this->state['src']['home']), 0, 12),
+				'groups'        => $this->state['merge_groups'],
+				'budget'        => 15,
+			));
+			$s = (array) ($res['stats'] ?? array());
+			$this->state['message'] = sprintf('Adding content as new items… %s posts, %s terms, %s comments, %s users added', number_format_i18n((int) ($s['posts'] ?? 0)), number_format_i18n((int) ($s['terms'] ?? 0)), number_format_i18n((int) ($s['comments'] ?? 0)), number_format_i18n((int) ($s['users'] ?? 0)));
+			if (empty($res['done'])) {
+				return; // Continue in the next step.
+			}
+			$this->state['db']['finalized'] = true;
+			$this->log(sprintf(
+				'Content added as new items: %d posts, %d terms, %d comments, %d users (%d posts already added earlier were skipped). Existing content was not changed.',
+				(int) ($s['posts'] ?? 0),
+				(int) ($s['terms'] ?? 0),
+				(int) ($s['comments'] ?? 0),
+				(int) ($s['users'] ?? 0),
+				(int) ($s['skipped'] ?? 0)
+			));
+		}
 		if (! empty($imported) && empty($this->state['db']['finalized'])) {
 			$this->state['message'] = 'Activating the new database…';
 			$this->save();

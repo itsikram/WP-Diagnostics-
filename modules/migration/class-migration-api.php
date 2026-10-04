@@ -181,6 +181,20 @@ class Migration_API {
 				$result = $engine->finalize_database((string) ($p['job'] ?? ''), (array) ($p['tables'] ?? array()), (string) ($p['source_prefix'] ?? ''));
 				Operation_Logger::log('migration', 'Incoming migration applied', array('job' => (string) ($p['job'] ?? '')));
 				return $result;
+			case 'merge_db':
+				$result = $engine->merge_database(
+					(string) ($p['job'] ?? ''),
+					(string) ($p['source_prefix'] ?? ''),
+					(string) ($p['source_key'] ?? ''),
+					(array) ($p['groups'] ?? array()),
+					$budget
+				);
+				if (! empty($result['done'])) {
+					Operation_Logger::log('migration', 'Incoming content merged', array('job' => (string) ($p['job'] ?? ''), 'stats' => $result['stats']));
+				}
+				return $result;
+			case 'register_peer':
+				return Migration_Module::register_peer((string) ($p['url'] ?? ''), (string) ($p['key'] ?? ''), (string) ($p['label'] ?? ''));
 			case 'cleanup':
 				return $engine->cleanup((string) ($p['job'] ?? ''));
 			case 'rollback':

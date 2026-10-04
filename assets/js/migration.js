@@ -17,8 +17,15 @@
 		themes: 'Themes',
 		uploads: 'Media uploads',
 		'mu-plugins': 'Must-use plugins',
-		languages: 'Languages'
+		languages: 'Languages',
+		content: 'Other wp-content files',
+		core: 'WordPress core & root files'
 	};
+	var COMPONENT_HELP = {
+		content: 'everything else in wp-content (fonts, custom folders…); caches and backups are skipped',
+		core: 'wp-admin, wp-includes and root files; wp-config.php and .htaccess are kept'
+	};
+	var DEFAULT_COMPONENTS = ['plugins', 'themes', 'uploads'];
 	var PHASES = [
 		{ key: 'database', label: 'Database' },
 		{ key: 'scan', label: 'Prepare files' },
@@ -207,6 +214,7 @@
 					+ '<div class="wudt-mig-site-info"><span class="wudt-mig-dot is-' + dot + '" title="' + esc(title) + '"></span>'
 					+ '<div><strong>' + esc(s.label) + '</strong><a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.url) + '</a>'
 					+ (chk && !chk.ok ? '<div class="wudt-mig-error-inline">' + esc(chk.error) + '</div>' : '')
+					+ (chk && chk.auto ? '<div class="wudt-mig-muted">Connected automatically when that site added this one.</div>' : '')
 					+ '</div></div>'
 					+ '<div class="wudt-mig-actions">'
 					+ '<button class="button button-primary" data-mig="pull" data-site="' + esc(s.id) + '">⬇ Pull to this site</button>'
@@ -240,7 +248,7 @@
 					+ '<td>' + (j.direction === 'pull' ? '⬇ Pull' : '⬆ Push') + '</td>'
 					+ '<td>' + esc(j.site.label || j.site.url) + '</td>'
 					+ '<td><span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.stale ? 'interrupted' : j.status) + '</span></td>'
-					+ '<td class="wudt-mig-muted">' + esc(j.stats.tables_done) + ' tables, ' + esc(num(j.stats.files_done)) + ' files' + (j.error ? ' — ' + esc(j.error) : '') + '</td>'
+					+ '<td class="wudt-mig-muted">' + jobScope(j) + (j.error ? ' — ' + esc(j.error) : '') + '</td>'
 					+ '<td class="wudt-mig-actions">'
 					+ ((j.status === 'running' || j.status === 'failed') ? '<button class="button button-small" data-mig="resume" data-job="' + esc(j.id) + '">Open</button>' : '')
 					+ (j.status === 'done' && j.direction === 'push' && site(j.site.id) ? '<button class="button button-small" data-mig="rollback-remote" data-site="' + esc(j.site.id) + '">Roll back remote</button>' : '')
@@ -249,6 +257,25 @@
 			h += '</tbody></table></div>';
 		}
 		return h;
+	}
+
+	// What a job included, e.g. "DB: 55 tables · Files: Plugins, Themes (120 files)".
+	function jobScope(j) {
+		var parts = [];
+		if (j.tables > 0) { parts.push(j.db_mode === 'merge' ? 'DB: added as new content' : 'DB: ' + esc(j.stats.tables_done) + ' tables'); }
+		if ((j.components || []).length) {
+			parts.push('Files: ' + j.components.map(function (c) { return esc(COMPONENT_LABELS[c] || c); }).join(', ') + ' (' + esc(num(j.stats.files_done)) + ' files)');
+		}
+		return parts.join(' · ');
+	}
+
+	// File components both ends support (older remote versions lack the whole-folder ones).
+	function availableComponents(w) {
+		var pf = w.preflight || {};
+		var feats = ((w.direction === 'pull' ? pf.source : pf.dest) || {}).features || [];
+		return (S.data.components || []).filter(function (c) {
+			return (c !== 'content' && c !== 'core') || feats.indexOf(c) !== -1;
+		});
 	}
 
 	function renderWizard() {
@@ -279,35 +306,75 @@
 			h += '<p class="wudt-mig-muted">The remote site still has rollback data from ' + esc(when(pf.dest.rollback.created)) + '; it will be replaced by this migration.</p>';
 		}
 
-		h += '<h3>What to migrate</h3><div class="wudt-mig-grid">';
+		// The other end must support newer options (the local plugin always does).
+		var remoteFeatures = ((isPull ? pf.source : pf.dest) || {}).features || [];
+		var supports = function (f) { return remoteFeatures.indexOf(f) !== -1; };
+		var allComps = availableComponents(w);
+		var isAll = w.db && allComps.length && allComps.every(function (c) { return w.components.indexOf(c) !== -1; });
+		var scope = isAll ? 'all' : (w.db && w.components.length ? 'both' : (w.db ? 'db' : (w.components.length ? 'files' : '')));
+		h += '<h3>What to migrate</h3><div class="wudt-mig-scope">';
+		[['all', 'Entire site'], ['both', 'Database + files'], ['db', 'Database only'], ['files', 'Files only']].forEach(function (o) {
+			h += '<label' + (scope === o[0] ? ' class="is-on"' : '') + '><input type="radio" name="wudt-mig-scope" value="' + o[0] + '"' + (scope === o[0] ? ' checked' : '') + '> ' + esc(o[1]) + '</label>';
+		});
+		h += '</div><p class="wudt-mig-muted">Only the items ticked below are copied; everything else on the destination is left untouched.</p><div class="wudt-mig-grid">';
 		h += '<label class="wudt-mig-check"><input type="checkbox" data-mig-field="db"' + (w.db ? ' checked' : '') + '> <strong>Database</strong><small>' + esc((pf.tables || []).length) + ' tables · ' + esc(bytes(w.dbSize)) + '</small></label>';
 		(S.data.components || []).forEach(function (c) {
-			h += '<label class="wudt-mig-check"><input type="checkbox" data-mig-comp="' + esc(c) + '"' + (w.components.indexOf(c) !== -1 ? ' checked' : '') + '> <strong>' + esc(COMPONENT_LABELS[c] || c) + '</strong><small>only changed files are sent</small></label>';
+			var ok = allComps.indexOf(c) !== -1;
+			h += '<label class="wudt-mig-check' + (ok ? '' : ' is-disabled') + '"><input type="checkbox" data-mig-comp="' + esc(c) + '"' + (w.components.indexOf(c) !== -1 ? ' checked' : '') + (ok ? '' : ' disabled') + '> <strong>' + esc(COMPONENT_LABELS[c] || c) + '</strong><small>'
+				+ esc(ok ? (COMPONENT_HELP[c] || 'only changed files are sent') : 'update WP Diagnostics on the remote site to use this') + '</small></label>';
 		});
 		h += '</div>';
+		if (allComps.length) {
+			h += '<p><button class="button button-small" data-mig="files-all">Select the entire WordPress folder (all files)</button></p>';
+		}
 
 		h += '<label class="wudt-mig-override' + (w.override ? ' is-on' : '') + '"><input type="checkbox" data-mig-field="override"' + (w.override ? ' checked' : '') + '> '
 			+ '<strong>Override everything</strong> — don’t compare; send every selected file and table and replace them on the destination. '
 			+ '<span>Slower, but guarantees an exact copy (use it if a previous migration missed something).</span></label>';
 
 		if (w.db) {
-			h += '<div class="wudt-mig-sub">'
-				+ '<label><input type="radio" name="wudt-mig-tmode" value="all"' + (w.tableMode === 'all' ? ' checked' : '') + '> All tables</label> '
-				+ '<label><input type="radio" name="wudt-mig-tmode" value="custom"' + (w.tableMode === 'custom' ? ' checked' : '') + '> Choose tables</label>'
-				+ (w.override ? '' : '<label class="wudt-mig-inline"><input type="checkbox" data-mig-field="skip"' + (w.skipUnchanged ? ' checked' : '') + '> Skip tables that are already identical</label>');
-			if (w.tableMode === 'custom') {
-				var prefix = (pf.source && pf.source.prefix) || '';
-				h += '<div class="wudt-mig-table-tools"><button class="button button-small" data-mig="tables-all">All</button> '
-					+ '<button class="button button-small" data-mig="tables-none">None</button> '
-					+ '<button class="button button-small" data-mig="tables-content">Content only (no users/options)</button></div>'
-					+ '<div class="wudt-mig-tables">';
-				(pf.tables || []).forEach(function (t) {
-					var checked = w.tables.indexOf(t.name) !== -1;
-					h += '<label><input type="checkbox" data-mig-table="' + esc(t.name) + '"' + (checked ? ' checked' : '') + '> <span class="wudt-mig-mono">' + esc(t.name.indexOf(prefix) === 0 ? t.name.substr(prefix.length) : t.name) + '</span> <small>' + esc(num(t.rows)) + ' rows · ' + esc(bytes(t.size)) + '</small></label>';
+			var canMerge = supports('merge');
+			if (!canMerge && w.dbMode === 'merge') { w.dbMode = 'replace'; }
+			h += '<div class="wudt-mig-sub"><strong class="wudt-mig-sub-title">Database</strong>'
+				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace"' + (w.dbMode === 'replace' ? ' checked' : '') + '> <strong>Replace</strong> — the destination’s tables are overwritten with the source’s (an exact copy).</label>'
+				+ '<label class="wudt-mig-mode' + (canMerge ? '' : ' is-disabled') + '"><input type="radio" name="wudt-mig-dbmode" value="merge"' + (w.dbMode === 'merge' ? ' checked' : '') + (canMerge ? '' : ' disabled') + '> <strong>Add as new content</strong> — keep every existing post, page, user and term on the destination and add the source’s content as new items.'
+				+ (canMerge ? '' : ' <em>(update WP Diagnostics on the remote site to use this)</em>') + '</label>';
+			if (w.dbMode === 'merge') {
+				h += '<div class="wudt-mig-merge">';
+				[['posts', 'Posts, pages & all custom post types', 'includes media library entries, menus and products, with their custom fields'],
+					['terms', 'Categories, tags & other terms', 'existing terms with the same slug are reused'],
+					['comments', 'Comments', 'on the added posts'],
+					['users', 'Users', 'users whose email or username already exists are reused; others are added']].forEach(function (g) {
+					h += '<label><input type="checkbox" data-mig-group="' + g[0] + '"' + (w.mergeGroups.indexOf(g[0]) !== -1 ? ' checked' : '') + '> ' + esc(g[1]) + ' <small>' + esc(g[2]) + '</small></label>';
 				});
-				h += '</div>';
+				h += '<p class="wudt-mig-muted">Everything gets new IDs, so nothing on the destination is overwritten. Content added by an earlier merge from the same site is skipped. Settings and plugin-specific tables (for example WooCommerce orders) are not merged. Tick <strong>Media uploads</strong> too, so the image files come along. Rollback removes everything that was added.</p></div>';
+			} else {
+				h += '<div class="wudt-mig-tmodes"><label><input type="radio" name="wudt-mig-tmode" value="all"' + (w.tableMode === 'all' ? ' checked' : '') + '> All tables</label> '
+					+ '<label><input type="radio" name="wudt-mig-tmode" value="custom"' + (w.tableMode === 'custom' ? ' checked' : '') + '> Choose tables</label>'
+					+ (w.override ? '' : '<label class="wudt-mig-inline"><input type="checkbox" data-mig-field="skip"' + (w.skipUnchanged ? ' checked' : '') + '> Skip tables that are already identical</label>') + '</div>';
+				if (w.tableMode === 'custom') {
+					var prefix = (pf.source && pf.source.prefix) || '';
+					h += '<div class="wudt-mig-table-tools"><button class="button button-small" data-mig="tables-all">All</button> '
+						+ '<button class="button button-small" data-mig="tables-none">None</button> '
+						+ '<button class="button button-small" data-mig="tables-content">Content only (no users/options)</button></div>'
+						+ '<div class="wudt-mig-tables">';
+					(pf.tables || []).forEach(function (t) {
+						var checked = w.tables.indexOf(t.name) !== -1;
+						h += '<label><input type="checkbox" data-mig-table="' + esc(t.name) + '"' + (checked ? ' checked' : '') + '> <span class="wudt-mig-mono">' + esc(t.name.indexOf(prefix) === 0 ? t.name.substr(prefix.length) : t.name) + '</span> <small>' + esc(num(t.rows)) + ' rows · ' + esc(bytes(t.size)) + '</small></label>';
+					});
+					h += '</div>';
+				}
 			}
 			h += '</div>';
+		}
+
+		if (w.components.indexOf('plugins') !== -1 || w.components.indexOf('themes') !== -1) {
+			h += '<div class="wudt-mig-sub"><label class="wudt-mig-block">Plugins &amp; themes to include '
+				+ '<select id="wudt-mig-ptfilter" class="wudt-mig-select">'
+				+ [['all', 'All (active and deactivated)'], ['active', 'Active only'], ['inactive', 'Deactivated only']].map(function (o) {
+					return '<option value="' + o[0] + '"' + (w.ptFilter === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+				}).join('')
+				+ '</select></label></div>';
 		}
 
 		if (w.components.length) {
@@ -315,7 +382,7 @@
 				+ '<textarea class="wudt-mig-input wudt-mig-mono" rows="3" id="wudt-mig-excludes" placeholder="2019/*&#10;my-plugin/cache">' + esc(w.excludes) + '</textarea></label></div>';
 		}
 
-		var dbOk = w.db && (w.tableMode === 'all' ? (pf.tables || []).length > 0 : w.tables.length > 0);
+		var dbOk = w.db && (w.dbMode === 'merge' ? w.mergeGroups.length > 0 && (pf.tables || []).length > 0 : (w.tableMode === 'all' ? (pf.tables || []).length > 0 : w.tables.length > 0));
 		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0);
 		h += '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>'
 			+ '<button class="button button-primary button-hero" data-mig="start"' + (canStart && !S.busy ? '' : ' disabled') + '>'
@@ -328,17 +395,27 @@
 		var j = S.job;
 		if (!j) { return '<div class="wudt-mig-card"><p>Loading…</p></div>'; }
 		var isPull = j.direction === 'pull';
+		// Only show the phases this job actually runs.
+		var hasFiles = (j.components || []).length > 0;
+		var phases = PHASES.filter(function (p) {
+			if (p.key === 'database') { return j.tables > 0; }
+			if (p.key === 'scan' || p.key === 'transfer') { return hasFiles; }
+			return true;
+		});
+		var order = ['database', 'scan', 'transfer', 'finalize_files', 'finalize_db', 'cleanup', 'done'];
+		var cur = order.indexOf(j.phase);
 		var phaseIdx = 0;
-		for (var i = 0; i < PHASES.length; i++) {
-			if (PHASES[i].key === j.phase || (j.phase === 'finalize_db' && PHASES[i].key === 'finalize_files') || (j.phase === 'cleanup' && PHASES[i].key === 'finalize_files')) { phaseIdx = i; }
-		}
-		if (j.status === 'done') { phaseIdx = PHASES.length - 1; }
+		phases.forEach(function (p, idx) {
+			var k = order.indexOf(p.key);
+			if (k !== -1 && k <= cur) { phaseIdx = idx; }
+		});
+		if (j.status === 'done') { phaseIdx = phases.length - 1; }
 
 		var h = '<div class="wudt-mig-card">';
 		h += '<div class="wudt-mig-progress-head"><h3>' + (isPull ? '⬇ Pulling from ' : '⬆ Pushing to ') + esc(j.site.label || j.site.url) + '</h3>'
 			+ '<span>' + (j.override ? '<span class="wudt-mig-status is-override">override</span> ' : '') + '<span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.status) + '</span></span></div>';
 		h += '<ol class="wudt-mig-phases">';
-		PHASES.forEach(function (p, idx) {
+		phases.forEach(function (p, idx) {
 			var cls = idx < phaseIdx ? 'is-done' : (idx === phaseIdx ? 'is-current' : '');
 			if (j.status === 'done') { cls = 'is-done'; }
 			h += '<li class="' + cls + '">' + esc(p.label) + '</li>';
@@ -349,10 +426,14 @@
 
 		var st = j.stats || {};
 		h += '<div class="wudt-mig-stats">'
-			+ '<div><span>Tables copied</span><strong>' + esc(st.tables_done) + (st.tables_skipped ? ' <small>(' + esc(st.tables_skipped) + ' unchanged)</small>' : '') + '</strong></div>'
-			+ '<div><span>Rows</span><strong>' + esc(num(st.rows)) + '</strong></div>'
-			+ '<div><span>Files changed</span><strong>' + esc(num(st.files_changed)) + ' <small>of ' + esc(num(st.files_scanned)) + '</small></strong></div>'
-			+ '<div><span>Transferred</span><strong>' + esc(bytes(st.bytes_done)) + ' <small>of ' + esc(bytes(st.bytes_total)) + '</small></strong></div>'
+			+ (j.tables > 0
+				? '<div><span>Tables copied</span><strong>' + esc(st.tables_done) + (st.tables_skipped ? ' <small>(' + esc(st.tables_skipped) + ' unchanged)</small>' : '') + '</strong></div>'
+					+ '<div><span>Rows</span><strong>' + esc(num(st.rows)) + '</strong></div>'
+				: '<div><span>Database</span><strong>not included</strong></div>')
+			+ (hasFiles
+				? '<div><span>Files changed</span><strong>' + esc(num(st.files_changed)) + ' <small>of ' + esc(num(st.files_scanned)) + '</small></strong></div>'
+					+ '<div><span>Transferred</span><strong>' + esc(bytes(st.bytes_done)) + ' <small>of ' + esc(bytes(st.bytes_total)) + '</small></strong></div>'
+				: '<div><span>Files</span><strong>not included</strong></div>')
 			+ '</div>';
 
 		if (j.status === 'failed') {
@@ -416,8 +497,9 @@
 		S.notice = null;
 		S.wizard = {
 			siteId: siteId, direction: direction, loading: true, error: '', preflight: null,
-			db: true, components: ['plugins', 'themes', 'uploads'], tableMode: 'all', tables: [],
-			skipUnchanged: true, override: false, excludes: '', dbSize: 0
+			db: true, components: DEFAULT_COMPONENTS.slice(), tableMode: 'all', tables: [],
+			skipUnchanged: true, override: false, excludes: '', dbSize: 0,
+			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all'
 		};
 		render();
 		ajax('wudt_migration_preflight', { site_id: siteId, direction: direction }, 120000).done(function (r) {
@@ -437,14 +519,24 @@
 	function startJob() {
 		var w = S.wizard;
 		w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
-		var tables = w.db ? (w.tableMode === 'all' ? (w.preflight.tables || []).map(function (t) { return t.name; }) : w.tables) : [];
+		var merge = w.dbMode === 'merge';
+		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
+		var tables = w.db ? (merge ? (w.mergeGroups.length ? allTables : []) : (w.tableMode === 'all' ? allTables : w.tables)) : [];
 		if (!tables.length && !w.components.length) { return; }
 		var s = site(w.siteId);
 		var parts = [];
-		if (tables.length) { parts.push(tables.length + ' database tables'); }
-		w.components.forEach(function (c) { parts.push(COMPONENT_LABELS[c] || c); });
+		if (tables.length) {
+			parts.push(merge ? 'Database: ADD as new content (' + w.mergeGroups.join(', ') + ') — existing content is kept' : tables.length + ' database tables (replaced)');
+		}
+		w.components.forEach(function (c) {
+			var pt = (c === 'plugins' || c === 'themes') && w.ptFilter !== 'all' ? (w.ptFilter === 'active' ? ' (active only)' : ' (deactivated only)') : '';
+			parts.push((COMPONENT_LABELS[c] || c) + pt);
+		});
+		var skipped = [];
+		if (!tables.length) { skipped.push('Database'); }
+		(S.data.components || []).forEach(function (c) { if (w.components.indexOf(c) === -1) { skipped.push(COMPONENT_LABELS[c] || c); } });
 		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
-		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
+		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
 			return;
 		}
 		S.busy = true;
@@ -456,7 +548,10 @@
 			tables: JSON.stringify(tables),
 			skip_unchanged: w.skipUnchanged && !w.override ? 1 : '',
 			override: w.override ? 1 : '',
-			excludes: w.excludes
+			excludes: w.excludes,
+			db_mode: merge ? 'merge' : 'replace',
+			merge_groups: JSON.stringify(w.mergeGroups),
+			pt_filter: w.ptFilter
 		}, 120000).done(function (r) {
 			S.busy = false;
 			if (!r || !r.success) { setNotice('error', errMsg(r)); render(); return; }
@@ -572,7 +667,11 @@
 						if (!r || !r.success) { setNotice('error', errMsg(r)); render(); return; }
 						S.data = r.data.state;
 						S.showManual = false;
-						setNotice(r.data.warning ? 'warning' : 'success', r.data.warning ? 'Site saved, but the connection test failed: ' + r.data.warning : 'Site connected.');
+						var peer = r.data.peer || '';
+						var peerMsg = peer === 'added' ? ' This site was also added to the other site’s Connected sites automatically.'
+							: (peer === 'unsupported' ? ' Update WP Diagnostics on the other site so it connects back automatically.'
+								: (peer.indexOf('failed') === 0 ? ' Could not add this site on the other site automatically (' + peer.substr(8) + ').' : ''));
+						setNotice(r.data.warning ? 'warning' : 'success', r.data.warning ? 'Site saved, but the connection test failed: ' + r.data.warning : 'Site connected.' + peerMsg);
 						render();
 					}).fail(function (xhr) { S.busy = false; setNotice('error', errMsg(null, xhr)); render(); });
 					break;
@@ -600,6 +699,9 @@
 					break;
 				case 'tables-all':
 					S.wizard.tables = (S.wizard.preflight.tables || []).map(function (t) { return t.name; }); render();
+					break;
+				case 'files-all':
+					S.wizard.components = availableComponents(S.wizard); render();
 					break;
 				case 'tables-none':
 					S.wizard.tables = []; render();
@@ -653,7 +755,7 @@
 			}
 		});
 
-		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"]', function () {
+		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root [data-mig-group], #wudt-mig-ptfilter', function () {
 			var w = S.wizard;
 			if (!w) { return; }
 			w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
@@ -662,6 +764,25 @@
 			if ($i.is('[data-mig-field="skip"]')) { w.skipUnchanged = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="override"]')) { w.override = $i.is(':checked'); }
 			if ($i.is('[name="wudt-mig-tmode"]')) { w.tableMode = $i.val(); }
+			if ($i.is('[name="wudt-mig-scope"]')) {
+				var sc = $i.val();
+				var all = availableComponents(w);
+				w.db = sc !== 'files';
+				if (sc === 'db') {
+					w.components = [];
+				} else if (sc === 'all') {
+					w.components = all;
+				} else if (!w.components.length || (sc === 'both' && w.components.length === all.length)) {
+					w.components = DEFAULT_COMPONENTS.slice();
+				}
+			}
+			if ($i.is('[name="wudt-mig-dbmode"]')) { w.dbMode = $i.val(); }
+			if ($i.is('#wudt-mig-ptfilter')) { w.ptFilter = $i.val(); }
+			var group = $i.data('mig-group');
+			if (group) {
+				w.mergeGroups = w.mergeGroups.filter(function (g) { return g !== group; });
+				if ($i.is(':checked')) { w.mergeGroups.push(group); }
+			}
 			var comp = $i.data('mig-comp');
 			if (comp) {
 				w.components = w.components.filter(function (c) { return c !== comp; });
