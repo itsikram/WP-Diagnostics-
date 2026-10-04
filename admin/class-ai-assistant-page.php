@@ -20,8 +20,8 @@ class AI_Assistant_Page {
 	public function register_menu(): void {
 		add_submenu_page(
 			'wudt-diagnostics',
-			__('AI Assistant', 'wp-ultimate-diagnostics-toolkit'),
-			__('AI Assistant', 'wp-ultimate-diagnostics-toolkit'),
+			__('AI Assistant', 'diagnostics-toolkit'),
+			__('AI Assistant', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-ai-assistant',
 			array($this, 'render_page')
@@ -50,7 +50,7 @@ class AI_Assistant_Page {
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
 		echo '<div class="wudt-ai-fullscreen"><div id="wudt-pro-admin-app"></div></div>';
 	}

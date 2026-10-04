@@ -27,7 +27,7 @@ class State_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('State Sync', 'wp-ultimate-diagnostics-toolkit');
+		return __('State Sync', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -45,7 +45,7 @@ class State_Module extends Module_Base {
 
 	public function ajax_save_state(): void {
 		Security_Guard::assert_ajax_admin();
-		$raw = isset($_POST['state']) ? (array) json_decode((string) wp_unslash($_POST['state']), true) : array();
+		$raw = isset($_POST['state']) ? (array) json_decode(sanitize_text_field(wp_unslash($_POST['state'])), true) : array();
 		$state = array(
 			'lastPath'   => sanitize_text_field((string) ($raw['lastPath'] ?? '')),
 			'openFile'   => sanitize_text_field((string) ($raw['openFile'] ?? '')),

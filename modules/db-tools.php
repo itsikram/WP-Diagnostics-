@@ -23,7 +23,7 @@ class DB_Tools_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Database', 'wp-ultimate-diagnostics-toolkit');
+		return __('Database', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -46,13 +46,13 @@ class DB_Tools_Module extends Module_Base {
 	public function ajax_db_action(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 		global $wpdb;
 		$action = isset($_POST['db_action']) ? sanitize_text_field((string) wp_unslash($_POST['db_action'])) : '';
 		$table  = isset($_POST['table']) ? sanitize_text_field((string) wp_unslash($_POST['table'])) : '';
 		if ('' === $table) {
-			wp_send_json_error(array('message' => __('Missing table parameter.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Missing table parameter.', 'diagnostics-toolkit')), 400);
 		}
 		$this->backup_table($table);
 

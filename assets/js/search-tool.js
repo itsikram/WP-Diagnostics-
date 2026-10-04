@@ -1,5 +1,5 @@
 /**
- * WP Ultimate Diagnostics Toolkit - Search Tool JavaScript
+ * Diagnostics Toolkit - Search Tool JavaScript
  * Global search and replace functionality
  */
 

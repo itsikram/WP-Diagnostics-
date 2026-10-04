@@ -45,7 +45,7 @@ class SMTP_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('SMTP Mail', 'wp-ultimate-diagnostics-toolkit');
+		return __('SMTP Mail', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -146,7 +146,7 @@ class SMTP_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 			return;
 		}
 
@@ -156,18 +156,18 @@ class SMTP_Module extends Module_Base {
 		$encryption = isset($_POST['encryption']) ? sanitize_text_field((string) wp_unslash($_POST['encryption'])) : 'tls';
 		$auth = isset($_POST['auth']) && '1' === (string) wp_unslash($_POST['auth']);
 		$user = isset($_POST['user']) ? sanitize_text_field((string) wp_unslash($_POST['user'])) : '';
-		$pass = isset($_POST['pass']) ? (string) wp_unslash($_POST['pass']) : '';
+		$pass = isset($_POST['pass']) ? (string) wp_unslash($_POST['pass']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- SMTP passwords must not be altered.
 		$from_email = isset($_POST['from_email']) ? sanitize_email((string) wp_unslash($_POST['from_email'])) : '';
 		$from_name = isset($_POST['from_name']) ? sanitize_text_field((string) wp_unslash($_POST['from_name'])) : '';
 
 		// Validate
 		if ($enabled && empty($host)) {
-			wp_send_json_error(array('message' => __('SMTP Host is required when SMTP is enabled.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('SMTP Host is required when SMTP is enabled.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
 		if ($enabled && $auth && (empty($user) || empty($pass))) {
-			wp_send_json_error(array('message' => __('SMTP Username and Password are required when authentication is enabled.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('SMTP Username and Password are required when authentication is enabled.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
@@ -191,7 +191,7 @@ class SMTP_Module extends Module_Base {
 		$test_result = $this->test_smtp_connection();
 
 		wp_send_json_success(array(
-			'message'    => __('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'),
+			'message'    => __('Settings saved successfully.', 'diagnostics-toolkit'),
 			'test_result' => $test_result,
 		));
 	}
@@ -203,19 +203,19 @@ class SMTP_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 			return;
 		}
 
 		$to = isset($_POST['to']) ? sanitize_email((string) wp_unslash($_POST['to'])) : '';
 		if (empty($to) || ! is_email($to)) {
-			wp_send_json_error(array('message' => __('Please enter a valid email address.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Please enter a valid email address.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
-		$subject = sprintf(__('Test Email from %s', 'wp-ultimate-diagnostics-toolkit'), get_bloginfo('name'));
+		$subject = sprintf(__('Test Email from %s', 'diagnostics-toolkit'), get_bloginfo('name'));
 		$message = sprintf(
-			"This is a test email from WP Ultimate Diagnostics Toolkit.\n\n" .
+			"This is a test email from Diagnostics Toolkit.\n\n" .
 			"SMTP Configuration:\n" .
 			"- Host: %s\n" .
 			"- Port: %d\n" .
@@ -237,10 +237,10 @@ class SMTP_Module extends Module_Base {
 
 		if ($result) {
 			wp_send_json_success(array(
-				'message' => sprintf(__('Test email sent successfully to %s', 'wp-ultimate-diagnostics-toolkit'), $to),
+				'message' => sprintf(__('Test email sent successfully to %s', 'diagnostics-toolkit'), $to),
 			));
 		} else {
-			$error_message = $this->last_mail_error ?: __('Unknown error occurred.', 'wp-ultimate-diagnostics-toolkit');
+			$error_message = $this->last_mail_error ?: __('Unknown error occurred.', 'diagnostics-toolkit');
 			wp_send_json_error(array('message' => $error_message), 500);
 		}
 	}
@@ -260,7 +260,7 @@ class SMTP_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 			return;
 		}
 
@@ -274,7 +274,7 @@ class SMTP_Module extends Module_Base {
 		if (! $this->is_enabled()) {
 			return array(
 				'success' => false,
-				'message' => __('SMTP is not enabled.', 'wp-ultimate-diagnostics-toolkit'),
+				'message' => __('SMTP is not enabled.', 'diagnostics-toolkit'),
 			);
 		}
 
@@ -284,7 +284,7 @@ class SMTP_Module extends Module_Base {
 		if (empty($host)) {
 			return array(
 				'success' => false,
-				'message' => __('SMTP host is not configured.', 'wp-ultimate-diagnostics-toolkit'),
+				'message' => __('SMTP host is not configured.', 'diagnostics-toolkit'),
 			);
 		}
 
@@ -295,12 +295,12 @@ class SMTP_Module extends Module_Base {
 			fclose($connection);
 			return array(
 				'success' => true,
-				'message' => sprintf(__('Successfully connected to %s:%d', 'wp-ultimate-diagnostics-toolkit'), $host, $port),
+				'message' => sprintf(__('Successfully connected to %s:%d', 'diagnostics-toolkit'), $host, $port),
 			);
 		} else {
 			return array(
 				'success' => false,
-				'message' => sprintf(__('Failed to connect to %s:%d - %s', 'wp-ultimate-diagnostics-toolkit'), $host, $port, $errstr ?: __('Connection timeout', 'wp-ultimate-diagnostics-toolkit')),
+				'message' => sprintf(__('Failed to connect to %s:%d - %s', 'diagnostics-toolkit'), $host, $port, $errstr ?: __('Connection timeout', 'diagnostics-toolkit')),
 			);
 		}
 	}

@@ -337,7 +337,7 @@ class AI_Client {
 		$headers = array('Authorization' => 'Bearer ' . $key, 'content-type' => 'application/json');
 		if ('openrouter' === $provider) {
 			$headers['HTTP-Referer'] = home_url('/');
-			$headers['X-Title'] = 'WP Diagnostics';
+			$headers['X-Title'] = 'Diagnostics Toolkit';
 		}
 		$data = $this->post($url, $headers, $body, 'openrouter' === $provider ? 'OpenRouter' : 'OpenAI');
 
@@ -467,11 +467,6 @@ class AI_Client {
 			$response = wp_remote_request($url, $args);
 			if (is_wp_error($response)) {
 				$msg = $response->get_error_message();
-				if (false !== stripos($msg, 'certificate') && ! isset($args['sslverify'])) {
-					// Local stacks (XAMPP etc.) often ship without a CA bundle.
-					$args['sslverify'] = false;
-					continue;
-				}
 				if ($attempt < 3 && false !== stripos($msg, 'timed out') && 'GET' === $method) {
 					continue;
 				}

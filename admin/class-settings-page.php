@@ -45,8 +45,8 @@ class Settings_Page {
 	public function register_menu(): void {
 		add_submenu_page(
 			'wudt-diagnostics',
-			__('Settings', 'wp-ultimate-diagnostics-toolkit'),
-			__('Settings', 'wp-ultimate-diagnostics-toolkit'),
+			__('Settings', 'diagnostics-toolkit'),
+			__('Settings', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-settings',
 			array($this, 'render_page')
@@ -128,28 +128,28 @@ class Settings_Page {
 		if (! file_exists($config_file)) {
 			$config_file = dirname(ABSPATH) . '/wp-config.php';
 			if (! file_exists($config_file)) {
-				return new \WP_Error('config_not_found', __('wp-config.php not found.', 'wp-ultimate-diagnostics-toolkit'));
+				return new \WP_Error('config_not_found', __('wp-config.php not found.', 'diagnostics-toolkit'));
 			}
 		}
 		
 		if (! is_readable($config_file)) {
-			return new \WP_Error('config_not_readable', __('wp-config.php is not readable.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_not_readable', __('wp-config.php is not readable.', 'diagnostics-toolkit'));
 		}
 		
 		if (! is_writable($config_file)) {
-			return new \WP_Error('config_not_writable', __('wp-config.php is not writable. Please check file permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_not_writable', __('wp-config.php is not writable. Please check file permissions.', 'diagnostics-toolkit'));
 		}
 		
 		// Read current config
 		$config_content = file_get_contents($config_file);
 		if (false === $config_content) {
-			return new \WP_Error('config_read_failed', __('Failed to read wp-config.php.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_read_failed', __('Failed to read wp-config.php.', 'diagnostics-toolkit'));
 		}
 		
 		// Create backup
 		$backup_file = $config_file . '.backup-' . date('Y-m-d-H-i-s');
 		if (false === file_put_contents($backup_file, $config_content)) {
-			return new \WP_Error('backup_failed', __('Failed to create wp-config.php backup.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('backup_failed', __('Failed to create wp-config.php backup.', 'diagnostics-toolkit'));
 		}
 		
 		// Update or add WP_DEBUG
@@ -172,26 +172,26 @@ class Settings_Page {
 			if (false !== $backup_content) {
 				file_put_contents($config_file, $backup_content);
 			}
-			return new \WP_Error('config_write_failed', __('Failed to write wp-config.php. Check file permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_write_failed', __('Failed to write wp-config.php. Check file permissions.', 'diagnostics-toolkit'));
 		}
 		
 		// Verify the write was successful by re-reading the file
 		$verify_content = file_get_contents($config_file);
 		if (false === $verify_content) {
-			return new \WP_Error('config_verify_failed', __('Could not verify wp-config.php changes.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_verify_failed', __('Could not verify wp-config.php changes.', 'diagnostics-toolkit'));
 		}
 		
 		// Check if the constants were actually written
 		$debug_pattern = "/define\s*\(\s*['\"]WP_DEBUG['\"]\s*,\s*(true|false)\s*\)\s*;/i";
 		if (! preg_match($debug_pattern, $verify_content, $matches)) {
-			return new \WP_Error('config_constant_missing', __('WP_DEBUG constant not found in wp-config.php after update.', 'wp-ultimate-diagnostics-toolkit'));
+			return new \WP_Error('config_constant_missing', __('WP_DEBUG constant not found in wp-config.php after update.', 'diagnostics-toolkit'));
 		}
 		
 		// Verify the value matches what we intended
 		$expected_value = $wp_debug ? 'true' : 'false';
 		if (strtolower($matches[1]) !== $expected_value) {
 			return new \WP_Error('config_value_mismatch', sprintf(
-				__('WP_DEBUG value mismatch: expected %s but found %s.', 'wp-ultimate-diagnostics-toolkit'),
+				__('WP_DEBUG value mismatch: expected %s but found %s.', 'diagnostics-toolkit'),
 				$expected_value,
 				$matches[1]
 			));
@@ -267,27 +267,27 @@ class Settings_Page {
 
 		$username = isset($_POST['admin_username']) ? sanitize_user((string) wp_unslash($_POST['admin_username'])) : '';
 		$email = isset($_POST['admin_email']) ? sanitize_email((string) wp_unslash($_POST['admin_email'])) : '';
-		$password = isset($_POST['admin_password']) ? (string) wp_unslash($_POST['admin_password']) : '';
+		$password = isset($_POST['admin_password']) ? (string) wp_unslash($_POST['admin_password']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- passwords must not be altered; passed to wp_insert_user().
 		$role = isset($_POST['admin_role']) ? sanitize_text_field((string) wp_unslash($_POST['admin_role'])) : 'administrator';
 
 		// Validation
 		if (empty($username) || empty($email) || empty($password)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('All fields are required.', 'wp-ultimate-diagnostics-toolkit'))));
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('All fields are required.', 'diagnostics-toolkit'))));
 			exit;
 		}
 
 		if (! is_email($email)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Invalid email address.', 'wp-ultimate-diagnostics-toolkit'))));
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Invalid email address.', 'diagnostics-toolkit'))));
 			exit;
 		}
 
 		if (username_exists($username)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Username already exists.', 'wp-ultimate-diagnostics-toolkit'))));
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Username already exists.', 'diagnostics-toolkit'))));
 			exit;
 		}
 
 		if (email_exists($email)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Email already exists.', 'wp-ultimate-diagnostics-toolkit'))));
+			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Email already exists.', 'diagnostics-toolkit'))));
 			exit;
 		}
 
@@ -324,7 +324,7 @@ class Settings_Page {
 		check_ajax_referer('wudt_save_settings_async', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'diagnostics-toolkit')));
 			return;
 		}
 
@@ -366,7 +366,7 @@ class Settings_Page {
 
 		$response = array(
 			'success' => true,
-			'message' => __('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'),
+			'message' => __('Settings saved successfully.', 'diagnostics-toolkit'),
 		);
 		
 		if (is_wp_error($wp_config_result)) {
@@ -396,46 +396,33 @@ class Settings_Page {
 			return;
 		}
 
-		// Apply debug settings if WP_DEBUG is not already defined
-		if (! defined('WP_DEBUG')) {
-			if (get_option(self::OPTION_WP_DEBUG, false)) {
-				// Enable error reporting
-				if (! defined('WP_DEBUG')) {
-					define('WP_DEBUG', true);
-				}
-			}
-		}
-
-		// Apply debug log settings
+		// WP_DEBUG itself is written to wp-config.php by the settings form; these only
+		// apply what the administrator explicitly switched on in Diagnostics Toolkit.
+		// phpcs:disable WordPress.PHP.IniSet.Risky, WordPress.PHP.IniSet.display_errors_Disallowed, Squiz.PHP.DiscouragedFunctions.Discouraged -- opt-in debugging settings of a debugging plugin.
 		if (get_option(self::OPTION_WP_DEBUG_LOG, false)) {
 			ini_set('log_errors', '1');
 			ini_set('error_log', WP_CONTENT_DIR . '/debug.log');
 		}
 
-		// Apply debug display settings
 		if (get_option(self::OPTION_WP_DEBUG_DISPLAY, false)) {
 			ini_set('display_errors', '1');
-		} else {
-			ini_set('display_errors', '0');
 		}
 
-		// Apply memory limit
-		$memory_limit = get_option(self::OPTION_MEMORY_LIMIT, '');
-		if (! empty($memory_limit)) {
+		$memory_limit = (string) get_option(self::OPTION_MEMORY_LIMIT, '');
+		if ('' !== $memory_limit && wp_convert_hr_to_bytes($memory_limit) > wp_convert_hr_to_bytes((string) ini_get('memory_limit'))) {
 			ini_set('memory_limit', $memory_limit);
 		}
 
-		// Apply max execution time
 		$max_execution_time = (int) get_option(self::OPTION_MAX_EXECUTION_TIME, 0);
 		if ($max_execution_time > 0) {
-			ini_set('max_execution_time', (string) $max_execution_time);
 			set_time_limit($max_execution_time);
 		}
+		// phpcs:enable
 	}
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
 
 		$ai_provider = get_option(self::OPTION_AI_PROVIDER, 'gemini');
@@ -463,37 +450,37 @@ class Settings_Page {
 		?>
 		<div class="wudt-fullscreen-page">
 			<div style="padding: 20px; overflow-y: auto;">
-				<h1><?php esc_html_e('WP Diagnostics Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-				<p><?php esc_html_e('Configure AI models, API keys, and other plugin settings.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+				<h1><?php esc_html_e('Diagnostics Toolkit Settings', 'diagnostics-toolkit'); ?></h1>
+				<p><?php esc_html_e('Configure AI models, API keys, and other plugin settings.', 'diagnostics-toolkit'); ?></p>
 
 				<?php if ($saved) : ?>
 					<div class="notice notice-success is-dismissible">
-						<p><?php esc_html_e('Settings saved successfully.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+						<p><?php esc_html_e('Settings saved successfully.', 'diagnostics-toolkit'); ?></p>
 					</div>
 				<?php endif; ?>
 
 				<?php if (! empty($wp_config_error)) : ?>
 					<div class="notice notice-error is-dismissible">
-						<p><strong><?php esc_html_e('wp-config.php Error:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
-						<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+						<p><strong><?php esc_html_e('wp-config.php Error:', 'diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
+						<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'diagnostics-toolkit'); ?></p>
 					</div>
 				<?php endif; ?>
 
 				<div class="wudt-card" style="max-width: 860px;">
-					<h2><?php esc_html_e('AI Assistant Configuration', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<h2><?php esc_html_e('AI Assistant Configuration', 'diagnostics-toolkit'); ?></h2>
 					<p class="description">
-						<?php esc_html_e('Choose your preferred AI model and configure API access.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Choose your preferred AI model and configure API access.', 'diagnostics-toolkit'); ?>
 					</p>
 
 				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="wudt-settings-form">
 					<input type="hidden" name="action" value="wudt_save_settings" />
 					<?php wp_nonce_field('wudt_save_settings'); ?>
 
-					<p class="description"><?php esc_html_e('Add a key for Google Gemini and/or Anthropic Claude (both can be saved; switch any time in the AI Assistant). Keys are stored encrypted.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+					<p class="description"><?php esc_html_e('Add a key for Google Gemini and/or Anthropic Claude (both can be saved; switch any time in the AI Assistant). Keys are stored encrypted.', 'diagnostics-toolkit'); ?></p>
 					<table class="form-table">
 						<tbody>
 							<tr>
-								<th scope="row"><label for="ai_provider"><?php esc_html_e('Default provider', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
+								<th scope="row"><label for="ai_provider"><?php esc_html_e('Default provider', 'diagnostics-toolkit'); ?></label></th>
 								<td>
 									<select name="ai_provider" id="ai_provider">
 										<?php foreach (AI_Config::providers() as $pid => $pinfo) : ?>
@@ -507,34 +494,34 @@ class Settings_Page {
 								<th scope="row"><label for="ai_key_<?php echo esc_attr($pid); ?>"><?php echo esc_html($pinfo['label']); ?></label></th>
 								<td>
 									<input type="password" autocomplete="new-password" name="ai_key[<?php echo esc_attr($pid); ?>]" id="ai_key_<?php echo esc_attr($pid); ?>" class="regular-text"
-										placeholder="<?php echo esc_attr($preview ? sprintf(__('Saved (%s) — leave blank to keep', 'wp-ultimate-diagnostics-toolkit'), $preview) : sprintf(__('API key (%s)', 'wp-ultimate-diagnostics-toolkit'), $pinfo['key_hint'])); ?>" />
-									<input type="text" name="ai_model[<?php echo esc_attr($pid); ?>]" value="<?php echo esc_attr(AI_Config::get_model($pid)); ?>" class="regular-text" list="wudt-models-<?php echo esc_attr($pid); ?>" style="max-width:240px" aria-label="<?php esc_attr_e('Model', 'wp-ultimate-diagnostics-toolkit'); ?>" />
+										placeholder="<?php echo esc_attr($preview ? sprintf(__('Saved (%s) — leave blank to keep', 'diagnostics-toolkit'), $preview) : sprintf(__('API key (%s)', 'diagnostics-toolkit'), $pinfo['key_hint'])); ?>" />
+									<input type="text" name="ai_model[<?php echo esc_attr($pid); ?>]" value="<?php echo esc_attr(AI_Config::get_model($pid)); ?>" class="regular-text" list="wudt-models-<?php echo esc_attr($pid); ?>" style="max-width:240px" aria-label="<?php esc_attr_e('Model', 'diagnostics-toolkit'); ?>" />
 									<datalist id="wudt-models-<?php echo esc_attr($pid); ?>">
 										<?php foreach ($pinfo['models'] as $m) : ?><option value="<?php echo esc_attr($m); ?>"></option><?php endforeach; ?>
 									</datalist>
 									<?php if ($preview) : ?>
-										<label style="margin-left:8px"><input type="checkbox" name="ai_key_remove[<?php echo esc_attr($pid); ?>]" value="1"> <?php esc_html_e('Remove key', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+										<label style="margin-left:8px"><input type="checkbox" name="ai_key_remove[<?php echo esc_attr($pid); ?>]" value="1"> <?php esc_html_e('Remove key', 'diagnostics-toolkit'); ?></label>
 									<?php endif; ?>
-									<p class="description"><a href="<?php echo esc_url($pinfo['key_url']); ?>" target="_blank" rel="noopener"><?php esc_html_e('Get an API key', 'wp-ultimate-diagnostics-toolkit'); ?></a></p>
+									<p class="description"><a href="<?php echo esc_url($pinfo['key_url']); ?>" target="_blank" rel="noopener"><?php esc_html_e('Get an API key', 'diagnostics-toolkit'); ?></a></p>
 								</td>
 							</tr>
 							<?php endforeach; ?>
 							<tr>
-								<th scope="row"><?php esc_html_e('Agent changes', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th scope="row"><?php esc_html_e('Agent changes', 'diagnostics-toolkit'); ?></th>
 								<td>
-									<label><input type="checkbox" name="ai_auto_approve" value="1" <?php checked(AI_Config::auto_approve()); ?>> <?php esc_html_e('Let the agent make changes without asking for approval each time', 'wp-ultimate-diagnostics-toolkit'); ?></label>
-									<p class="description"><?php esc_html_e('Every change is backed up and can be undone from the AI Assistant either way.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+									<label><input type="checkbox" name="ai_auto_approve" value="1" <?php checked(AI_Config::auto_approve()); ?>> <?php esc_html_e('Let the agent make changes without asking for approval each time', 'diagnostics-toolkit'); ?></label>
+									<p class="description"><?php esc_html_e('Every change is backed up and can be undone from the AI Assistant either way.', 'diagnostics-toolkit'); ?></p>
 								</td>
 							</tr>
 							<tr>
-								<th scope="row"><label for="ai_temperature"><?php esc_html_e('Temperature', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
+								<th scope="row"><label for="ai_temperature"><?php esc_html_e('Temperature', 'diagnostics-toolkit'); ?></label></th>
 								<td><input type="number" name="ai_temperature" id="ai_temperature" value="<?php echo esc_attr((string) AI_Config::temperature()); ?>" step="0.1" min="0" max="1" class="small-text" /></td>
 							</tr>
 							<tr>
-								<th scope="row"><label for="ai_max_tokens"><?php esc_html_e('Max output tokens', 'wp-ultimate-diagnostics-toolkit'); ?></label></th>
+								<th scope="row"><label for="ai_max_tokens"><?php esc_html_e('Max output tokens', 'diagnostics-toolkit'); ?></label></th>
 								<td>
 									<input type="number" name="ai_max_tokens" id="ai_max_tokens" value="<?php echo esc_attr((string) AI_Config::max_tokens()); ?>" step="1000" min="1024" max="64000" class="small-text" />
-									<p class="description"><?php esc_html_e('Large Elementor pages need a high limit (16000 or more).', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+									<p class="description"><?php esc_html_e('Large Elementor pages need a high limit (16000 or more).', 'diagnostics-toolkit'); ?></p>
 								</td>
 							</tr>
 						</tbody>
@@ -542,79 +529,79 @@ class Settings_Page {
 				</div>
 
 				<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
-					<h2><?php esc_html_e('WordPress Debug Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<h2><?php esc_html_e('WordPress Debug Settings', 'diagnostics-toolkit'); ?></h2>
 					<p class="description">
-						<?php esc_html_e('Control WordPress debug mode by directly editing wp-config.php. These settings are 100% functional and persistent.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Control WordPress debug mode by directly editing wp-config.php. These settings are 100% functional and persistent.', 'diagnostics-toolkit'); ?>
 						<br>
-						<strong><?php esc_html_e('Note:', 'wp-ultimate-diagnostics-toolkit'); ?></strong> 
-						<?php esc_html_e('Changes are written directly to wp-config.php. A backup is created before modification.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<strong><?php esc_html_e('Note:', 'diagnostics-toolkit'); ?></strong> 
+						<?php esc_html_e('Changes are written directly to wp-config.php. A backup is created before modification.', 'diagnostics-toolkit'); ?>
 						<?php if (defined('WP_DEBUG')) : ?>
-							<br><code><?php esc_html_e('WP_DEBUG is currently defined as: ', 'wp-ultimate-diagnostics-toolkit'); echo WP_DEBUG ? 'true' : 'false'; ?></code>
+							<br><code><?php esc_html_e('WP_DEBUG is currently defined as: ', 'diagnostics-toolkit'); echo WP_DEBUG ? 'true' : 'false'; ?></code>
 						<?php endif; ?>
 					</p>
 
 					<table class="form-table">
 						<tbody>
 							<tr>
-								<th scope="row"><?php esc_html_e('WP_DEBUG', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th scope="row"><?php esc_html_e('WP_DEBUG', 'diagnostics-toolkit'); ?></th>
 								<td>
 									<label class="wudt-toggle-switch">
 										<input type="checkbox" name="wp_debug" value="1" <?php checked($wp_debug); ?>>
 										<span class="slider"></span>
 									</label>
 									<span class="wudt-toggle-label">
-										<?php echo $wp_debug ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php echo $wp_debug ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?>
 									</span>
 									<p class="description">
-										<?php esc_html_e('Enable WordPress debug mode to show PHP errors and warnings.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Enable WordPress debug mode to show PHP errors and warnings.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
-								<th scope="row"><?php esc_html_e('WP_DEBUG_LOG', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th scope="row"><?php esc_html_e('WP_DEBUG_LOG', 'diagnostics-toolkit'); ?></th>
 								<td>
 									<label class="wudt-toggle-switch">
 										<input type="checkbox" name="wp_debug_log" value="1" <?php checked($wp_debug_log); ?>>
 										<span class="slider"></span>
 									</label>
 									<span class="wudt-toggle-label">
-										<?php echo $wp_debug_log ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php echo $wp_debug_log ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?>
 									</span>
 									<p class="description">
-										<?php esc_html_e('Log errors to wp-content/debug.log file.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Log errors to wp-content/debug.log file.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
-								<th scope="row"><?php esc_html_e('WP_DEBUG_DISPLAY', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th scope="row"><?php esc_html_e('WP_DEBUG_DISPLAY', 'diagnostics-toolkit'); ?></th>
 								<td>
 									<label class="wudt-toggle-switch">
 										<input type="checkbox" name="wp_debug_display" value="1" <?php checked($wp_debug_display); ?>>
 										<span class="slider"></span>
 									</label>
 									<span class="wudt-toggle-label">
-										<?php echo $wp_debug_display ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php echo $wp_debug_display ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?>
 									</span>
 									<p class="description">
-										<?php esc_html_e('Display errors on the page (not recommended for production).', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Display errors on the page (not recommended for production).', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
-								<th scope="row"><?php esc_html_e('WP_CACHE', 'wp-ultimate-diagnostics-toolkit'); ?></th>
+								<th scope="row"><?php esc_html_e('WP_CACHE', 'diagnostics-toolkit'); ?></th>
 								<td>
 									<label class="wudt-toggle-switch">
 										<input type="checkbox" name="wp_cache" value="1" <?php checked($wp_cache); ?>>
 										<span class="slider"></span>
 									</label>
 									<span class="wudt-toggle-label">
-										<?php echo $wp_cache ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php echo $wp_cache ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?>
 									</span>
 									<p class="description">
-										<?php esc_html_e('Enable WordPress object caching (requires external cache system).', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Enable WordPress object caching (requires external cache system).', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
@@ -623,23 +610,23 @@ class Settings_Page {
 				</div>
 
 				<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
-					<h2><?php esc_html_e('PHP Runtime Settings', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<h2><?php esc_html_e('PHP Runtime Settings', 'diagnostics-toolkit'); ?></h2>
 					<p class="description">
-						<?php esc_html_e('Configure PHP settings at runtime. These settings apply immediately and override php.ini values where allowed.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Configure PHP settings at runtime. These settings apply immediately and override php.ini values where allowed.', 'diagnostics-toolkit'); ?>
 					</p>
 
 					<table class="form-table">
 						<tbody>
 							<tr>
 								<th scope="row">
-									<label for="memory_limit"><?php esc_html_e('Memory Limit', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="memory_limit"><?php esc_html_e('Memory Limit', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="text" name="memory_limit" id="memory_limit" 
 										value="<?php echo esc_attr($memory_limit); ?>" 
 										class="small-text" />
 									<p class="description">
-										<?php esc_html_e('PHP memory limit (e.g., 256M, 512M, 1G). Current:', 'wp-ultimate-diagnostics-toolkit'); ?> 
+										<?php esc_html_e('PHP memory limit (e.g., 256M, 512M, 1G). Current:', 'diagnostics-toolkit'); ?> 
 										<code><?php echo esc_html(ini_get('memory_limit')); ?></code>
 									</p>
 								</td>
@@ -647,14 +634,14 @@ class Settings_Page {
 
 							<tr>
 								<th scope="row">
-									<label for="max_upload_size"><?php esc_html_e('Max Upload File Size', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="max_upload_size"><?php esc_html_e('Max Upload File Size', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="text" name="max_upload_size" id="max_upload_size" 
 										value="<?php echo esc_attr($max_upload_size); ?>" 
 										class="small-text" />
 									<p class="description">
-										<?php esc_html_e('Maximum file upload size (e.g., 64M, 128M, 256M). Current:', 'wp-ultimate-diagnostics-toolkit'); ?> 
+										<?php esc_html_e('Maximum file upload size (e.g., 64M, 128M, 256M). Current:', 'diagnostics-toolkit'); ?> 
 										<code><?php echo esc_html(ini_get('upload_max_filesize')); ?></code>
 									</p>
 								</td>
@@ -662,14 +649,14 @@ class Settings_Page {
 
 							<tr>
 								<th scope="row">
-									<label for="max_post_size"><?php esc_html_e('Max POST Size', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="max_post_size"><?php esc_html_e('Max POST Size', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="text" name="max_post_size" id="max_post_size" 
 										value="<?php echo esc_attr($max_post_size); ?>" 
 										class="small-text" />
 									<p class="description">
-										<?php esc_html_e('Maximum POST data size (e.g., 64M, 128M). Should be >= upload size. Current:', 'wp-ultimate-diagnostics-toolkit'); ?> 
+										<?php esc_html_e('Maximum POST data size (e.g., 64M, 128M). Should be >= upload size. Current:', 'diagnostics-toolkit'); ?> 
 										<code><?php echo esc_html(ini_get('post_max_size')); ?></code>
 									</p>
 								</td>
@@ -677,15 +664,15 @@ class Settings_Page {
 
 							<tr>
 								<th scope="row">
-									<label for="max_execution_time"><?php esc_html_e('Max Execution Time', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="max_execution_time"><?php esc_html_e('Max Execution Time', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="number" name="max_execution_time" id="max_execution_time" 
 										value="<?php echo esc_attr($max_execution_time); ?>" 
 										step="30" min="30" max="600" class="small-text" />
-									<span><?php esc_html_e('seconds', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+									<span><?php esc_html_e('seconds', 'diagnostics-toolkit'); ?></span>
 									<p class="description">
-										<?php esc_html_e('Maximum script execution time. Current:', 'wp-ultimate-diagnostics-toolkit'); ?> 
+										<?php esc_html_e('Maximum script execution time. Current:', 'diagnostics-toolkit'); ?> 
 										<code><?php echo esc_html(ini_get('max_execution_time')); ?>s</code>
 									</p>
 								</td>
@@ -695,7 +682,7 @@ class Settings_Page {
 
 					<p class="submit">
 						<button type="submit" class="button button-primary">
-							<?php esc_html_e('Save All Settings', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Save All Settings', 'diagnostics-toolkit'); ?>
 						</button>
 					</p>
 				</form>
@@ -703,9 +690,9 @@ class Settings_Page {
 
 			<!-- Admin User Creation Section -->
 			<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
-				<h2><?php esc_html_e('Create Admin User', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+				<h2><?php esc_html_e('Create Admin User', 'diagnostics-toolkit'); ?></h2>
 				<p class="description">
-					<?php esc_html_e('Create a new WordPress admin user with example credentials. All fields are required.', 'wp-ultimate-diagnostics-toolkit'); ?>
+					<?php esc_html_e('Create a new WordPress admin user with example credentials. All fields are required.', 'diagnostics-toolkit'); ?>
 				</p>
 
 				<?php if (isset($_GET['user_created']) && '1' === $_GET['user_created']) : ?>
@@ -715,7 +702,7 @@ class Settings_Page {
 							echo esc_html(
 								sprintf(
 									/* translators: 1: Username, 2: Email */
-									__('User created successfully! Username: %1$s, Email: %2$s', 'wp-ultimate-diagnostics-toolkit'),
+									__('User created successfully! Username: %1$s, Email: %2$s', 'diagnostics-toolkit'),
 									sanitize_text_field((string) wp_unslash($_GET['username'] ?? '')),
 									sanitize_email((string) wp_unslash($_GET['email'] ?? ''))
 								)
@@ -727,7 +714,7 @@ class Settings_Page {
 
 				<?php if (isset($_GET['user_error']) && '1' === $_GET['user_error']) : ?>
 					<div class="notice notice-error is-dismissible">
-						<p><?php echo esc_html(sanitize_text_field((string) wp_unslash($_GET['message'] ?? __('An error occurred.', 'wp-ultimate-diagnostics-toolkit')))); ?></p>
+						<p><?php echo esc_html(sanitize_text_field((string) wp_unslash($_GET['message'] ?? __('An error occurred.', 'diagnostics-toolkit')))); ?></p>
 					</div>
 				<?php endif; ?>
 
@@ -739,60 +726,60 @@ class Settings_Page {
 						<tbody>
 							<tr>
 								<th scope="row">
-									<label for="admin_username"><?php esc_html_e('Username', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="admin_username"><?php esc_html_e('Username', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="text" name="admin_username" id="admin_username" class="regular-text" 
-										placeholder="<?php esc_attr_e('e.g., admin2024', 'wp-ultimate-diagnostics-toolkit'); ?>" required />
+										placeholder="<?php esc_attr_e('e.g., admin2024', 'diagnostics-toolkit'); ?>" required />
 									<p class="description">
-										<?php esc_html_e('Unique username for the new admin user.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Unique username for the new admin user.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
 								<th scope="row">
-									<label for="admin_email"><?php esc_html_e('Email', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="admin_email"><?php esc_html_e('Email', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="email" name="admin_email" id="admin_email" class="regular-text" 
-										placeholder="<?php esc_attr_e('e.g., admin@example.com', 'wp-ultimate-diagnostics-toolkit'); ?>" required />
+										placeholder="<?php esc_attr_e('e.g., admin@example.com', 'diagnostics-toolkit'); ?>" required />
 									<p class="description">
-										<?php esc_html_e('Valid email address for the user.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Valid email address for the user.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
 								<th scope="row">
-									<label for="admin_password"><?php esc_html_e('Password', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="admin_password"><?php esc_html_e('Password', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<input type="text" name="admin_password" id="admin_password" class="regular-text" 
 										value="AdminPass123!" required />
 									<button type="button" class="button" onclick="document.getElementById('admin_password').value = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2).toUpperCase() + '!@';">
-										<?php esc_html_e('Generate Random', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Generate Random', 'diagnostics-toolkit'); ?>
 									</button>
 									<p class="description">
-										<?php esc_html_e('Strong password for the user. Click generate for a random password.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Strong password for the user. Click generate for a random password.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
 
 							<tr>
 								<th scope="row">
-									<label for="admin_role"><?php esc_html_e('Role', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+									<label for="admin_role"><?php esc_html_e('Role', 'diagnostics-toolkit'); ?></label>
 								</th>
 								<td>
 									<select name="admin_role" id="admin_role" class="regular-text">
-										<option value="administrator"><?php esc_html_e('Administrator', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-										<option value="editor"><?php esc_html_e('Editor', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-										<option value="author"><?php esc_html_e('Author', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-										<option value="contributor"><?php esc_html_e('Contributor', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-										<option value="subscriber"><?php esc_html_e('Subscriber', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+										<option value="administrator"><?php esc_html_e('Administrator', 'diagnostics-toolkit'); ?></option>
+										<option value="editor"><?php esc_html_e('Editor', 'diagnostics-toolkit'); ?></option>
+										<option value="author"><?php esc_html_e('Author', 'diagnostics-toolkit'); ?></option>
+										<option value="contributor"><?php esc_html_e('Contributor', 'diagnostics-toolkit'); ?></option>
+										<option value="subscriber"><?php esc_html_e('Subscriber', 'diagnostics-toolkit'); ?></option>
 									</select>
 									<p class="description">
-										<?php esc_html_e('User role. Administrator has full access.', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('User role. Administrator has full access.', 'diagnostics-toolkit'); ?>
 									</p>
 								</td>
 							</tr>
@@ -801,7 +788,7 @@ class Settings_Page {
 
 					<p class="submit">
 						<button type="submit" class="button button-primary">
-							<?php esc_html_e('Create User', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Create User', 'diagnostics-toolkit'); ?>
 						</button>
 					</p>
 				</form>
@@ -846,7 +833,7 @@ class Settings_Page {
 
 	private function authorize_action(string $nonce_action): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
 		check_admin_referer($nonce_action);
 	}

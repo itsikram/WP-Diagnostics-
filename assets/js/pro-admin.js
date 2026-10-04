@@ -1126,22 +1126,26 @@
 		
 		var html = '<div class="wudt-dashboard">';
 
-		// Rescue access (works even when the site has a fatal error).
+		// Safe mode: wp-admin with every other plugin and the theme disabled, for this browser only.
 		var rescue = d.rescue || null;
 		if (rescue) {
 			html += '<div class="wudt-dashboard-section"><div class="wudt-card wudt-rescue-card">'
-				+ '<h3>🛟 Emergency access (bookmark this)</h3>'
-				+ '<p>If a plugin or theme crashes your site (“There has been a critical error”) and wp-admin will not load, open this private link. '
-				+ 'It works without loading any plugin or theme: you can read the error, deactivate the culprit, switch theme, let the AI propose a fix, '
-				+ 'or open WP Diagnostics in <strong>safe mode</strong> (all other plugins and the theme disabled for your browser only).</p>'
-				+ '<div class="wudt-rescue-row"><input type="text" readonly class="regular-text code" id="wudt-rescue-url" value="' + esc(rescue.rescue_url) + '">'
-				+ '<button class="button button-primary" id="wudt-rescue-copy">Copy link</button>'
-				+ '<a class="button" target="_blank" rel="noopener" href="' + esc(rescue.rescue_url) + '">Open</a>'
-				+ '<button class="button" id="wudt-rescue-regen">New link</button></div>'
-				+ '<p class="description">Keep it secret — anyone with this link can manage plugins on this site. The link is also added to WordPress’s recovery-mode email. '
-				+ 'Safe-mode loader: ' + (rescue.loader_active ? '<strong style="color:#008a20">installed</strong>' : '<strong style="color:#b32d2e">not installed</strong> (make wp-content/mu-plugins writable)') + '.</p>'
+				+ '<h3>🛟 Safe mode</h3>'
+				+ '<p>Open wp-admin with <strong>all other plugins and your theme disabled for your browser only</strong> (visitors are not affected), '
+				+ 'so you can find and fix a plugin or theme that breaks the site. It ends automatically after two hours.</p>'
+				+ (rescue.safe_mode
+					? '<p><a class="button button-primary" href="' + esc(rescue.exit_url) + '">Exit safe mode</a></p>'
+					: '<p><button class="button button-primary" id="wudt-safe-mode-enter">Enter safe mode</button></p>')
+				+ '<p class="description">The first time you use it, a small must-use plugin is added to wp-content/mu-plugins; it is removed when Diagnostics Toolkit is deactivated. '
+				+ 'If wp-admin does not load at all, use the link in WordPress’s “Your Site is Experiencing a Technical Issue” email to log in, then enter safe mode here.</p>'
 				+ '</div></div>';
 		}
+
+		html += '<div class="wudt-dashboard-section"><div class="wudt-card">'
+			+ '<label><input type="checkbox" id="wudt-recovery-auto"' + (d.auto_disable ? ' checked' : '') + '> '
+			+ '<strong>Automatically deactivate a plugin (or switch away from a theme) that keeps crashing the site</strong></label>'
+			+ '<p class="description">Off by default. When on, a plugin is only deactivated after it caused fatal errors in 3 separate requests within 10 minutes; every action is listed below and can be undone.</p>'
+			+ '</div></div>';
 
 		// Recovery Status Section
 		html += '<div class="wudt-dashboard-section">'
@@ -3615,21 +3619,19 @@
 			}
 		});
 
-		$(document).on('click', '#wudt-rescue-copy', function () {
-			var $input = $('#wudt-rescue-url');
-			$input[0].select();
-			try { document.execCommand('copy'); } catch (e) { /* ignore */ }
-			if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText($input.val()); }
-			$(this).text('Copied ✓');
+		$(document).on('change', '#wudt-recovery-auto', function () {
+			post('wudt_recovery_auto_toggle', { enabled: $(this).is(':checked') ? '1' : '0' });
 		});
 
-		$(document).on('click', '#wudt-rescue-regen', function () {
-			if (!confirm('Create a new emergency link? The old link stops working.')) { return; }
-			post('wudt_rescue_regenerate').done(function (r) {
+		$(document).on('click', '#wudt-safe-mode-enter', function () {
+			var $b = $(this).prop('disabled', true).text('Entering safe mode…');
+			post('wudt_safe_mode_enter').done(function (r) {
 				if (r && r.success) {
-					$('#wudt-rescue-url').val(r.data.rescue_url);
-					loadTabData('recovery');
+					window.location.href = r.data.redirect;
+					return;
 				}
+				$b.prop('disabled', false).text('Enter safe mode');
+				alert((r && r.data && r.data.message) || 'Could not enter safe mode.');
 			});
 		});
 

@@ -43,7 +43,7 @@ class Database_Manager_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Database Manager', 'wp-ultimate-diagnostics-toolkit');
+		return __('Database Manager', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -107,11 +107,11 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_table_rows(): void {
 		$this->auth();
 		global $wpdb;
-		$table   = $this->sanitize_table_name((string) ($_POST['table'] ?? ''));
+		$table   = $this->sanitize_table_name(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$page    = max(1, (int) ($_POST['page'] ?? 1));
 		$perpage = min(200, max(10, (int) ($_POST['per_page'] ?? 50)));
 		$offset  = ($page - 1) * $perpage;
-		$search  = sanitize_text_field((string) ($_POST['search'] ?? ''));
+		$search  = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['search'] ?? '')));
 
 		$columns = $wpdb->get_col('SHOW COLUMNS FROM `' . esc_sql($table) . '`', 0); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		$where   = '';
@@ -130,7 +130,7 @@ class Database_Manager_Module extends Module_Base {
 
 	public function ajax_run_query(): void {
 		$this->auth();
-		$query = trim((string) wp_unslash($_POST['query'] ?? ''));
+		$query = trim((string) wp_unslash($_POST['query'] ?? '')); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- SQL typed by an administrator in the database manager; validated and run in safe mode.
 		try {
 			wp_send_json_success($this->run_safe_query($query));
 		} catch (\Throwable $e) {
@@ -141,7 +141,7 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_export(): void {
 		$this->auth();
 		global $wpdb;
-		$table  = $this->sanitize_table_name((string) ($_POST['table'] ?? ''));
+		$table  = $this->sanitize_table_name(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$format = sanitize_text_field((string) ($_POST['format'] ?? 'sql'));
 		$up     = wp_get_upload_dir();
 		$dir    = trailingslashit($up['basedir']) . 'wudt-db-exports/';
@@ -172,7 +172,7 @@ class Database_Manager_Module extends Module_Base {
 
 	public function ajax_maintain(): void {
 		$this->auth();
-		$table  = $this->sanitize_table_name((string) ($_POST['table'] ?? ''));
+		$table  = $this->sanitize_table_name(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$action = sanitize_text_field((string) ($_POST['db_action'] ?? 'optimize'));
 		try {
 			$result = $this->run_table_maintenance($table, $action);
@@ -184,7 +184,7 @@ class Database_Manager_Module extends Module_Base {
 
 	public function ajax_toggle_safe_mode(): void {
 		$this->auth();
-		$safe = isset($_POST['safe_mode']) && '1' === (string) $_POST['safe_mode'];
+		$safe = isset($_POST['safe_mode']) && '1' === sanitize_text_field(wp_unslash($_POST['safe_mode']));
 		update_option(self::SAFE_MODE_OPTION, $safe);
 		wp_send_json_success(array('safe_mode' => $safe));
 	}
@@ -216,13 +216,13 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_pm_browse(): void {
 		$this->auth();
 		global $wpdb;
-		$table      = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
+		$table      = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$page       = max(1, (int) ($_POST['page'] ?? 1));
 		$requested  = (int) ($_POST['per_page'] ?? 20);
 		$per_page   = 0 === $requested ? 0 : min(100, max(20, $requested));
 		$offset     = 0 === $per_page ? 0 : (($page - 1) * $per_page);
-		$search     = sanitize_text_field((string) ($_POST['search'] ?? ''));
-		$sort_by    = sanitize_text_field((string) ($_POST['sort_by'] ?? ''));
+		$search     = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['search'] ?? '')));
+		$sort_by    = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['sort_by'] ?? '')));
 		$sort_dir   = strtoupper(sanitize_text_field((string) ($_POST['sort_dir'] ?? 'ASC')));
 		$columns    = $this->get_table_structure($table);
 		$col_names  = array_map(static fn( $c ): string => (string) ($c['Field'] ?? ''), $columns);
@@ -260,14 +260,14 @@ class Database_Manager_Module extends Module_Base {
 
 	public function ajax_pm_structure(): void {
 		$this->auth();
-		$table = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
+		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		wp_send_json_success(array('structure' => $this->get_table_structure($table)));
 	}
 
 	public function ajax_pm_query(): void {
 		$this->auth();
 		global $wpdb;
-		$query = trim((string) wp_unslash($_POST['query'] ?? ''));
+		$query = trim((string) wp_unslash($_POST['query'] ?? '')); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- SQL typed by an administrator in the database manager; validated and run in safe mode.
 		try {
 			$this->validate_sql_for_console($query);
 		} catch (\Throwable $e) {
@@ -297,8 +297,8 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_pm_insert(): void {
 		$this->auth();
 		global $wpdb;
-		$table = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
-		$data  = isset($_POST['data']) ? json_decode((string) wp_unslash($_POST['data']), true) : array();
+		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
+		$data  = isset($_POST['data']) ? json_decode((string) wp_unslash($_POST['data']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- row values are stored exactly as entered; written with $wpdb->insert/update placeholders.
 		if (! is_array($data) || empty($data)) {
 			wp_send_json_error(array('message' => 'Insert payload missing.'), 400);
 		}
@@ -313,9 +313,9 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_pm_update(): void {
 		$this->auth();
 		global $wpdb;
-		$table = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
-		$data  = isset($_POST['data']) ? json_decode((string) wp_unslash($_POST['data']), true) : array();
-		$where = isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array();
+		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
+		$data  = isset($_POST['data']) ? json_decode((string) wp_unslash($_POST['data']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- row values are stored exactly as entered; written with $wpdb->insert/update placeholders.
+		$where = isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- row values are stored exactly as entered; written with $wpdb->insert/update placeholders.
 		if (! is_array($data) || ! is_array($where) || empty($where)) {
 			wp_send_json_error(array('message' => 'Update payload invalid.'), 400);
 		}
@@ -333,8 +333,8 @@ class Database_Manager_Module extends Module_Base {
 		if ((bool) get_option(self::SAFE_MODE_OPTION, true)) {
 			wp_send_json_error(array('message' => 'Safe mode is enabled. Deletion blocked.'), 400);
 		}
-		$table = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
-		$where = isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array();
+		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
+		$where = isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- row values are stored exactly as entered; written with $wpdb->insert/update placeholders.
 		if (! is_array($where) || empty($where)) {
 			wp_send_json_error(array('message' => 'Delete requires WHERE conditions.'), 400);
 		}
@@ -349,7 +349,7 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_pm_export(): void {
 		$this->auth();
 		global $wpdb;
-		$table       = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
+		$table       = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$format      = sanitize_text_field((string) ($_POST['format'] ?? 'sql'));
 		$compression = isset($_POST['compression']) ? sanitize_text_field((string) ($_POST['compression'])) : '';
 		$up          = wp_get_upload_dir();
@@ -377,9 +377,9 @@ class Database_Manager_Module extends Module_Base {
 	public function ajax_pm_operations(): void {
 		$this->auth();
 		global $wpdb;
-		$table     = $this->sanitize_table_name_or_throw((string) ($_POST['table'] ?? ''));
-		$operation = sanitize_text_field((string) ($_POST['operation'] ?? ''));
-		$confirm   = isset($_POST['confirm']) && '1' === (string) $_POST['confirm'];
+		$table     = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
+		$operation = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['operation'] ?? '')));
+		$confirm   = isset($_POST['confirm']) && '1' === sanitize_text_field(wp_unslash($_POST['confirm']));
 
 		if (in_array($operation, array('empty', 'drop'), true) && ! $confirm) {
 			wp_send_json_error(array('message' => 'Confirmation required.'), 400);
@@ -429,7 +429,7 @@ class Database_Manager_Module extends Module_Base {
 	private function auth(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 	}
 
@@ -437,13 +437,13 @@ class Database_Manager_Module extends Module_Base {
 		try {
 			return $this->sanitize_table_name_or_throw($table);
 		} catch (\Throwable $e) {
-			wp_send_json_error(array('message' => __('Invalid table name.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Invalid table name.', 'diagnostics-toolkit')), 400);
 		}
 	}
 
 	private function validate_query(string $query): void {
 		if (! $this->is_safe_select_query($query)) {
-			wp_send_json_error(array('message' => __('Only SELECT/SHOW/DESCRIBE/EXPLAIN queries are allowed.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Only SELECT/SHOW/DESCRIBE/EXPLAIN queries are allowed.', 'diagnostics-toolkit')), 400);
 		}
 	}
 

@@ -57,7 +57,7 @@ class Auto_Recovery_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Auto Recovery', 'wp-ultimate-diagnostics-toolkit');
+		return __('Auto Recovery', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -410,8 +410,10 @@ class Auto_Recovery_Module extends Module_Base {
 
 		$confidence = $this->calculate_confidence($error);
 		
-		if ($confidence >= 70) {
+		if ($confidence >= 70 && \WUDT\Modules\Recovery\Crash_Recovery_Module::auto_enabled()) {
 			$this->switch_to_default_theme($theme, $error, $confidence);
+		} else {
+			$this->log_recovery_event('theme_fatal_detected', $error, $theme, $confidence);
 		}
 	}
 
@@ -638,7 +640,7 @@ class Auto_Recovery_Module extends Module_Base {
 		}
 
 		// Verify nonce generated with wp_nonce_url(..., 'wudt_disable_safe_mode')
-		if (! isset($_GET['_wpnonce']) || ! wp_verify_nonce((string) $_GET['_wpnonce'], 'wudt_disable_safe_mode')) {
+		if (! isset($_GET['_wpnonce']) || ! wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'wudt_disable_safe_mode')) {
 			return;
 		}
 
@@ -746,11 +748,11 @@ class Auto_Recovery_Module extends Module_Base {
 		);
 		?>
 		<div class="notice notice-warning is-dismissible">
-			<p><strong><?php esc_html_e('WP Ultimate Diagnostics - Safe Mode Active', 'wp-ultimate-diagnostics-toolkit'); ?></strong></p>
-			<p><?php esc_html_e('The plugin detected a fatal error in itself and entered safe mode. Advanced features are temporarily disabled.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+			<p><strong><?php esc_html_e('Diagnostics Toolkit - Safe Mode Active', 'diagnostics-toolkit'); ?></strong></p>
+			<p><?php esc_html_e('The plugin detected a fatal error in itself and entered safe mode. Advanced features are temporarily disabled.', 'diagnostics-toolkit'); ?></p>
 			<p>
 				<a class="button button-primary" href="<?php echo esc_url($dismiss_url); ?>">
-					<?php esc_html_e('Exit Safe Mode', 'wp-ultimate-diagnostics-toolkit'); ?>
+					<?php esc_html_e('Exit Safe Mode', 'diagnostics-toolkit'); ?>
 				</a>
 			</p>
 		</div>
@@ -764,8 +766,8 @@ class Auto_Recovery_Module extends Module_Base {
 	private function render_plugin_recovery_notice(array $disabled_plugins): void {
 		?>
 		<div class="notice notice-warning is-dismissible">
-			<p><strong><?php esc_html_e('WP Ultimate Diagnostics - Plugin Recovery', 'wp-ultimate-diagnostics-toolkit'); ?></strong></p>
-			<p><?php esc_html_e('The following plugins were automatically deactivated due to fatal errors:', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+			<p><strong><?php esc_html_e('Diagnostics Toolkit - Plugin Recovery', 'diagnostics-toolkit'); ?></strong></p>
+			<p><?php esc_html_e('The following plugins were automatically deactivated due to fatal errors:', 'diagnostics-toolkit'); ?></p>
 			<ul>
 			<?php foreach ($disabled_plugins as $plugin => $data) : ?>
 				<li>
@@ -780,7 +782,7 @@ class Auto_Recovery_Module extends Module_Base {
 					);
 					?>
 					<a href="<?php echo esc_url($restore_url); ?>" class="button button-small" style="margin-left: 10px;">
-						<?php esc_html_e('Restore', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Restore', 'diagnostics-toolkit'); ?>
 					</a>
 				</li>
 			<?php endforeach; ?>
@@ -803,13 +805,13 @@ class Auto_Recovery_Module extends Module_Base {
 		);
 		?>
 		<div class="notice notice-warning is-dismissible">
-			<p><strong><?php esc_html_e('WP Ultimate Diagnostics - Theme Recovery', 'wp-ultimate-diagnostics-toolkit'); ?></strong></p>
+			<p><strong><?php esc_html_e('Diagnostics Toolkit - Theme Recovery', 'diagnostics-toolkit'); ?></strong></p>
 			<p>
 				<?php 
 				echo esc_html(
 					sprintf(
 						/* translators: %s: Theme name */
-						__('The theme "%s" was automatically deactivated due to a fatal error. A default theme is now active.', 'wp-ultimate-diagnostics-toolkit'),
+						__('The theme "%s" was automatically deactivated due to a fatal error. A default theme is now active.', 'diagnostics-toolkit'),
 						$theme_name
 					)
 				); 
@@ -820,7 +822,7 @@ class Auto_Recovery_Module extends Module_Base {
 			<?php endif; ?>
 			<p>
 				<a class="button button-primary" href="<?php echo esc_url($restore_url); ?>">
-					<?php esc_html_e('Restore Previous Theme', 'wp-ultimate-diagnostics-toolkit'); ?>
+					<?php esc_html_e('Restore Previous Theme', 'diagnostics-toolkit'); ?>
 				</a>
 			</p>
 		</div>
@@ -834,13 +836,13 @@ class Auto_Recovery_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 
 		$plugin = isset($_POST['plugin']) ? sanitize_text_field((string) wp_unslash($_POST['plugin'])) : '';
 		
 		if (empty($plugin)) {
-			wp_send_json_error(array('message' => __('No plugin specified.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('No plugin specified.', 'diagnostics-toolkit')));
 		}
 
 		if (! function_exists('activate_plugin')) {
@@ -860,7 +862,7 @@ class Auto_Recovery_Module extends Module_Base {
 		
 		$this->log_recovery_event('manual_restore', array('message' => 'Plugin manually restored'), $plugin);
 		
-		wp_send_json_success(array('message' => __('Plugin restored successfully.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Plugin restored successfully.', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -870,14 +872,14 @@ class Auto_Recovery_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 
 		$theme_data = get_option(self::OPTION_DISABLED_THEME, array());
 		$theme = (string) ($theme_data['theme'] ?? '');
 		
 		if (empty($theme) || ! wp_get_theme($theme)->exists()) {
-			wp_send_json_error(array('message' => __('Theme not found or invalid.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Theme not found or invalid.', 'diagnostics-toolkit')));
 		}
 
 		switch_theme($theme);
@@ -885,7 +887,7 @@ class Auto_Recovery_Module extends Module_Base {
 		
 		$this->log_recovery_event('manual_theme_restore', array('message' => 'Theme manually restored'), $theme);
 		
-		wp_send_json_success(array('message' => __('Theme restored successfully.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Theme restored successfully.', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -895,14 +897,14 @@ class Auto_Recovery_Module extends Module_Base {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 
 		delete_option(self::OPTION_SAFE_MODE);
 		
 		$this->log_recovery_event('safe_mode_exited', array('message' => 'Safe mode manually disabled'), 'wudt');
 		
-		wp_send_json_success(array('message' => __('Safe mode disabled. Advanced features are now enabled.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Safe mode disabled. Advanced features are now enabled.', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -918,7 +920,7 @@ class Auto_Recovery_Module extends Module_Base {
 			'title' => '<span style="background: #d63638; color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">WUDT SAFE MODE</span>',
 			'href' => admin_url('admin.php?page=wp-ultimate-diagnostics'),
 			'meta' => array(
-				'title' => __('WP Ultimate Diagnostics is in safe mode due to a detected fatal error', 'wp-ultimate-diagnostics-toolkit'),
+				'title' => __('Diagnostics Toolkit is in safe mode due to a detected fatal error', 'diagnostics-toolkit'),
 			),
 		));
 	}

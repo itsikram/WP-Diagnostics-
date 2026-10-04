@@ -41,8 +41,8 @@ class Modern_Admin_Page {
 
 	public function register_menu(): void {
 		add_management_page(
-			__('WP Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'),
-			__('Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'),
+			__('Diagnostics Toolkit', 'diagnostics-toolkit'),
+			__('Diagnostics Toolkit', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-diagnostics',
 			array($this, 'render_page')
@@ -78,35 +78,35 @@ class Modern_Admin_Page {
 			'tabs'         => $tabs,
 			'generated_at' => current_time('mysql'),
 			'labels'       => array(
-				'loading'   => __('Loading...', 'wp-ultimate-diagnostics-toolkit'),
-				'error'     => __('Error', 'wp-ultimate-diagnostics-toolkit'),
-				'success'   => __('Success', 'wp-ultimate-diagnostics-toolkit'),
-				'refresh'   => __('Refresh', 'wp-ultimate-diagnostics-toolkit'),
-				'run_check' => __('Run Check', 'wp-ultimate-diagnostics-toolkit'),
+				'loading'   => __('Loading...', 'diagnostics-toolkit'),
+				'error'     => __('Error', 'diagnostics-toolkit'),
+				'success'   => __('Success', 'diagnostics-toolkit'),
+				'refresh'   => __('Refresh', 'diagnostics-toolkit'),
+				'run_check' => __('Run Check', 'diagnostics-toolkit'),
 			),
 		));
 	}
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
 		?>
 		<div class="wudt-fullscreen-page">
 			<div style="padding: 20px; overflow-y: auto;">
 				<div class="wudt-header-bar">
 					<div class="wudt-header-logo">
-						<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-logo-img">
-						<h1><?php echo esc_html__('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
+						<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/logo.svg'); ?>" alt="" class="wudt-logo-img">
+						<h1><?php echo esc_html__('Diagnostics Toolkit', 'diagnostics-toolkit'); ?></h1>
 					</div>
 					<div class="wudt-header-actions">
 						<button type="button" class="wudt-btn wudt-btn--secondary" id="wudt-dark-mode-toggle">
 							<span class="dashicons dashicons-visibility"></span>
-							<?php esc_html_e('Toggle Dark Mode', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Toggle Dark Mode', 'diagnostics-toolkit'); ?>
 						</button>
 						<a href="<?php echo esc_url(admin_url('admin.php?page=wudt-ai-assistant')); ?>" class="wudt-btn wudt-btn--primary">
 							<span class="dashicons dashicons-art"></span>
-							<?php esc_html_e('AI Assistant', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('AI Assistant', 'diagnostics-toolkit'); ?>
 						</a>
 					</div>
 				</div>
@@ -114,11 +114,6 @@ class Modern_Admin_Page {
 				<!-- Dashboard Stats -->
 				<div class="wudt-stats-grid" id="wudt-stats-grid">
 					<?php $this->render_stat_cards(); ?>
-				</div>
-
-				<!-- Cover Banner -->
-				<div class="wudt-cover-banner">
-					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Cover" class="wudt-cover-img">
 				</div>
 
 				<!-- Module Navigation -->
@@ -139,7 +134,7 @@ class Modern_Admin_Page {
 								<div class="wudt-panel__actions">
 									<button type="button" class="wudt-btn wudt-btn--secondary wudt-btn--sm wudt-run-module" data-module="<?php echo esc_attr($module->get_key()); ?>">
 										<span class="dashicons dashicons-update"></span>
-										<?php esc_html_e('Run Check', 'wp-ultimate-diagnostics-toolkit'); ?>
+										<?php esc_html_e('Run Check', 'diagnostics-toolkit'); ?>
 									</button>
 								</div>
 							</div>
@@ -157,23 +152,23 @@ class Modern_Admin_Page {
 
 				<!-- Quick Actions -->
 				<div class="wudt-quick-actions">
-					<h3><?php esc_html_e('Quick Actions', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+					<h3><?php esc_html_e('Quick Actions', 'diagnostics-toolkit'); ?></h3>
 					<div class="wudt-quick-actions__grid">
 						<button type="button" class="wudt-quick-action" id="wudt-quick-scan">
 							<span class="wudt-quick-action__icon">🔍</span>
-							<span class="wudt-quick-action__label"><?php esc_html_e('Full System Scan', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Full System Scan', 'diagnostics-toolkit'); ?></span>
 						</button>
 						<button type="button" class="wudt-quick-action" id="wudt-quick-clear-cache">
 							<span class="wudt-quick-action__icon">🧹</span>
-							<span class="wudt-quick-action__label"><?php esc_html_e('Clear Cache', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Clear Cache', 'diagnostics-toolkit'); ?></span>
 						</button>
 						<button type="button" class="wudt-quick-action" id="wudt-quick-export">
 							<span class="wudt-quick-action__icon">📊</span>
-							<span class="wudt-quick-action__label"><?php esc_html_e('Export Report', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Export Report', 'diagnostics-toolkit'); ?></span>
 						</button>
 						<button type="button" class="wudt-quick-action" id="wudt-quick-help">
 							<span class="wudt-quick-action__icon">❓</span>
-							<span class="wudt-quick-action__label"><?php esc_html_e('Get Help', 'wp-ultimate-diagnostics-toolkit'); ?></span>
+							<span class="wudt-quick-action__label"><?php esc_html_e('Get Help', 'diagnostics-toolkit'); ?></span>
 						</button>
 					</div>
 				</div>
@@ -307,25 +302,25 @@ class Modern_Admin_Page {
 		$stats = array(
 			array(
 				'icon'  => 'dashicons-wordpress',
-				'label' => __('WP Version', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('WP Version', 'diagnostics-toolkit'),
 				'value' => get_bloginfo('version'),
 				'color' => 'primary',
 			),
 			array(
 				'icon'  => 'dashicons-plugins-checked',
-				'label' => __('Active Plugins', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Active Plugins', 'diagnostics-toolkit'),
 				'value' => count(get_option('active_plugins', array())),
 				'color' => 'neutral',
 			),
 			array(
 				'icon'  => 'dashicons-database',
-				'label' => __('DB Tables', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('DB Tables', 'diagnostics-toolkit'),
 				'value' => $wpdb->get_var("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE()"),
 				'color' => 'neutral',
 			),
 			array(
 				'icon'  => 'dashicons-performance',
-				'label' => __('PHP Version', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('PHP Version', 'diagnostics-toolkit'),
 				'value' => phpversion(),
 				'color' => version_compare(phpversion(), '8.0', '>=') ? 'success' : 'warning',
 			),
@@ -354,7 +349,7 @@ class Modern_Admin_Page {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')));
 		}
 
 		$tab = sanitize_key($_POST['tab'] ?? '');
@@ -368,7 +363,7 @@ class Modern_Admin_Page {
 			}
 		}
 
-		wp_send_json_error(array('message' => __('Module not found.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_error(array('message' => __('Module not found.', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -378,7 +373,7 @@ class Modern_Admin_Page {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')));
 		}
 
 		$module_key = sanitize_key($_POST['module'] ?? '');
@@ -393,13 +388,13 @@ class Modern_Admin_Page {
 					'data' => $module->get_dashboard_data(),
 					'message' => sprintf(
 						/* translators: %s: Module label */
-						__('%s check completed.', 'wp-ultimate-diagnostics-toolkit'),
+						__('%s check completed.', 'diagnostics-toolkit'),
 						$module->get_label()
 					),
 				));
 			}
 		}
 
-		wp_send_json_error(array('message' => __('Module not found.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_error(array('message' => __('Module not found.', 'diagnostics-toolkit')));
 	}
 }

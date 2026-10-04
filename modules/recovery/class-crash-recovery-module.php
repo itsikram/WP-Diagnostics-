@@ -22,6 +22,22 @@ class Crash_Recovery_Module extends Module_Base {
 
 	public function register_hooks(): void {
 		add_action('shutdown', array($this, 'handle_fatal_shutdown'));
+		add_action('wp_ajax_wudt_recovery_auto_toggle', array($this, 'ajax_auto_toggle'));
+	}
+
+	/**
+	 * Automatic deactivation of crashing plugins (and switching away from a crashing
+	 * theme) only happens after an administrator switches it on.
+	 */
+	public static function auto_enabled(): bool {
+		return (bool) get_option('wudt_auto_disable_crashing', false);
+	}
+
+	public function ajax_auto_toggle(): void {
+		\WUDT\Includes\Security_Guard::assert_ajax_admin();
+		$enabled = isset($_POST['enabled']) && '1' === sanitize_text_field(wp_unslash($_POST['enabled']));
+		update_option('wudt_auto_disable_crashing', $enabled, false);
+		wp_send_json_success(array('enabled' => $enabled));
 	}
 
 	public function get_key(): string {
@@ -29,7 +45,7 @@ class Crash_Recovery_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Recovery', 'wp-ultimate-diagnostics-toolkit');
+		return __('Recovery', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -38,6 +54,7 @@ class Crash_Recovery_Module extends Module_Base {
 			$data['rescue'] = \WUDT\Includes\Rescue_Manager::status();
 		}
 		$data['last_fatal'] = get_option('wudt_last_fatal_error') ?: null;
+		$data['auto_disable'] = self::auto_enabled();
 		return $data;
 	}
 
@@ -54,7 +71,7 @@ class Crash_Recovery_Module extends Module_Base {
 	 *
 	 * A plugin is deactivated only when it caused real fatal errors in at least
 	 * CRASH_THRESHOLD separate web requests within CRASH_WINDOW seconds. Single
-	 * errors, command-line/cron runs and WP Diagnostics itself never trigger it.
+	 * errors, command-line/cron runs and Diagnostics Toolkit itself never trigger it.
 	 *
 	 * @param array<string,mixed> $error
 	 */
@@ -86,7 +103,7 @@ class Crash_Recovery_Module extends Module_Base {
 		$counts[$plugin] = array_slice($recent, -10);
 		update_option('wudt_crash_counts', $counts, false);
 
-		if (count($recent) < self::CRASH_THRESHOLD || ! get_option('wudt_auto_disable_crashing', true)) {
+		if (count($recent) < self::CRASH_THRESHOLD || ! get_option('wudt_auto_disable_crashing', false)) {
 			$self->log_event('detected', $plugin, $error, count($recent) * 30);
 			return;
 		}
@@ -144,8 +161,8 @@ class Crash_Recovery_Module extends Module_Base {
 	}
 
 	private function is_protected_plugin(string $plugin): bool {
-		// Never switch off WP Diagnostics itself: it is the tool used to recover the site.
-		if ('wp-ultimate-diagnostics.php' === basename($plugin) || plugin_basename(WUDT_PLUGIN_FILE) === $plugin) {
+		// Never switch off Diagnostics Toolkit itself: it is the tool used to recover the site.
+		if ('diagnostics-toolkit.php' === basename($plugin) || plugin_basename(WUDT_PLUGIN_FILE) === $plugin) {
 			return true;
 		}
 		$list = (array) get_option(self::OPTION_WHITELIST, array('query-monitor/query-monitor.php'));

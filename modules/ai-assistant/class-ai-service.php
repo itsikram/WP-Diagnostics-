@@ -30,7 +30,7 @@ class AI_Service {
 		$model = ! empty($options['model']) ? sanitize_text_field((string) $options['model']) : AI_Config::get_model($provider);
 		if ('' === AI_Config::get_key($provider)) {
 			return array(
-				'content' => 'No AI API key is configured. Open WP Diagnostics → AI Assistant → Settings and add a Gemini or Claude API key.',
+				'content' => 'No AI API key is configured. Open Diagnostics Toolkit → AI Assistant → Settings and add a Gemini or Claude API key.',
 				'model'   => 'none',
 			);
 		}

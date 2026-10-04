@@ -35,8 +35,29 @@ class Migration_API {
 		register_rest_route('wudt-migration/v2', '/api', array(
 			'methods'             => 'POST',
 			'callback'            => array($this, 'handle_rest'),
-			'permission_callback' => '__return_true', // Authenticated by signature inside the handler.
+			'permission_callback' => array($this, 'rest_permission'),
 		));
+	}
+
+	/**
+	 * Only requests signed with this site's connection key may use the endpoint.
+	 * (Replay protection and rate limiting are applied by the handler.)
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function rest_permission(\WP_REST_Request $request) {
+		$key = (string) get_option(self::KEY_OPTION, '');
+		$action = sanitize_key((string) $request->get_param('wudt_action'));
+		$ts = (string) $request->get_header('x_wudt_time');
+		$nonce = (string) $request->get_header('x_wudt_nonce');
+		$sig = (string) $request->get_header('x_wudt_sig');
+		if (strlen($key) < 32 || '' === $action || '' === $ts || '' === $sig || strlen($nonce) < 16) {
+			return new \WP_Error('wudt_unsigned', 'Unsigned migration request.', array('status' => 401));
+		}
+		if (! hash_equals(self::sign($key, $action, $ts, $nonce, (string) $request->get_body()), $sig)) {
+			return new \WP_Error('wudt_bad_signature', 'Authentication failed: the connection key does not match this site.', array('status' => 401));
+		}
+		return true;
 	}
 
 	public static function get_local_key(): string {
@@ -77,10 +98,10 @@ class Migration_API {
 		$body = (string) file_get_contents('php://input');
 		$headers = array(
 			'action' => isset($_GET['wudt_action']) ? sanitize_key((string) wp_unslash($_GET['wudt_action'])) : '', // phpcs:ignore WordPress.Security.NonceVerification
-			'ts'     => (string) ($_SERVER['HTTP_X_WUDT_TIME'] ?? ''),
-			'nonce'  => (string) ($_SERVER['HTTP_X_WUDT_NONCE'] ?? ''),
-			'sig'    => (string) ($_SERVER['HTTP_X_WUDT_SIG'] ?? ''),
-			'enc'    => (string) ($_SERVER['HTTP_X_WUDT_ENC'] ?? ''),
+			'ts'     => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_TIME'] ?? '')),
+			'nonce'  => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_NONCE'] ?? '')),
+			'sig'    => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_SIG'] ?? '')),
+			'enc'    => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_ENC'] ?? '')),
 		);
 		$this->respond($this->process($headers, $body));
 	}
@@ -97,7 +118,7 @@ class Migration_API {
 	}
 
 	private function process(array $h, string $body): array {
-		$ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+		$ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
 		$fail_key = 'wudt_mig_fail_' . md5($ip);
 		$fails = (int) get_transient($fail_key);
 		if ($fails >= self::FAIL_LIMIT) {
@@ -106,7 +127,7 @@ class Migration_API {
 
 		$key = (string) get_option(self::KEY_OPTION, '');
 		if (strlen($key) < 32) {
-			return array('ok' => false, 'code' => 'no_key', 'error' => 'The connection key on this site has not been generated yet. Open WP Diagnostics → Site Migration on this site once.');
+			return array('ok' => false, 'code' => 'no_key', 'error' => 'The connection key on this site has not been generated yet. Open Diagnostics Toolkit → Site Migration on this site once.');
 		}
 		if ('' === $h['action'] || '' === $h['ts'] || '' === $h['sig'] || strlen($h['nonce']) < 16) {
 			return array('ok' => false, 'code' => 'bad_request', 'error' => 'Unsigned migration request.');

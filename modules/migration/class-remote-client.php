@@ -113,7 +113,7 @@ class Remote_Client {
 				'body'        => $body,
 				'timeout'     => $timeout,
 				'redirection' => 0,
-				'sslverify'   => false,
+				'sslverify'   => $this->verify_ssl(),
 				'user-agent'  => 'WUDT-Migration/' . (defined('WUDT_VERSION') ? WUDT_VERSION : '2'),
 			));
 			if (is_wp_error($response)) {
@@ -148,12 +148,23 @@ class Remote_Client {
 			return array('error' => sprintf('Remote server error (HTTP %d) during "%s". %s', $code, $action, self::excerpt($raw)), 'retry' => true);
 		}
 		if ('0' === trim($raw) || 400 === $code || 404 === $code) {
-			return array('error' => 'WP Diagnostics (v1.6 or newer) is not active on ' . $this->url . '. Install/update and activate it on the remote site.');
+			return array('error' => 'Diagnostics Toolkit (v1.6 or newer) is not active on ' . $this->url . '. Install/update and activate it on the remote site.');
 		}
 		if (401 === $code || 403 === $code) {
 			return array('error' => sprintf('Access to %s was blocked (HTTP %d) — a firewall or security plugin may be blocking requests. %s', $this->url, $code, self::excerpt($raw)));
 		}
 		return array('error' => sprintf('Unexpected response from %s (HTTP %d): %s', $this->url, $code, self::excerpt($raw)));
+	}
+
+	/**
+	 * Verify TLS certificates, except for local development hosts, which usually
+	 * use self-signed certificates. Filterable for other private setups.
+	 */
+	private function verify_ssl(): bool {
+		$host = strtolower((string) wp_parse_url($this->url, PHP_URL_HOST));
+		$local = in_array($host, array('localhost', '127.0.0.1', '::1'), true)
+			|| (bool) preg_match('/\.(localhost|local|test)$/', $host);
+		return (bool) apply_filters('wudt_migration_sslverify', ! $local, $this->url);
 	}
 
 	private function endpoint(string $transport, string $action): string {

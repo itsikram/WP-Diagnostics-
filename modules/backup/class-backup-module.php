@@ -51,7 +51,7 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Backups', 'wp-ultimate-diagnostics-toolkit');
+		return __('Backups', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -101,10 +101,10 @@ class Backup_Module extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		try {
 			if (Backup_Runner::active_job()) {
-				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'diagnostics-toolkit'));
 			}
-			$components = json_decode((string) wp_unslash($_POST['components'] ?? '[]'), true);
-			$runner = Backup_Runner::create_backup(is_array($components) ? $components : array(), (string) wp_unslash($_POST['note'] ?? ''));
+			$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
+			$runner = Backup_Runner::create_backup(is_array($components) ? $components : array(), sanitize_text_field(wp_unslash($_POST['note'] ?? '')));
 			$state = $runner->get_state();
 			wp_send_json_success(array('job' => $runner->summary(), 'token' => $state['token']));
 		} catch (\Throwable $e) {
@@ -129,7 +129,7 @@ class Backup_Module extends Module_Base {
 	public function ajax_inspect(): void {
 		Security_Guard::assert_ajax_admin();
 		try {
-			$info = Backup_Runner::inspect(Backup_Store::path((string) wp_unslash($_POST['name'] ?? '')));
+			$info = Backup_Runner::inspect(Backup_Store::path(sanitize_text_field(wp_unslash($_POST['name'] ?? ''))));
 			wp_send_json_success(array(
 				'format'     => $info['format'],
 				'components' => $info['components'],
@@ -148,10 +148,10 @@ class Backup_Module extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		try {
 			if (Backup_Runner::active_job()) {
-				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'diagnostics-toolkit'));
 			}
-			$components = json_decode((string) wp_unslash($_POST['components'] ?? '[]'), true);
-			$runner = Backup_Runner::create_restore(Backup_Store::path((string) wp_unslash($_POST['name'] ?? '')), is_array($components) ? $components : array());
+			$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
+			$runner = Backup_Runner::create_restore(Backup_Store::path(sanitize_text_field(wp_unslash($_POST['name'] ?? ''))), is_array($components) ? $components : array());
 			$state = $runner->get_state();
 			wp_send_json_success(array('job' => $runner->summary(), 'token' => $state['token']));
 		} catch (\Throwable $e) {
@@ -162,8 +162,8 @@ class Backup_Module extends Module_Base {
 	public function ajax_delete(): void {
 		Security_Guard::assert_ajax_admin();
 		try {
-			Backup_Store::delete((string) wp_unslash($_POST['name'] ?? ''));
-			Operation_Logger::log('backup', 'Backup deleted', array('name' => (string) wp_unslash($_POST['name'] ?? '')));
+			Backup_Store::delete(sanitize_text_field(wp_unslash($_POST['name'] ?? '')));
+			Operation_Logger::log('backup', 'Backup deleted', array('name' => sanitize_text_field(wp_unslash($_POST['name'] ?? ''))));
 			wp_send_json_success($this->state());
 		} catch (\Throwable $e) {
 			wp_send_json_error(array('message' => $e->getMessage()));
@@ -175,10 +175,10 @@ class Backup_Module extends Module_Base {
 	 */
 	public function ajax_download(): void {
 		if (! current_user_can('manage_options') || ! wp_verify_nonce((string) wp_unslash($_GET['nonce'] ?? ''), 'wudt_admin_nonce')) {
-			wp_die(esc_html__('Your session expired. Reload the page and try again.', 'wp-ultimate-diagnostics-toolkit'), 403);
+			wp_die(esc_html__('Your session expired. Reload the page and try again.', 'diagnostics-toolkit'), 403);
 		}
 		try {
-			$path = Backup_Store::path((string) wp_unslash($_GET['name'] ?? ''));
+			$path = Backup_Store::path(sanitize_text_field(wp_unslash($_GET['name'] ?? '')));
 		} catch (\Throwable $e) {
 			wp_die(esc_html($e->getMessage()), 404);
 		}
@@ -212,11 +212,11 @@ class Backup_Module extends Module_Base {
 			$total = (int) ($_POST['total'] ?? 0);
 			$name = sanitize_file_name((string) wp_unslash($_POST['name'] ?? 'backup.zip'));
 			if (strlen((string) $upload_id) < 12 || ! preg_match('/\.zip$/i', $name)) {
-				throw new \RuntimeException(__('Only .zip backup files can be uploaded.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('Only .zip backup files can be uploaded.', 'diagnostics-toolkit'));
 			}
 			$file = $_FILES['chunk'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 			if (! is_array($file) || UPLOAD_ERR_OK !== (int) $file['error'] || ! is_uploaded_file((string) $file['tmp_name'])) {
-				throw new \RuntimeException(__('A part of the upload was rejected by the server. Try again.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('A part of the upload was rejected by the server. Try again.', 'diagnostics-toolkit'));
 			}
 			$dir = Backup_Runner::backup_dir();
 			$partial = $dir . '/.upload-' . $upload_id . '.part';
@@ -243,7 +243,7 @@ class Backup_Module extends Module_Base {
 					@unlink($final);
 					throw $e;
 				}
-				Backup_Store::save_meta(basename($final), array('note' => __('Uploaded', 'wp-ultimate-diagnostics-toolkit'), 'components' => Backup_Runner::inspect($final)['components'], 'trigger' => 'uploaded', 'created' => time()));
+				Backup_Store::save_meta(basename($final), array('note' => __('Uploaded', 'diagnostics-toolkit'), 'components' => Backup_Runner::inspect($final)['components'], 'trigger' => 'uploaded', 'created' => time()));
 				Operation_Logger::log('backup', 'Backup uploaded', array('name' => basename($final)));
 				wp_send_json_success(array('received' => $received, 'done' => true, 'name' => basename($final), 'state' => $this->state()));
 			}
@@ -255,7 +255,7 @@ class Backup_Module extends Module_Base {
 
 	public function ajax_schedule(): void {
 		Security_Guard::assert_ajax_admin();
-		$components = json_decode((string) wp_unslash($_POST['components'] ?? '[]'), true);
+		$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
 		$config = array(
 			'enabled'    => ! empty($_POST['enabled']),
 			'frequency'  => sanitize_key((string) wp_unslash($_POST['frequency'] ?? 'daily')),
@@ -279,7 +279,7 @@ class Backup_Module extends Module_Base {
 			$result = (new Migration_Engine())->rollback();
 			wp_send_json_success(array(
 				/* translators: 1: tables, 2: files */
-				'message' => sprintf(__('Rolled back: %1$d tables and %2$d files restored to how they were before.', 'wp-ultimate-diagnostics-toolkit'), (int) $result['tables'], (int) $result['files']),
+				'message' => sprintf(__('Rolled back: %1$d tables and %2$d files restored to how they were before.', 'diagnostics-toolkit'), (int) $result['tables'], (int) $result['files']),
 			));
 		} catch (\Throwable $e) {
 			wp_send_json_error(array('message' => $e->getMessage()));
@@ -293,8 +293,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	private function require_job(): Backup_Runner {
-		$id = (string) wp_unslash($_POST['job_id'] ?? '');
-		$token = (string) wp_unslash($_POST['token'] ?? '');
+		$id = sanitize_text_field(wp_unslash($_POST['job_id'] ?? ''));
+		$token = sanitize_text_field(wp_unslash($_POST['token'] ?? ''));
 		try {
 			$runner = Backup_Runner::load($id);
 		} catch (\Throwable $e) {
@@ -302,7 +302,7 @@ class Backup_Module extends Module_Base {
 		}
 		$is_admin = current_user_can('manage_options') && false !== check_ajax_referer('wudt_admin_nonce', 'nonce', false);
 		if (! $runner || (! $runner->check_token($token) && ! $is_admin)) {
-			wp_send_json_error(array('message' => __('Job not found or access denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Job not found or access denied.', 'diagnostics-toolkit')), 403);
 		}
 		return $runner;
 	}
@@ -315,7 +315,7 @@ class Backup_Module extends Module_Base {
 			return;
 		}
 		try {
-			$runner = Backup_Runner::create_backup($config['components'], __('Scheduled backup', 'wp-ultimate-diagnostics-toolkit'), 'scheduled');
+			$runner = Backup_Runner::create_backup($config['components'], __('Scheduled backup', 'diagnostics-toolkit'), 'scheduled');
 			$this->continue_scheduled_backup($runner->get_state()['id']);
 		} catch (\Throwable $e) {
 			Operation_Logger::log('backup', 'Scheduled backup failed', array('error' => $e->getMessage()));
@@ -350,10 +350,10 @@ class Backup_Module extends Module_Base {
 		$components = array_values(array_filter($components, static function ($c) use ($map) {
 			return ! array_key_exists($c, $map);
 		}));
-		$runner = Backup_Runner::create_backup($components, __('Automatic safety backup', 'wp-ultimate-diagnostics-toolkit'), 'auto');
+		$runner = Backup_Runner::create_backup($components, __('Automatic safety backup', 'diagnostics-toolkit'), 'auto');
 		$summary = $runner->run_to_end();
 		if ('done' !== $summary['status']) {
-			throw new \RuntimeException($summary['error'] ?: __('Backup did not complete.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException($summary['error'] ?: __('Backup did not complete.', 'diagnostics-toolkit'));
 		}
 		$state = $runner->get_state();
 		return array(

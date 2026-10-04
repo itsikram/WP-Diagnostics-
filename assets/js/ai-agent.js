@@ -1,5 +1,5 @@
 /**
- * WP Diagnostics — AI Agent chat UI (Gemini / Claude / OpenAI / OpenRouter).
+ * Diagnostics Toolkit — AI Agent chat UI (Gemini / Claude / OpenAI / OpenRouter).
  */
 (function ($) {
 	'use strict';

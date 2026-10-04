@@ -37,8 +37,8 @@ class Pro_Admin_Page {
 	public function register_menu(): void {
 		add_submenu_page(
 			'wudt-diagnostics',
-			__('WP Diagnostics Pro', 'wp-ultimate-diagnostics-toolkit'),
-			__('WP Diagnostics Pro', 'wp-ultimate-diagnostics-toolkit'),
+			__('Admin Tools', 'diagnostics-toolkit'),
+			__('Admin Tools', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-diagnostics-pro',
 			array($this, 'render_page')
@@ -85,16 +85,16 @@ class Pro_Admin_Page {
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
 		?>
 		<div class="wudt-fullscreen-page">
 			<div class="wudt-pro-wrap" style="padding: 20px; overflow-y: auto;">
 				<div class="wudt-pro-header">
-					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/wp-ultimate-diagnostics-toolkit logo.png'); ?>" alt="WP Ultimate Diagnostics Toolkit Logo" class="wudt-pro-logo">
+					<img src="<?php echo esc_url(WUDT_PLUGIN_URL . 'assets/img/logo.svg'); ?>" alt="" class="wudt-pro-logo">
 					<div class="wudt-pro-title">
-						<h1><?php esc_html_e('WP Diagnostics Pro - Admin Operations Suite', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-						<p><?php esc_html_e('Advanced file operations, database manager, malware scanner, logs, performance and security controls.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+						<h1><?php esc_html_e('Diagnostics Toolkit – Admin Tools', 'diagnostics-toolkit'); ?></h1>
+						<p><?php esc_html_e('Advanced file operations, database manager, malware scanner, logs, performance and security controls.', 'diagnostics-toolkit'); ?></p>
 					</div>
 				</div>
 				<div id="wudt-pro-admin-app"></div>
@@ -114,7 +114,7 @@ class Pro_Admin_Page {
 		$tab = isset($_POST['tab']) ? sanitize_text_field(wp_unslash($_POST['tab'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 
 		if (empty($tab)) {
-			wp_send_json_error(new WP_Error('invalid_tab', __('No tab specified.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(new WP_Error('invalid_tab', __('No tab specified.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
@@ -151,7 +151,7 @@ class Pro_Admin_Page {
 	private function check_permissions(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(new WP_Error('forbidden', __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(new WP_Error('forbidden', __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 		}
 	}
 }

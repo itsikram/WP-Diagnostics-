@@ -54,7 +54,7 @@ class Backup_Runner {
 			wp_mkdir_p($dir);
 		}
 		if (! file_exists($dir . '/.htaccess') || false === strpos((string) @file_get_contents($dir . '/.htaccess'), 'denied')) {
-			@file_put_contents($dir . '/.htaccess', "# WP Diagnostics: backups are only downloadable from wp-admin.\nOptions -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+			@file_put_contents($dir . '/.htaccess', "# Diagnostics Toolkit: backups are only downloadable from wp-admin.\nOptions -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
 		}
 		if (! file_exists($dir . '/index.php')) {
 			@file_put_contents($dir . '/index.php', "<?php\n// Silence is golden.\n");
@@ -123,7 +123,7 @@ class Backup_Runner {
 		self::prune_jobs();
 		$components = array_values(array_intersect(array_merge(array('database'), Migration_Engine::COMPONENTS), $components));
 		if (empty($components)) {
-			throw new \RuntimeException(__('Select at least one thing to back up.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Select at least one thing to back up.', 'diagnostics-toolkit'));
 		}
 		$host = preg_replace('/[^a-z0-9.-]/i', '', (string) wp_parse_url(home_url(), PHP_URL_HOST)) ?: 'site';
 		$name = $host . '_' . wp_date('Y-m-d_H-i') . '_' . strtolower(wp_generate_password(8, false, false)) . '.zip';
@@ -136,7 +136,7 @@ class Backup_Runner {
 			'token'      => wp_generate_password(40, false, false),
 			'status'     => 'running',
 			'phase'      => 'database',
-			'message'    => __('Starting backup…', 'wp-ultimate-diagnostics-toolkit'),
+			'message'    => __('Starting backup…', 'diagnostics-toolkit'),
 			'error'      => '',
 			'created'    => time(),
 			'updated'    => time(),
@@ -167,7 +167,7 @@ class Backup_Runner {
 		$info = self::inspect($file);
 		$components = array_values(array_intersect($info['components'], $components));
 		if (empty($components)) {
-			throw new \RuntimeException(__('Select at least one part of the backup to restore.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Select at least one part of the backup to restore.', 'diagnostics-toolkit'));
 		}
 		$id = 'r' . gmdate('ymdHis') . '_' . wp_generate_password(10, false, false);
 		$local = (new Migration_Engine())->site_info();
@@ -184,7 +184,7 @@ class Backup_Runner {
 			'token'      => wp_generate_password(40, false, false),
 			'status'     => 'running',
 			'phase'      => in_array('database', $components, true) ? 'database' : 'files',
-			'message'    => __('Starting restore…', 'wp-ultimate-diagnostics-toolkit'),
+			'message'    => __('Starting restore…', 'diagnostics-toolkit'),
 			'error'      => '',
 			'created'    => time(),
 			'updated'    => time(),
@@ -217,11 +217,11 @@ class Backup_Runner {
 	 */
 	public static function inspect(string $file): array {
 		if (! class_exists('ZipArchive')) {
-			throw new \RuntimeException(__('The PHP Zip extension is required.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('The PHP Zip extension is required.', 'diagnostics-toolkit'));
 		}
 		$zip = new \ZipArchive();
 		if (true !== $zip->open($file)) {
-			throw new \RuntimeException(__('This backup file cannot be opened (damaged or incomplete).', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('This backup file cannot be opened (damaged or incomplete).', 'diagnostics-toolkit'));
 		}
 		$manifest = json_decode((string) $zip->getFromName('manifest.json'), true);
 		$result = array('format' => 1, 'site' => array(), 'components' => array(), 'db_entries' => array(), 'file_count' => 0, 'created' => '', 'note' => '');
@@ -249,7 +249,7 @@ class Backup_Runner {
 			$config = json_decode((string) $zip->getFromName('config.json'), true);
 			if (! is_array($config) && false === $zip->locateName('database.sql')) {
 				$zip->close();
-				throw new \RuntimeException(__('This file is not a WP Diagnostics backup.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('This file is not a Diagnostics Toolkit backup.', 'diagnostics-toolkit'));
 			}
 			$result['site'] = array(
 				'home'   => (string) ($config['site_url'] ?? home_url()),
@@ -328,17 +328,17 @@ class Backup_Runner {
 
 	public function cancel(): array {
 		if ('done' === $this->state['status']) {
-			throw new \RuntimeException(__('This job already finished.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('This job already finished.', 'diagnostics-toolkit'));
 		}
 		if ('backup' === $this->state['type']) {
 			@unlink($this->state['file']);
-			$this->state['message'] = __('Backup cancelled.', 'wp-ultimate-diagnostics-toolkit');
+			$this->state['message'] = __('Backup cancelled.', 'diagnostics-toolkit');
 		} else {
 			if (! empty($this->state['db']['finalized']) || $this->state['fin']['moved'] > 0) {
-				throw new \RuntimeException(__('The restore already started replacing data. Let it finish, then use Roll back if needed.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('The restore already started replacing data. Let it finish, then use Roll back if needed.', 'diagnostics-toolkit'));
 			}
 			$this->engine->cleanup($this->state['id']);
-			$this->state['message'] = __('Restore cancelled. Nothing was changed.', 'wp-ultimate-diagnostics-toolkit');
+			$this->state['message'] = __('Restore cancelled. Nothing was changed.', 'diagnostics-toolkit');
 		}
 		$this->cleanup_work_files();
 		$this->state['status'] = 'cancelled';
@@ -383,14 +383,14 @@ class Backup_Runner {
 		$flags = is_file($this->state['file']) ? 0 : \ZipArchive::CREATE;
 		$res = $zip->open($this->state['file'], $flags);
 		if (true !== $res) {
-			throw new \RuntimeException(sprintf(__('Could not write the backup file (error %d). Check free disk space and permissions of wp-content/uploads.', 'wp-ultimate-diagnostics-toolkit'), (int) $res));
+			throw new \RuntimeException(sprintf(__('Could not write the backup file (error %d). Check free disk space and permissions of wp-content/uploads.', 'diagnostics-toolkit'), (int) $res));
 		}
 		return $zip;
 	}
 
 	private function close_zip(\ZipArchive $zip): void {
 		if (! $zip->close()) {
-			throw new \RuntimeException(__('Could not save the backup file (disk full?).', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Could not save the backup file (disk full?).', 'diagnostics-toolkit'));
 		}
 	}
 
@@ -416,7 +416,7 @@ class Backup_Runner {
 		$bytes_in_step = 0;
 		while ($db['i'] < count($tables) && $this->time_left($budget - 4) && $bytes_in_step < 64 * MB_IN_BYTES) {
 			$table = $tables[$db['i']];
-			$this->state['message'] = sprintf(__('Backing up table %1$s (%2$d/%3$d)…', 'wp-ultimate-diagnostics-toolkit'), $table, $db['i'] + 1, count($tables));
+			$this->state['message'] = sprintf(__('Backing up table %1$s (%2$d/%3$d)…', 'diagnostics-toolkit'), $table, $db['i'] + 1, count($tables));
 			$chunk = $this->engine->export_table_chunk($table, $db['cursor'], array(), 4 * MB_IN_BYTES, 8);
 			$json = (string) wp_json_encode($chunk, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 			$db['part']++;
@@ -447,7 +447,7 @@ class Backup_Runner {
 		}
 		$component = $components[$f['ci']];
 		if ('' === $f['list']) {
-			$this->state['message'] = sprintf(__('Listing %s…', 'wp-ultimate-diagnostics-toolkit'), $component);
+			$this->state['message'] = sprintf(__('Listing %s…', 'diagnostics-toolkit'), $component);
 			$list = $this->engine->prepare_file_list($this->state['id'], $component, array());
 			$f['list'] = $list['file'];
 			$f['root'] = $list['root'];
@@ -490,7 +490,7 @@ class Backup_Runner {
 		}
 		$eof = feof($fh) || false === fgets($fh);
 		fclose($fh);
-		$this->state['message'] = sprintf(__('Backing up %1$s… %2$s files (%3$s)', 'wp-ultimate-diagnostics-toolkit'), $component, number_format_i18n($f['count']), size_format($f['bytes']));
+		$this->state['message'] = sprintf(__('Backing up %1$s… %2$s files (%3$s)', 'diagnostics-toolkit'), $component, number_format_i18n($f['count']), size_format($f['bytes']));
 		$close_started = microtime(true);
 		$this->close_zip($zip);
 		$took = max(0.05, microtime(true) - $close_started);
@@ -510,11 +510,11 @@ class Backup_Runner {
 
 	private function backup_finalize(): void {
 		global $wpdb;
-		$this->state['message'] = __('Finishing…', 'wp-ultimate-diagnostics-toolkit');
+		$this->state['message'] = __('Finishing…', 'diagnostics-toolkit');
 		$info = $this->engine->site_info();
 		$manifest = array(
 			'format'     => self::FORMAT,
-			'generator'  => 'WP Diagnostics ' . (defined('WUDT_VERSION') ? WUDT_VERSION : ''),
+			'generator'  => 'Diagnostics Toolkit ' . (defined('WUDT_VERSION') ? WUDT_VERSION : ''),
 			'created'    => gmdate('c'),
 			'note'       => $this->state['note'],
 			'components' => $this->state['components'],
@@ -538,14 +538,14 @@ class Backup_Runner {
 
 		$check = new \ZipArchive();
 		if (true !== $check->open($this->state['file'], \ZipArchive::CHECKCONS)) {
-			throw new \RuntimeException(__('The finished backup failed its integrity check. Please run the backup again.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('The finished backup failed its integrity check. Please run the backup again.', 'diagnostics-toolkit'));
 		}
 		$check->close();
 
 		$this->cleanup_work_files();
 		$this->state['status'] = 'done';
 		$this->state['phase'] = 'done';
-		$this->state['message'] = __('Backup complete.', 'wp-ultimate-diagnostics-toolkit');
+		$this->state['message'] = __('Backup complete.', 'diagnostics-toolkit');
 		$this->log(sprintf('Backup complete: %s (%s).', $this->state['name'], size_format((int) filesize($this->state['file']))));
 		Operation_Logger::log('backup', 'Backup created', array('file' => $this->state['name'], 'size' => filesize($this->state['file']), 'trigger' => $this->state['trigger']));
 		Backup_Store::save_meta($this->state['name'], array(
@@ -573,7 +573,7 @@ class Backup_Runner {
 				$res = $this->engine->finalize_files($this->state['id'], (int) $this->state['fin']['offset'], max(5, $budget - (microtime(true) - $this->started) - 2));
 				$this->state['fin']['offset'] = (int) $res['next'];
 				$this->state['fin']['moved'] += (int) $res['moved'];
-				$this->state['message'] = __('Putting files in place…', 'wp-ultimate-diagnostics-toolkit');
+				$this->state['message'] = __('Putting files in place…', 'diagnostics-toolkit');
 				if (! empty($res['done'])) {
 					if ($this->state['fin']['moved'] > 0) {
 						$this->log(sprintf('Restored %s files.', number_format_i18n($this->state['fin']['moved'])));
@@ -583,7 +583,7 @@ class Backup_Runner {
 				return;
 			case 'finalize_db':
 				if (in_array('database', $this->state['components'], true) && ! empty($this->state['db']['tables']) && empty($this->state['db']['finalized'])) {
-					$this->state['message'] = __('Switching to the restored database…', 'wp-ultimate-diagnostics-toolkit');
+					$this->state['message'] = __('Switching to the restored database…', 'diagnostics-toolkit');
 					$this->save();
 					$this->engine->finalize_database($this->state['id'], $this->state['db']['tables'], $this->state['prefix']);
 					$this->state['db']['finalized'] = true;
@@ -593,7 +593,7 @@ class Backup_Runner {
 				$this->cleanup_work_files();
 				$this->state['status'] = 'done';
 				$this->state['phase'] = 'done';
-				$this->state['message'] = __('Restore complete.', 'wp-ultimate-diagnostics-toolkit');
+				$this->state['message'] = __('Restore complete.', 'diagnostics-toolkit');
 				$this->log('Restore complete.');
 				Operation_Logger::log('backup', 'Backup restored', array('file' => $this->state['name'], 'components' => $this->state['components']));
 				return;
@@ -610,16 +610,16 @@ class Backup_Runner {
 		$db = &$this->state['db'];
 		$zip = new \ZipArchive();
 		if (true !== $zip->open($this->state['file'])) {
-			throw new \RuntimeException(__('The backup file cannot be opened.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('The backup file cannot be opened.', 'diagnostics-toolkit'));
 		}
 		$entries = $db['entries'];
 		while ($db['i'] < count($entries) && $this->time_left($budget - 3)) {
 			$chunk = json_decode((string) $zip->getFromName($entries[$db['i']]), true);
 			if (! is_array($chunk) || empty($chunk['table'])) {
 				$zip->close();
-				throw new \RuntimeException(sprintf(__('Database data in the backup is damaged (%s).', 'wp-ultimate-diagnostics-toolkit'), $entries[$db['i']]));
+				throw new \RuntimeException(sprintf(__('Database data in the backup is damaged (%s).', 'diagnostics-toolkit'), $entries[$db['i']]));
 			}
-			$this->state['message'] = sprintf(__('Restoring table %1$s (%2$d%%)…', 'wp-ultimate-diagnostics-toolkit'), $chunk['table'], (int) (100 * $db['i'] / max(1, count($entries))));
+			$this->state['message'] = sprintf(__('Restoring table %1$s (%2$d%%)…', 'diagnostics-toolkit'), $chunk['table'], (int) (100 * $db['i'] / max(1, count($entries))));
 			$this->engine->import_table_chunk($this->state['id'], $chunk, $this->state['prefix'], $this->state['url_change'] ? $this->state['pairs'] : array());
 			if (! in_array($chunk['table'], $db['tables'], true)) {
 				$db['tables'][] = $chunk['table'];
@@ -639,12 +639,12 @@ class Backup_Runner {
 		if (! is_file($sql_file)) {
 			$zip = new \ZipArchive();
 			if (true !== $zip->open($this->state['file'])) {
-				throw new \RuntimeException(__('The backup file cannot be opened.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('The backup file cannot be opened.', 'diagnostics-toolkit'));
 			}
 			$in = $zip->getStream('database.sql');
 			$out = fopen($sql_file, 'wb');
 			if (! $in || ! $out) {
-				throw new \RuntimeException(__('Could not read database.sql from the backup.', 'wp-ultimate-diagnostics-toolkit'));
+				throw new \RuntimeException(__('Could not read database.sql from the backup.', 'diagnostics-toolkit'));
 			}
 			stream_copy_to_stream($in, $out);
 			fclose($in);
@@ -687,7 +687,7 @@ class Backup_Runner {
 		}
 		$eof = feof($fh);
 		fclose($fh);
-		$this->state['message'] = sprintf(__('Restoring database… %d%%', 'wp-ultimate-diagnostics-toolkit'), (int) (100 * $db['offset'] / max(1, (int) ($db['size'] ?? 1))));
+		$this->state['message'] = sprintf(__('Restoring database… %d%%', 'diagnostics-toolkit'), (int) (100 * $db['offset'] / max(1, (int) ($db['size'] ?? 1))));
 		if ($eof) {
 			@unlink($sql_file);
 			$this->log(sprintf('Database imported (%d tables), not yet active.', count($db['tables'])));
@@ -703,7 +703,7 @@ class Backup_Runner {
 			return;
 		}
 		$table = $db['tables'][$db['replace_i']];
-		$this->state['message'] = sprintf(__('Updating links in %s…', 'wp-ultimate-diagnostics-toolkit'), $table);
+		$this->state['message'] = sprintf(__('Updating links in %s…', 'diagnostics-toolkit'), $table);
 		$res = $this->engine->replace_in_tmp_table($this->state['id'], $table, $this->state['prefix'], $this->state['pairs'], (int) $db['replace_cursor'], max(4, $budget - (microtime(true) - $this->started) - 2));
 		$db['replace_cursor'] = $res['cursor'];
 		if ($res['done']) {
@@ -721,7 +721,7 @@ class Backup_Runner {
 		}
 		$zip = new \ZipArchive();
 		if (true !== $zip->open($this->state['file'])) {
-			throw new \RuntimeException(__('The backup file cannot be opened.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('The backup file cannot be opened.', 'diagnostics-toolkit'));
 		}
 		$stage = Migration_Engine::storage_dir('stage-' . $this->state['id']);
 		$list = $stage . '/.staged-list';
@@ -749,7 +749,7 @@ class Backup_Runner {
 			$in = $zip->getStream($name);
 			$out = @fopen($target, 'wb');
 			if (! $in || ! $out) {
-				throw new \RuntimeException(sprintf(__('Could not extract %s from the backup.', 'wp-ultimate-diagnostics-toolkit'), $rel));
+				throw new \RuntimeException(sprintf(__('Could not extract %s from the backup.', 'diagnostics-toolkit'), $rel));
 			}
 			$f['bytes'] += (int) stream_copy_to_stream($in, $out);
 			fclose($in);
@@ -761,7 +761,7 @@ class Backup_Runner {
 		if ('' !== $lines) {
 			file_put_contents($list, $lines, FILE_APPEND | LOCK_EX);
 		}
-		$this->state['message'] = sprintf(__('Extracting files… %1$s (%2$s)', 'wp-ultimate-diagnostics-toolkit'), number_format_i18n($f['count']), size_format($f['bytes']));
+		$this->state['message'] = sprintf(__('Extracting files… %1$s (%2$s)', 'diagnostics-toolkit'), number_format_i18n($f['count']), size_format($f['bytes']));
 		if ($f['i'] >= $this->num_entries()) {
 			$this->log(sprintf('Extracted %s files.', number_format_i18n($f['count'])));
 			$this->state['phase'] = 'finalize_files';
@@ -846,7 +846,7 @@ class Backup_Store {
 				return $item['path'];
 			}
 		}
-		throw new \RuntimeException(__('Backup not found.', 'wp-ultimate-diagnostics-toolkit'));
+		throw new \RuntimeException(__('Backup not found.', 'diagnostics-toolkit'));
 	}
 
 	/**
@@ -883,7 +883,7 @@ class Backup_Store {
 	public static function delete(string $name): void {
 		$path = self::path($name);
 		if (! @unlink($path)) {
-			throw new \RuntimeException(__('Could not delete the backup file (permissions).', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Could not delete the backup file (permissions).', 'diagnostics-toolkit'));
 		}
 		$parent = dirname($path);
 		if (wp_normalize_path($parent) !== wp_normalize_path(Backup_Runner::backup_dir()) && 0 === strpos(basename($parent), 'backup-') && 2 >= count((array) scandir($parent))) {

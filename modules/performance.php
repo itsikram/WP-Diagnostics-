@@ -28,7 +28,7 @@ class Performance_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Performance', 'wp-ultimate-diagnostics-toolkit');
+		return __('Performance', 'diagnostics-toolkit');
 	}
 
 	public function mark_start_time(): void {
@@ -104,9 +104,9 @@ class Performance_Module extends Module_Base {
 			'latest_samples'   => array_slice((array) get_option(self::OPTION_KEY, array()), -50),
 			'large_autoloaded' => is_array($autoload_large) ? $autoload_large : array(),
 			'optimizations'    => array(
-				__('Review autoloaded options larger than 100KB.', 'wp-ultimate-diagnostics-toolkit'),
-				__('Disable non-critical plugins on high-traffic pages.', 'wp-ultimate-diagnostics-toolkit'),
-				__('Cache expensive REST and database responses.', 'wp-ultimate-diagnostics-toolkit'),
+				__('Review autoloaded options larger than 100KB.', 'diagnostics-toolkit'),
+				__('Disable non-critical plugins on high-traffic pages.', 'diagnostics-toolkit'),
+				__('Cache expensive REST and database responses.', 'diagnostics-toolkit'),
 			),
 		);
 	}

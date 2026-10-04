@@ -22,7 +22,7 @@ class Pro_Logs_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Logs', 'wp-ultimate-diagnostics-toolkit');
+		return __('Logs', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {

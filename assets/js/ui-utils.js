@@ -1,5 +1,5 @@
 /**
- * WP Ultimate Diagnostics Toolkit - UI Utilities
+ * Diagnostics Toolkit - UI Utilities
  * Modern UI components and utilities for improved UX
  */
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * WP-CLI integration layer for WP Ultimate Diagnostics Toolkit.
+ * WP-CLI integration layer for Diagnostics Toolkit.
  */
 
 declare(strict_types=1);
@@ -27,7 +27,7 @@ if (! class_exists('WP_CLI')) {
 /**
  * Main diagnostics command.
  */
-class WP_Diagnostics_CLI {
+class WUDT_Diagnostics_CLI {
 	/**
 	 * Show compact health status.
 	 *
@@ -393,7 +393,7 @@ class WP_Diagnostics_CLI {
 /**
  * Malware group subcommands.
  */
-class WP_Diagnostics_CLI_Malware {
+class WUDT_Diagnostics_CLI_Malware {
 	/**
 	 * Run scan.
 	 *
@@ -401,7 +401,7 @@ class WP_Diagnostics_CLI_Malware {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function scan(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->malware_scan($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->malware_scan($args, $assoc_args);
 	}
 
 	/**
@@ -411,14 +411,14 @@ class WP_Diagnostics_CLI_Malware {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function clean(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->malware_clean($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->malware_clean($args, $assoc_args);
 	}
 }
 
 /**
  * Database group subcommands.
  */
-class WP_Diagnostics_CLI_DB {
+class WUDT_Diagnostics_CLI_DB {
 	/**
 	 * Optimize database tables.
 	 *
@@ -426,7 +426,7 @@ class WP_Diagnostics_CLI_DB {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function optimize(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->db_optimize($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->db_optimize($args, $assoc_args);
 	}
 
 	/**
@@ -436,14 +436,14 @@ class WP_Diagnostics_CLI_DB {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function repair(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->db_repair($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->db_repair($args, $assoc_args);
 	}
 }
 
 /**
  * File group subcommands.
  */
-class WP_Diagnostics_CLI_File {
+class WUDT_Diagnostics_CLI_File {
 	/**
 	 * Run file scan.
 	 *
@@ -451,7 +451,7 @@ class WP_Diagnostics_CLI_File {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function scan(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->file_scan($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->file_scan($args, $assoc_args);
 	}
 
 	/**
@@ -461,14 +461,14 @@ class WP_Diagnostics_CLI_File {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function integrity(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->file_integrity($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->file_integrity($args, $assoc_args);
 	}
 }
 
 /**
  * Cache group subcommands.
  */
-class WP_Diagnostics_CLI_Cache {
+class WUDT_Diagnostics_CLI_Cache {
 	/**
 	 * Clear cache.
 	 *
@@ -476,12 +476,12 @@ class WP_Diagnostics_CLI_Cache {
 	 * @param array<string,mixed> $assoc_args Assoc args.
 	 */
 	public function clear(array $args, array $assoc_args): void {
-		(new WP_Diagnostics_CLI())->cache_clear($args, $assoc_args);
+		(new WUDT_Diagnostics_CLI())->cache_clear($args, $assoc_args);
 	}
 }
 
-WP_CLI::add_command('diagnostics', 'WP_Diagnostics_CLI');
-WP_CLI::add_command('diagnostics malware', 'WP_Diagnostics_CLI_Malware');
-WP_CLI::add_command('diagnostics db', 'WP_Diagnostics_CLI_DB');
-WP_CLI::add_command('diagnostics file', 'WP_Diagnostics_CLI_File');
-WP_CLI::add_command('diagnostics cache', 'WP_Diagnostics_CLI_Cache');
+WP_CLI::add_command('diagnostics', 'WUDT_Diagnostics_CLI');
+WP_CLI::add_command('diagnostics malware', 'WUDT_Diagnostics_CLI_Malware');
+WP_CLI::add_command('diagnostics db', 'WUDT_Diagnostics_CLI_DB');
+WP_CLI::add_command('diagnostics file', 'WUDT_Diagnostics_CLI_File');
+WP_CLI::add_command('diagnostics cache', 'WUDT_Diagnostics_CLI_Cache');

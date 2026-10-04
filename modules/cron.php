@@ -23,7 +23,7 @@ class Cron_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Cron Jobs', 'wp-ultimate-diagnostics-toolkit');
+		return __('Cron Jobs', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -49,12 +49,12 @@ class Cron_Module extends Module_Base {
 	public function ajax_cron_action(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 		$action    = isset($_POST['cron_action']) ? sanitize_text_field((string) wp_unslash($_POST['cron_action'])) : '';
 		$hook      = isset($_POST['hook']) ? sanitize_text_field((string) wp_unslash($_POST['hook'])) : '';
 		$timestamp = isset($_POST['timestamp']) ? (int) wp_unslash($_POST['timestamp']) : 0;
-		$args      = isset($_POST['args']) ? json_decode((string) wp_unslash($_POST['args']), true) : array();
+		$args      = isset($_POST['args']) ? json_decode((string) wp_unslash($_POST['args']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- event arguments must match the scheduled event exactly to unschedule it.
 		if (! is_array($args)) {
 			$args = array();
 		}
@@ -64,6 +64,6 @@ class Cron_Module extends Module_Base {
 		if ('delete' === $action && $timestamp > 0) {
 			wp_unschedule_event($timestamp, $hook, $args);
 		}
-		wp_send_json_success(array('message' => __('Cron action executed.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Cron action executed.', 'diagnostics-toolkit')));
 	}
 }

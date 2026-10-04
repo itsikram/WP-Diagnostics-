@@ -1,5 +1,5 @@
 /**
- * WP Diagnostics — Backup & Restore UI.
+ * Diagnostics Toolkit — Backup & Restore UI.
  */
 (function ($) {
 	'use strict';
@@ -69,7 +69,7 @@
 			});
 			h += '</tbody></table>';
 		}
-		h += '<div class="wudt-bk-upload"><strong>Restore from a file</strong> <span class="wudt-mig-muted">— upload a backup .zip made by WP Diagnostics (any size; it is sent in parts).</span><br>'
+		h += '<div class="wudt-bk-upload"><strong>Restore from a file</strong> <span class="wudt-mig-muted">— upload a backup .zip made by Diagnostics Toolkit (any size; it is sent in parts).</span><br>'
 			+ '<input type="file" accept=".zip" id="wudt-bk-file"' + (S.upload ? ' disabled' : '') + '>';
 		if (S.upload) { h += ' <span class="wudt-bk-upbar"><span style="width:' + S.upload.pct + '%"></span></span> ' + esc(S.upload.pct) + '%'; }
 		h += '</div></div>';
@@ -128,7 +128,7 @@
 		if (!r.info) { return h + '<p>Reading backup…</p></div>'; }
 		var i = r.info;
 		h += '<p class="wudt-mig-muted">Made ' + esc(i.created) + (i.site.home ? ' on ' + esc(i.site.home) : '') + (i.format < 2 ? ' (older backup format — fully supported)' : '') + '.</p>';
-		if (!i.same_site && i.site.home) { h += '<div class="wudt-mig-notice is-warning">This backup comes from another address; links will be updated to this site automatically. This site’s own URL and WP Diagnostics settings are kept.</div>'; }
+		if (!i.same_site && i.site.home) { h += '<div class="wudt-mig-notice is-warning">This backup comes from another address; links will be updated to this site automatically. This site’s own URL and Diagnostics Toolkit settings are kept.</div>'; }
 		h += '<div class="wudt-mig-grid">';
 		i.components.forEach(function (c) {
 			h += '<label class="wudt-mig-check"><input type="checkbox" data-bk-rcomp="' + esc(c) + '"' + (r.components.indexOf(c) !== -1 ? ' checked' : '') + '> <strong>' + esc(LABELS[c] || c) + '</strong></label>';

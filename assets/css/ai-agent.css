@@ -1,4 +1,4 @@
-/* WP Diagnostics — AI Agent */
+/* Diagnostics Toolkit — AI Agent */
 .wudt-ag { --ag-accent: #4f46e5; --ag-accent-soft: #eef2ff; --ag-line: #e5e7eb; --ag-muted: #6b7280; --ag-bg: #fff; --ag-soft: #f8fafc; --ag-text: #111827; --ag-ok: #059669; --ag-bad: #dc2626; --ag-warn: #d97706;
 	display: grid; grid-template-columns: 250px minmax(0, 1fr); height: calc(100vh - 190px); min-height: 560px; background: var(--ag-bg); border: 1px solid var(--ag-line); border-radius: 12px; overflow: hidden; color: var(--ag-text); position: relative; }
 .wudt-ai-fullscreen .wudt-ag { height: calc(100vh - 80px); }

@@ -34,7 +34,7 @@ class Advanced_Diagnostics_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Advanced Tools', 'wp-ultimate-diagnostics-toolkit');
+		return __('Advanced Tools', 'diagnostics-toolkit');
 	}
 
 	public function start_request_sample(): void {

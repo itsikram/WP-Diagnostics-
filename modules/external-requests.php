@@ -25,7 +25,7 @@ class External_Requests_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('External Requests', 'wp-ultimate-diagnostics-toolkit');
+		return __('External Requests', 'diagnostics-toolkit');
 	}
 
 	/**

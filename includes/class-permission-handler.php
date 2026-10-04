@@ -113,7 +113,7 @@ class Permission_Handler {
 	 * Check if file is part of WUDT plugin
 	 */
 	private function is_wudt_file(string $file): bool {
-		$wudt_marker = 'wp-ultimate-diagnostics-toolkit';
+		$wudt_marker = 'diagnostics-toolkit';
 		return str_contains($file, $wudt_marker);
 	}
 	

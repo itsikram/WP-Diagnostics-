@@ -26,7 +26,7 @@ class Conflict_Detector_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Conflict Detector', 'wp-ultimate-diagnostics-toolkit');
+		return __('Conflict Detector', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -38,9 +38,9 @@ class Conflict_Detector_Module extends Module_Base {
 			'test_mode_enabled' => (bool) get_option(self::TEST_MODE_OPTION, false),
 			'suspected_plugins' => $suspected,
 			'suggestions'       => array(
-				__('Disable recently activated plugins first and test front-end rendering.', 'wp-ultimate-diagnostics-toolkit'),
-				__('Switch temporarily to a default theme and compare behavior.', 'wp-ultimate-diagnostics-toolkit'),
-				__('Use test mode to keep only one plugin active per request.', 'wp-ultimate-diagnostics-toolkit'),
+				__('Disable recently activated plugins first and test front-end rendering.', 'diagnostics-toolkit'),
+				__('Switch temporarily to a default theme and compare behavior.', 'diagnostics-toolkit'),
+				__('Use test mode to keep only one plugin active per request.', 'diagnostics-toolkit'),
 			),
 		);
 	}
@@ -68,7 +68,7 @@ class Conflict_Detector_Module extends Module_Base {
 	public function ajax_toggle_test_mode(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 		$enabled = isset($_POST['enabled']) && '1' === (string) wp_unslash($_POST['enabled']);
 		update_option(self::TEST_MODE_OPTION, $enabled);

@@ -21,19 +21,20 @@ class Security_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Security', 'wp-ultimate-diagnostics-toolkit');
+		return __('Security', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
 		$issues = array();
 		if (defined('WP_DEBUG') && WP_DEBUG) {
-			$issues[] = __('WP_DEBUG is enabled. Disable in production.', 'wp-ultimate-diagnostics-toolkit');
+			$issues[] = __('WP_DEBUG is enabled. Disable in production.', 'diagnostics-toolkit');
 		}
 		$wp_config = ABSPATH . 'wp-config.php';
 		if (file_exists($wp_config)) {
 			$perm = substr(sprintf('%o', (int) fileperms($wp_config)), -4);
 			if ((int) $perm > 640) {
-				$issues[] = sprintf(__('wp-config.php permissions are too open (%s).', 'wp-ultimate-diagnostics-toolkit'), $perm);
+				/* translators: %s: file permissions, e.g. 0644 */
+				$issues[] = sprintf(__('wp-config.php permissions are too open (%s).', 'diagnostics-toolkit'), $perm);
 			}
 		}
 		$files = array('.env', '.git/config', 'composer.json', 'composer.lock');
@@ -44,7 +45,7 @@ class Security_Module extends Module_Base {
 			}
 		}
 		if (! empty($exposed)) {
-			$issues[] = __('Sensitive files found in web root: ', 'wp-ultimate-diagnostics-toolkit') . implode(', ', $exposed);
+			$issues[] = __('Sensitive files found in web root: ', 'diagnostics-toolkit') . implode(', ', $exposed);
 		}
 
 		return array(

@@ -1,13 +1,15 @@
 <?php
 /**
- * Plugin Name: WP Ultimate Diagnostics Toolkit
- * Plugin URI: https://example.com/wp-ultimate-diagnostics-toolkit
- * Description: All-in-one diagnostics toolkit for performance, security, errors, conflicts, REST, cron, and database checks.
- * Version: 1.6.0
- * Author: Programmer Ikram
+ * Plugin Name:       Diagnostics Toolkit
+ * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, database and file manager, backups, site migration and an AI troubleshooting assistant.
+ * Version:           1.7.0
  * Requires at least: 6.4
- * Requires PHP: 8.0
- * Text Domain: wp-ultimate-diagnostics-toolkit
+ * Requires PHP:      8.0
+ * Author:            Programmer Ikram
+ * Author URI:        https://profiles.wordpress.org/itsikram/
+ * License:           GPL-2.0-or-later
+ * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain:       diagnostics-toolkit
  */
 
 declare(strict_types=1);
@@ -19,7 +21,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('WUDT_VERSION')) {
-	define('WUDT_VERSION', '1.6.0');
+	define('WUDT_VERSION', '1.7.0');
 }
 if (! defined('WUDT_PLUGIN_FILE')) {
 	define('WUDT_PLUGIN_FILE', __FILE__);
@@ -124,7 +126,7 @@ safe_require('admin/class-modern-admin-page.php');
 safe_require('admin/class-search-page.php');
 safe_require('includes/class-plugin.php');
 if (defined('WP_CLI') && WP_CLI) {
-	safe_require('cli/class-wp-diagnostics-cli.php');
+	safe_require('cli/class-cli.php');
 }
 
 function bootstrap(): void {
@@ -137,18 +139,11 @@ function bootstrap(): void {
 
 add_action('plugins_loaded', __NAMESPACE__ . '\\bootstrap');
 
-// Rescue access is registered outside the main bootstrap so it keeps working
+// Safe mode is registered outside the main bootstrap so it keeps working
 // even if a module fails to load.
 if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
 	(new Includes\Rescue_Manager())->register_hooks();
 }
-
-register_activation_hook(__FILE__, static function (): void {
-	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
-		Includes\Rescue_Manager::get_key();
-		Includes\Rescue_Manager::install_loader();
-	}
-});
 
 register_deactivation_hook(__FILE__, static function (): void {
 	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {

@@ -26,8 +26,8 @@ class Search_Page {
 	public function register_menu(): void {
 		add_submenu_page(
 			'wudt-diagnostics',
-			__('Search & Replace', 'wp-ultimate-diagnostics-toolkit'),
-			__('Search', 'wp-ultimate-diagnostics-toolkit'),
+			__('Search & Replace', 'diagnostics-toolkit'),
+			__('Search', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-search',
 			array($this, 'render_page')
@@ -56,61 +56,61 @@ class Search_Page {
 			'directories'     => $directories,
 			'malwarePatterns' => $patterns,
 			'labels'          => array(
-				'searching'         => __('Searching...', 'wp-ultimate-diagnostics-toolkit'),
-				'noResults'         => __('No results found.', 'wp-ultimate-diagnostics-toolkit'),
-				'matchesFound'      => __('matches found', 'wp-ultimate-diagnostics-toolkit'),
-				'replacePreview'    => __('Replace Preview', 'wp-ultimate-diagnostics-toolkit'),
-				'confirmReplace'    => __('Are you sure you want to proceed with replacement?', 'wp-ultimate-diagnostics-toolkit'),
-				'backupFirst'       => __('Create backup before replacing', 'wp-ultimate-diagnostics-toolkit'),
-				'filesModified'     => __('files modified', 'wp-ultimate-diagnostics-toolkit'),
-				'rowsModified'      => __('rows modified', 'wp-ultimate-diagnostics-toolkit'),
-				'error'             => __('Error', 'wp-ultimate-diagnostics-toolkit'),
-				'success'           => __('Success', 'wp-ultimate-diagnostics-toolkit'),
+				'searching'         => __('Searching...', 'diagnostics-toolkit'),
+				'noResults'         => __('No results found.', 'diagnostics-toolkit'),
+				'matchesFound'      => __('matches found', 'diagnostics-toolkit'),
+				'replacePreview'    => __('Replace Preview', 'diagnostics-toolkit'),
+				'confirmReplace'    => __('Are you sure you want to proceed with replacement?', 'diagnostics-toolkit'),
+				'backupFirst'       => __('Create backup before replacing', 'diagnostics-toolkit'),
+				'filesModified'     => __('files modified', 'diagnostics-toolkit'),
+				'rowsModified'      => __('rows modified', 'diagnostics-toolkit'),
+				'error'             => __('Error', 'diagnostics-toolkit'),
+				'success'           => __('Success', 'diagnostics-toolkit'),
 			),
 		));
 	}
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
 		?>
 		<div class="wudt-fullscreen-page">
 			<div style="padding: 20px; overflow-y: auto;">
-				<h1><?php esc_html_e('Global Search & Replace', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-				<p><?php esc_html_e('Search across WordPress files and database with advanced filters.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+				<h1><?php esc_html_e('Global Search & Replace', 'diagnostics-toolkit'); ?></h1>
+				<p><?php esc_html_e('Search across WordPress files and database with advanced filters.', 'diagnostics-toolkit'); ?></p>
 
 				<!-- Search Form -->
 				<div class="wudt-card">
 				<div class="wudt-form-group">
 					<label class="wudt-label" for="wudt-search-input">
-						<?php esc_html_e('Search Text', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Search Text', 'diagnostics-toolkit'); ?>
 					</label>
 					<div class="wudt-search-input-wrap">
 						<input type="text" id="wudt-search-input" class="wudt-input wudt-input--lg" 
-							placeholder="<?php esc_attr_e('Enter text or pattern to search...', 'wp-ultimate-diagnostics-toolkit'); ?>" />
+							placeholder="<?php esc_attr_e('Enter text or pattern to search...', 'diagnostics-toolkit'); ?>" />
 						<button type="button" id="wudt-search-btn" class="wudt-btn wudt-btn--primary wudt-btn--lg">
 							<span class="dashicons dashicons-search"></span>
-							<?php esc_html_e('Search', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Search', 'diagnostics-toolkit'); ?>
 						</button>
 					</div>
 				</div>
 
 				<!-- Malware Pattern Presets -->
 				<div class="wudt-form-group">
-					<label class="wudt-label"><?php esc_html_e('Quick Patterns (Malware Detection)', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+					<label class="wudt-label"><?php esc_html_e('Quick Patterns (Malware Detection)', 'diagnostics-toolkit'); ?></label>
 					<div class="wudt-pattern-presets" id="wudt-pattern-presets">
 						<button type="button" class="wudt-btn wudt-btn--sm" data-pattern="eval\s*\(\s*base64_decode">
-							<?php esc_html_e('eval(base64)', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('eval(base64)', 'diagnostics-toolkit'); ?>
 						</button>
 						<button type="button" class="wudt-btn wudt-btn--sm" data-pattern="base64_decode\s*\(">
-							<?php esc_html_e('base64_decode', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('base64_decode', 'diagnostics-toolkit'); ?>
 						</button>
 						<button type="button" class="wudt-btn wudt-btn--sm" data-pattern="shell_exec\s*\(">
-							<?php esc_html_e('shell_exec', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('shell_exec', 'diagnostics-toolkit'); ?>
 						</button>
 						<button type="button" class="wudt-btn wudt-btn--sm" data-pattern="<iframe[^>]*src\s*=\s*[\"\']https?://">
-							<?php esc_html_e('iframe injection', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('iframe injection', 'diagnostics-toolkit'); ?>
 						</button>
 					</div>
 				</div>
@@ -119,28 +119,28 @@ class Search_Page {
 				<div class="wudt-form-group">
 					<label class="wudt-checkbox">
 						<input type="checkbox" id="wudt-regex" />
-						<?php esc_html_e('Regular Expression', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Regular Expression', 'diagnostics-toolkit'); ?>
 					</label>
 					<label class="wudt-checkbox">
 						<input type="checkbox" id="wudt-case-sensitive" />
-						<?php esc_html_e('Case Sensitive', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Case Sensitive', 'diagnostics-toolkit'); ?>
 					</label>
 					<label class="wudt-checkbox">
 						<input type="checkbox" id="wudt-whole-word" />
-						<?php esc_html_e('Whole Word Match', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Whole Word Match', 'diagnostics-toolkit'); ?>
 					</label>
 				</div>
 			</div>
 
 			<!-- Target Selection -->
 			<div class="wudt-card">
-				<h3><?php esc_html_e('Search In', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+				<h3><?php esc_html_e('Search In', 'diagnostics-toolkit'); ?></h3>
 				
 				<div class="wudt-search-targets">
 					<label class="wudt-checkbox wudt-search-target">
 						<input type="checkbox" id="wudt-search-files" checked />
 						<span class="wudt-checkbox-label">
-							<?php esc_html_e('Files', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Files', 'diagnostics-toolkit'); ?>
 							<span class="wudt-badge wudt-badge--neutral">PHP, JS, CSS, HTML</span>
 						</span>
 					</label>
@@ -148,7 +148,7 @@ class Search_Page {
 					<label class="wudt-checkbox wudt-search-target">
 						<input type="checkbox" id="wudt-search-db" />
 						<span class="wudt-checkbox-label">
-							<?php esc_html_e('Database', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Database', 'diagnostics-toolkit'); ?>
 							<span class="wudt-badge wudt-badge--neutral">posts, meta, options</span>
 						</span>
 					</label>
@@ -156,21 +156,21 @@ class Search_Page {
 
 				<!-- File Search Filters -->
 				<div id="wudt-file-filters" class="wudt-filters-section">
-					<h4><?php esc_html_e('File Filters', 'wp-ultimate-diagnostics-toolkit'); ?></h4>
+					<h4><?php esc_html_e('File Filters', 'diagnostics-toolkit'); ?></h4>
 					
 					<div class="wudt-form-group">
-						<label class="wudt-label"><?php esc_html_e('Directory', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+						<label class="wudt-label"><?php esc_html_e('Directory', 'diagnostics-toolkit'); ?></label>
 						<select id="wudt-directory" class="wudt-select">
-							<option value="root"><?php esc_html_e('WordPress Root', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-							<option value="wp-content" selected><?php esc_html_e('wp-content/', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-							<option value="plugins"><?php esc_html_e('plugins/', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-							<option value="themes"><?php esc_html_e('themes/', 'wp-ultimate-diagnostics-toolkit'); ?></option>
-							<option value="uploads"><?php esc_html_e('uploads/', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+							<option value="root"><?php esc_html_e('WordPress Root', 'diagnostics-toolkit'); ?></option>
+							<option value="wp-content" selected><?php esc_html_e('wp-content/', 'diagnostics-toolkit'); ?></option>
+							<option value="plugins"><?php esc_html_e('plugins/', 'diagnostics-toolkit'); ?></option>
+							<option value="themes"><?php esc_html_e('themes/', 'diagnostics-toolkit'); ?></option>
+							<option value="uploads"><?php esc_html_e('uploads/', 'diagnostics-toolkit'); ?></option>
 						</select>
 					</div>
 
 					<div class="wudt-form-group">
-						<label class="wudt-label"><?php esc_html_e('File Extensions', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+						<label class="wudt-label"><?php esc_html_e('File Extensions', 'diagnostics-toolkit'); ?></label>
 						<div class="wudt-checkbox-group">
 							<label class="wudt-checkbox"><input type="checkbox" value="php" checked /> .php</label>
 							<label class="wudt-checkbox"><input type="checkbox" value="js" checked /> .js</label>
@@ -183,45 +183,45 @@ class Search_Page {
 
 				<!-- Database Filters -->
 				<div id="wudt-db-filters" class="wudt-filters-section" style="display:none;">
-					<h4><?php esc_html_e('Database Filters', 'wp-ultimate-diagnostics-toolkit'); ?></h4>
+					<h4><?php esc_html_e('Database Filters', 'diagnostics-toolkit'); ?></h4>
 					
 					<div class="wudt-form-group">
-						<label class="wudt-label"><?php esc_html_e('Select Tables', 'wp-ultimate-diagnostics-toolkit'); ?></label>
+						<label class="wudt-label"><?php esc_html_e('Select Tables', 'diagnostics-toolkit'); ?></label>
 						<select id="wudt-tables" class="wudt-select" multiple>
-							<option value=""><?php esc_html_e('Loading tables...', 'wp-ultimate-diagnostics-toolkit'); ?></option>
+							<option value=""><?php esc_html_e('Loading tables...', 'diagnostics-toolkit'); ?></option>
 						</select>
-						<p class="wudt-input-hint"><?php esc_html_e('Leave empty to search all tables. Hold Ctrl/Cmd to select multiple.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+						<p class="wudt-input-hint"><?php esc_html_e('Leave empty to search all tables. Hold Ctrl/Cmd to select multiple.', 'diagnostics-toolkit'); ?></p>
 					</div>
 				</div>
 			</div>
 
 			<!-- Replace Section -->
 			<div class="wudt-card" id="wudt-replace-section" style="display:none;">
-				<h3><?php esc_html_e('Replace With', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+				<h3><?php esc_html_e('Replace With', 'diagnostics-toolkit'); ?></h3>
 				
 				<div class="wudt-form-group">
 					<label class="wudt-label" for="wudt-replace-input">
-						<?php esc_html_e('Replace Text (Optional)', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Replace Text (Optional)', 'diagnostics-toolkit'); ?>
 					</label>
 					<input type="text" id="wudt-replace-input" class="wudt-input" 
-						placeholder="<?php esc_attr_e('Leave empty for search-only...', 'wp-ultimate-diagnostics-toolkit'); ?>" />
+						placeholder="<?php esc_attr_e('Leave empty for search-only...', 'diagnostics-toolkit'); ?>" />
 				</div>
 
 				<div class="wudt-form-group">
 					<label class="wudt-checkbox">
 						<input type="checkbox" id="wudt-create-backup" checked />
-						<?php esc_html_e('Create backup before replacing', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Create backup before replacing', 'diagnostics-toolkit'); ?>
 					</label>
 				</div>
 
 				<button type="button" id="wudt-preview-replace-btn" class="wudt-btn wudt-btn--secondary">
-					<?php esc_html_e('Preview Changes', 'wp-ultimate-diagnostics-toolkit'); ?>
+					<?php esc_html_e('Preview Changes', 'diagnostics-toolkit'); ?>
 				</button>
 			</div>
 
 			<!-- Progress Indicator -->
 			<div id="wudt-search-progress" class="wudt-card" style="display:none;">
-				<h3><?php esc_html_e('Searching...', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+				<h3><?php esc_html_e('Searching...', 'diagnostics-toolkit'); ?></h3>
 				<div class="wudt-progress wudt-progress--lg">
 					<div class="wudt-progress__bar" style="width: 0%"></div>
 				</div>
@@ -231,25 +231,25 @@ class Search_Page {
 			<!-- Results Container -->
 			<div id="wudt-results-container" style="display:none;">
 				<div class="wudt-results-header">
-					<h2><?php esc_html_e('Search Results', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<h2><?php esc_html_e('Search Results', 'diagnostics-toolkit'); ?></h2>
 					<div class="wudt-results-actions">
 						<span id="wudt-results-count" class="wudt-badge wudt-badge--primary"></span>
 						<button type="button" id="wudt-export-results" class="wudt-btn wudt-btn--ghost wudt-btn--sm">
 							<span class="dashicons dashicons-download"></span>
-							<?php esc_html_e('Export', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Export', 'diagnostics-toolkit'); ?>
 						</button>
 					</div>
 				</div>
 
 				<!-- File Results -->
 				<div id="wudt-file-results" class="wudt-results-section">
-					<h3><?php esc_html_e('File Matches', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+					<h3><?php esc_html_e('File Matches', 'diagnostics-toolkit'); ?></h3>
 					<div class="wudt-results-list" id="wudt-file-results-list"></div>
 				</div>
 
 				<!-- Database Results -->
 				<div id="wudt-db-results" class="wudt-results-section" style="display:none;">
-					<h3><?php esc_html_e('Database Matches', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+					<h3><?php esc_html_e('Database Matches', 'diagnostics-toolkit'); ?></h3>
 					<div class="wudt-results-list" id="wudt-db-results-list"></div>
 				</div>
 			</div>
@@ -258,7 +258,7 @@ class Search_Page {
 			<div id="wudt-replace-preview-modal" class="wudt-modal-overlay" style="display:none;">
 				<div class="wudt-modal wudt-modal--lg">
 					<div class="wudt-modal__header">
-						<h3 class="wudt-modal__title"><?php esc_html_e('Replace Preview', 'wp-ultimate-diagnostics-toolkit'); ?></h3>
+						<h3 class="wudt-modal__title"><?php esc_html_e('Replace Preview', 'diagnostics-toolkit'); ?></h3>
 						<button type="button" class="wudt-modal__close" id="wudt-close-preview">&times;</button>
 					</div>
 					<div class="wudt-modal__body">
@@ -267,10 +267,10 @@ class Search_Page {
 					</div>
 					<div class="wudt-modal__footer">
 						<button type="button" class="wudt-btn wudt-btn--secondary" id="wudt-cancel-replace">
-							<?php esc_html_e('Cancel', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Cancel', 'diagnostics-toolkit'); ?>
 						</button>
 						<button type="button" class="wudt-btn wudt-btn--danger" id="wudt-confirm-replace">
-							<?php esc_html_e('Confirm Replace', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php esc_html_e('Confirm Replace', 'diagnostics-toolkit'); ?>
 						</button>
 					</div>
 				</div>

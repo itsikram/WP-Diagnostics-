@@ -38,7 +38,7 @@ class Restore_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Restore', 'wp-ultimate-diagnostics-toolkit');
+		return __('Restore', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -208,8 +208,8 @@ class Restore_Module extends Module_Base {
 	public function ajax_cancel_restore(): void {
 		Security_Guard::assert_ajax_admin();
 		delete_transient(self::TRANSIENT_LOCK);
-		$this->set_progress('cancelled', 0, __('Restore cancelled by user', 'wp-ultimate-diagnostics-toolkit'));
-		wp_send_json_success(array('message' => __('Restore cancelled', 'wp-ultimate-diagnostics-toolkit')));
+		$this->set_progress('cancelled', 0, __('Restore cancelled by user', 'diagnostics-toolkit'));
+		wp_send_json_success(array('message' => __('Restore cancelled', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -221,20 +221,20 @@ class Restore_Module extends Module_Base {
 		$url = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
 
 		if (empty($url)) {
-			wp_send_json_error(array('message' => __('No URL provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('No URL provided.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
 		// Validate URL
 		if (!filter_var($url, FILTER_VALIDATE_URL)) {
-			wp_send_json_error(array('message' => __('Invalid URL format.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Invalid URL format.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
 		// Only allow http/https
 		$scheme = parse_url($url, PHP_URL_SCHEME);
 		if (!in_array($scheme, array('http', 'https'), true)) {
-			wp_send_json_error(array('message' => __('Only HTTP and HTTPS URLs are allowed.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Only HTTP and HTTPS URLs are allowed.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 
@@ -247,7 +247,7 @@ class Restore_Module extends Module_Base {
 		}
 
 		if (!is_dir($backup_dir) || !is_writable($backup_dir)) {
-			wp_send_json_error(array('message' => __('Backup directory is not writable.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Backup directory is not writable.', 'diagnostics-toolkit')), 500);
 			return;
 		}
 
@@ -281,32 +281,32 @@ class Restore_Module extends Module_Base {
 		));
 
 		if (is_wp_error($response)) {
-			wp_send_json_error(array('message' => __('Download failed: ', 'wp-ultimate-diagnostics-toolkit') . $response->get_error_message()), 500);
+			wp_send_json_error(array('message' => __('Download failed: ', 'diagnostics-toolkit') . $response->get_error_message()), 500);
 			return;
 		}
 
 		$status_code = wp_remote_retrieve_response_code($response);
 		if ($status_code !== 200) {
-			wp_send_json_error(array('message' => __('Download failed with HTTP status: ', 'wp-ultimate-diagnostics-toolkit') . $status_code), 500);
+			wp_send_json_error(array('message' => __('Download failed with HTTP status: ', 'diagnostics-toolkit') . $status_code), 500);
 			return;
 		}
 
 		$body = wp_remote_retrieve_body($response);
 		if (empty($body)) {
-			wp_send_json_error(array('message' => __('Downloaded file is empty.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Downloaded file is empty.', 'diagnostics-toolkit')), 500);
 			return;
 		}
 
 		// Save the file
 		if (false === file_put_contents($target_path, $body)) {
-			wp_send_json_error(array('message' => __('Failed to save downloaded file.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Failed to save downloaded file.', 'diagnostics-toolkit')), 500);
 			return;
 		}
 
 		$file_size = filesize($target_path);
 
 		wp_send_json_success(array(
-			'message' => __('Backup downloaded successfully.', 'wp-ultimate-diagnostics-toolkit'),
+			'message' => __('Backup downloaded successfully.', 'diagnostics-toolkit'),
 			'name'    => $filename,
 			'path'    => $target_path,
 			'url'     => $upload_dir['baseurl'] . '/wudt-backups/' . $filename,
@@ -349,10 +349,10 @@ class Restore_Module extends Module_Base {
 
 	public function ajax_preview(): void {
 		Security_Guard::assert_ajax_admin();
-		$path = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
+		$path = isset($_POST['backup_path']) ? sanitize_text_field(wp_unslash($_POST['backup_path'])) : '';
 		
 		if (empty($path)) {
-			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('No backup path provided.', 'diagnostics-toolkit')), 400);
 		}
 		
 		// Validate path is within backup directory
@@ -366,7 +366,7 @@ class Restore_Module extends Module_Base {
 				$safe = Security_Guard::normalize_inside_wp($path);
 			} catch (\RuntimeException $e) {
 				Operation_Logger::log('restore', 'Preview path rejected', array('path' => $path));
-				wp_send_json_error(array('message' => __('Invalid backup path.', 'wp-ultimate-diagnostics-toolkit')), 400);
+				wp_send_json_error(array('message' => __('Invalid backup path.', 'diagnostics-toolkit')), 400);
 				return;
 			}
 			$normalized_path = $safe;
@@ -375,12 +375,12 @@ class Restore_Module extends Module_Base {
 		$safe = $normalized_path;
 		
 		if (! file_exists($safe) || ! is_readable($safe)) {
-			wp_send_json_error(array('message' => __('Backup file not found or not readable.', 'wp-ultimate-diagnostics-toolkit')), 404);
+			wp_send_json_error(array('message' => __('Backup file not found or not readable.', 'diagnostics-toolkit')), 404);
 			return;
 		}
 		
 		if (! is_readable($safe)) {
-			wp_send_json_error(array('message' => __('Backup file is not readable.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Backup file is not readable.', 'diagnostics-toolkit')), 403);
 			return;
 		}
 		
@@ -410,7 +410,7 @@ class Restore_Module extends Module_Base {
 					ob_end_clean();
 				}
 				wp_send_json_error(array(
-					'message' => __('Fatal error during restore: ', 'wp-ultimate-diagnostics-toolkit') . $error['message']
+					'message' => __('Fatal error during restore: ', 'diagnostics-toolkit') . $error['message']
 				), 500);
 			}
 		});
@@ -433,19 +433,19 @@ class Restore_Module extends Module_Base {
 		// Check if another restore is in progress
 		if ($this->is_restore_locked()) {
 			ob_end_clean();
-			wp_send_json_error(array('message' => __('Another restore operation is in progress. Please wait or cancel it.', 'wp-ultimate-diagnostics-toolkit')), 423);
+			wp_send_json_error(array('message' => __('Another restore operation is in progress. Please wait or cancel it.', 'diagnostics-toolkit')), 423);
 			return;
 		}
 		
-		$path        = isset($_POST['backup_path']) ? (string) wp_unslash($_POST['backup_path']) : '';
+		$path        = isset($_POST['backup_path']) ? sanitize_text_field(wp_unslash($_POST['backup_path'])) : '';
 		
 		if (empty($path)) {
 			ob_end_clean();
-			wp_send_json_error(array('message' => __('No backup path provided.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('No backup path provided.', 'diagnostics-toolkit')), 400);
 			return;
 		}
 		
-		$options     = isset($_POST['restore_options']) ? (array) json_decode((string) wp_unslash($_POST['restore_options']), true) : array();
+		$options     = isset($_POST['restore_options']) ? (array) json_decode(sanitize_text_field(wp_unslash($_POST['restore_options'])), true) : array();
 		$safe_mode   = isset($_POST['safe_mode']) && '1' === (string) wp_unslash($_POST['safe_mode']);
 		$media_base  = isset($_POST['media_base']) ? sanitize_text_field((string) wp_unslash($_POST['media_base'])) : '';
 		
@@ -461,7 +461,7 @@ class Restore_Module extends Module_Base {
 			} catch (\RuntimeException $e) {
 				Operation_Logger::log('restore', 'Restore path rejected', array('path' => $path));
 				ob_end_clean();
-				wp_send_json_error(array('message' => __('Invalid backup path.', 'wp-ultimate-diagnostics-toolkit')), 400);
+				wp_send_json_error(array('message' => __('Invalid backup path.', 'diagnostics-toolkit')), 400);
 				return;
 			}
 			$normalized_path = $archive;
@@ -471,7 +471,7 @@ class Restore_Module extends Module_Base {
 		
 		if (! file_exists($archive)) {
 			ob_end_clean();
-			wp_send_json_error(array('message' => __('Backup file does not exist.', 'wp-ultimate-diagnostics-toolkit')), 404);
+			wp_send_json_error(array('message' => __('Backup file does not exist.', 'diagnostics-toolkit')), 404);
 			return;
 		}
 		
@@ -482,7 +482,7 @@ class Restore_Module extends Module_Base {
 		if (!$pre_checks['can_restore']) {
 			ob_end_clean();
 			wp_send_json_error(array(
-				'message' => __('Pre-restore checks failed. Please review the requirements.', 'wp-ultimate-diagnostics-toolkit'),
+				'message' => __('Pre-restore checks failed. Please review the requirements.', 'diagnostics-toolkit'),
 				'checks' => $pre_checks
 			), 400);
 			return;
@@ -493,7 +493,7 @@ class Restore_Module extends Module_Base {
 		
 		// Clear any stale progress and set initial status
 		delete_transient(self::TRANSIENT_PROGRESS);
-		$this->set_progress('preparing', 5, __('Starting restore...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('preparing', 5, __('Starting restore...', 'diagnostics-toolkit'));
 		
 		try {
 			$preserve_plugins = isset($_POST['preserve_plugins']) && '1' === (string) wp_unslash($_POST['preserve_plugins']);
@@ -513,14 +513,14 @@ class Restore_Module extends Module_Base {
 			wp_send_json_error(array('message' => $e->getMessage()), 500);
 		} catch (\Throwable $e) {
 			$this->unlock_restore();
-			$this->set_progress('error', 0, __('Unexpected error: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage());
+			$this->set_progress('error', 0, __('Unexpected error: ', 'diagnostics-toolkit') . $e->getMessage());
 			Operation_Logger::log('restore', 'Restore failed with exception', array(
 				'error' => $e->getMessage(),
 				'file' => $e->getFile(),
 				'line' => $e->getLine()
 			));
 			ob_end_clean();
-			wp_send_json_error(array('message' => __('Unexpected error during restore: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage()), 500);
+			wp_send_json_error(array('message' => __('Unexpected error during restore: ', 'diagnostics-toolkit') . $e->getMessage()), 500);
 		}
 	}
 
@@ -576,7 +576,7 @@ class Restore_Module extends Module_Base {
 		// Pre-checks
 		$backup_dir = wp_upload_dir();
 		if (! empty($backup_dir['error'])) {
-			throw new \RuntimeException(__('Upload directory error: ', 'wp-ultimate-diagnostics-toolkit') . $backup_dir['error']);
+			throw new \RuntimeException(__('Upload directory error: ', 'diagnostics-toolkit') . $backup_dir['error']);
 		}
 		
 		if (0 !== (int) $original_max_execution_time) {
@@ -584,27 +584,27 @@ class Restore_Module extends Module_Base {
 		}
 		
 		// Send heartbeat to prevent session timeout
-		$this->set_progress('preparing', 5, __('Creating temporary working directory...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('preparing', 5, __('Creating temporary working directory...', 'diagnostics-toolkit'));
 		
 		$upload_dir = wp_get_upload_dir();
 		$temp = $upload_dir['basedir'] . '/wudt-restore-' . wp_generate_password(10, false, false) . '/';
 		
 		// Check if uploads directory is writable
 		if (!is_writable($upload_dir['basedir'])) {
-			throw new \RuntimeException(__('Uploads directory is not writable: ', 'wp-ultimate-diagnostics-toolkit') . $upload_dir['basedir']);
+			throw new \RuntimeException(__('Uploads directory is not writable: ', 'diagnostics-toolkit') . $upload_dir['basedir']);
 		}
 		
 		if (!wp_mkdir_p($temp)) {
 			// Try to get more details about why it failed
 			$error = error_get_last();
 			$error_msg = $error ? $error['message'] : 'Unknown error';
-			throw new \RuntimeException(__('Failed to create temporary directory for restore: ', 'wp-ultimate-diagnostics-toolkit') . $error_msg);
+			throw new \RuntimeException(__('Failed to create temporary directory for restore: ', 'diagnostics-toolkit') . $error_msg);
 		}
 
 		// Create safety backup ONLY if safe_mode checkbox is explicitly checked
 		$safety_backup = null;
 		if ($safe_mode) {
-			$this->set_progress('safety_backup', 8, __('Creating safety backup first...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('safety_backup', 8, __('Creating safety backup first...', 'diagnostics-toolkit'));
 			try {
 				$backup = new Backup_Module();
 				$safety_backup = $backup->create_backup_package(array('database', 'plugins', 'themes'), false, '');
@@ -618,7 +618,7 @@ class Restore_Module extends Module_Base {
 		// Handle GZIP compressed archives (.zip.gz)
 		$zip_file = $archive;
 		if (str_ends_with(strtolower($archive), '.zip.gz')) {
-			$this->set_progress('extracting', 12, __('Decompressing GZIP archive...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('extracting', 12, __('Decompressing GZIP archive...', 'diagnostics-toolkit'));
 			$zip_file = $temp . 'archive.zip';
 			$this->decompress_gzip($archive, $zip_file);
 		}
@@ -631,7 +631,7 @@ class Restore_Module extends Module_Base {
 			$required_space = $archive_size * 2.5; // 2.5x for extracted files + working space
 			if (is_numeric($free_space) && $free_space < $required_space) {
 				throw new \RuntimeException(sprintf(
-					__('Insufficient disk space. Archive size: %s, Required: %s, Available: %s', 'wp-ultimate-diagnostics-toolkit'),
+					__('Insufficient disk space. Archive size: %s, Required: %s, Available: %s', 'diagnostics-toolkit'),
 					$this->format_bytes($archive_size),
 					$this->format_bytes($required_space),
 					$this->format_bytes($free_space)
@@ -639,7 +639,7 @@ class Restore_Module extends Module_Base {
 			}
 		}
 		
-		$this->set_progress('extracting', 15, __('Extracting backup files...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('extracting', 15, __('Extracting backup files...', 'diagnostics-toolkit'));
 		$this->extract_archive($zip_file, $temp);
 
 		// Log extracted contents for debugging
@@ -668,7 +668,7 @@ class Restore_Module extends Module_Base {
 
 		// 1. Uploads/Media (files) - restore media files first
 		if (in_array('uploads', $restore_options, true) && is_dir($temp . 'uploads')) {
-			$this->set_progress('restoring_uploads', $progress, __('Replacing uploads...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('restoring_uploads', $progress, __('Replacing uploads...', 'diagnostics-toolkit'));
 			try {
 				$this->replace_tree($temp . 'uploads', WP_CONTENT_DIR . '/uploads', array(), true); // true = merge mode for uploads
 				$done[] = 'uploads';
@@ -694,7 +694,7 @@ class Restore_Module extends Module_Base {
 			'temp_plugins_path' => $temp . 'plugins'
 		));
 		if ($plugins_in_options && $plugins_dir_exists && !$preserve_plugins) {
-			$this->set_progress('restoring_plugins', $progress, __('Replacing plugins...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('restoring_plugins', $progress, __('Replacing plugins...', 'diagnostics-toolkit'));
 			Operation_Logger::log('restore', 'Starting plugin restoration', array(
 				'source' => $temp . 'plugins',
 				'destination' => WP_CONTENT_DIR . '/plugins'
@@ -723,7 +723,7 @@ class Restore_Module extends Module_Base {
 
 		// 3. Themes (files)
 		if (in_array('themes', $restore_options, true) && is_dir($temp . 'themes')) {
-			$this->set_progress('restoring_themes', $progress, __('Replacing themes...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('restoring_themes', $progress, __('Replacing themes...', 'diagnostics-toolkit'));
 			try {
 				$this->replace_tree($temp . 'themes', WP_CONTENT_DIR . '/themes');
 				$done[] = 'themes';
@@ -737,7 +737,7 @@ class Restore_Module extends Module_Base {
 
 		// 4. Database - restore after files but before core
 		if (in_array('database', $restore_options, true) && is_file($temp . 'database.sql')) {
-			$this->set_progress('restoring_database', $progress, __('Restoring database (this may take a while)...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('restoring_database', $progress, __('Restoring database (this may take a while)...', 'diagnostics-toolkit'));
 			Operation_Logger::log('restore', 'Starting database restore step', array(
 				'sql_file' => $temp . 'database.sql',
 				'file_exists' => file_exists($temp . 'database.sql'),
@@ -779,7 +779,7 @@ class Restore_Module extends Module_Base {
 		// CRITICAL: Set progress to 100% BEFORE core restore because admin-ajax.php will be unavailable during the operation
 		if (in_array('core', $restore_options, true) && is_dir($temp . 'wp-core')) {
 			// Pre-set to 100% since we can't send progress updates during core restore (admin-ajax.php gets replaced)
-			$this->set_progress('restoring_core', 100, __('Restoring WordPress core files - this may take a moment...', 'wp-ultimate-diagnostics-toolkit'));
+			$this->set_progress('restoring_core', 100, __('Restoring WordPress core files - this may take a moment...', 'diagnostics-toolkit'));
 			
 			try {
 				// Exclude sensitive files to prevent conflicts: wp-config.php (credentials), .htaccess (rewrite rules)
@@ -793,7 +793,7 @@ class Restore_Module extends Module_Base {
 			$progress = 100;
 		}
 
-		$this->set_progress('finalizing', 100, __('Cleaning up and finalizing...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('finalizing', 100, __('Cleaning up and finalizing...', 'diagnostics-toolkit'));
 		
 		// Clean up temp directory
 		$this->delete_recursive($temp);
@@ -830,7 +830,7 @@ class Restore_Module extends Module_Base {
 		$progress_data = array(
 			'status'    => empty($errors) ? 'complete' : 'complete_with_errors',
 			'percent'   => 100,
-			'message'   => empty($errors) ? __('Restore complete!', 'wp-ultimate-diagnostics-toolkit') : __('Restore complete with some errors. Check logs.', 'wp-ultimate-diagnostics-toolkit'),
+			'message'   => empty($errors) ? __('Restore complete!', 'diagnostics-toolkit') : __('Restore complete with some errors. Check logs.', 'diagnostics-toolkit'),
 			'timestamp' => time(),
 			'result'    => $result,
 		);
@@ -857,12 +857,12 @@ class Restore_Module extends Module_Base {
 		
 		// Basic file validation
 		if (! file_exists($archive)) {
-			throw new \RuntimeException(__('Backup file does not exist: ', 'wp-ultimate-diagnostics-toolkit') . $archive);
+			throw new \RuntimeException(__('Backup file does not exist: ', 'diagnostics-toolkit') . $archive);
 		}
 		
 		$file_size = filesize($archive);
 		if ($file_size === false || $file_size === 0) {
-			throw new \RuntimeException(__('Backup file is empty or cannot be read.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Backup file is empty or cannot be read.', 'diagnostics-toolkit'));
 		}
 		
 		// Check if file is actually a zip file (extension check first - more reliable on Windows)
@@ -884,7 +884,7 @@ class Restore_Module extends Module_Base {
 		
 		// If no zip extension and MIME check failed/invalid, reject it
 		if (! $has_zip_ext && ! $mime_valid) {
-			throw new \RuntimeException(__('File is not a valid ZIP archive. Must have .zip extension.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('File is not a valid ZIP archive. Must have .zip extension.', 'diagnostics-toolkit'));
 		}
 		
 		// Handle GZIP compressed archives for preview
@@ -895,27 +895,27 @@ class Restore_Module extends Module_Base {
 				$this->decompress_gzip($archive, $temp_zip);
 				$zip_file = $temp_zip;
 			} catch (\RuntimeException $e) {
-				throw new \RuntimeException(__('Could not decompress GZIP archive: ', 'wp-ultimate-diagnostics-toolkit') . $e->getMessage());
+				throw new \RuntimeException(__('Could not decompress GZIP archive: ', 'diagnostics-toolkit') . $e->getMessage());
 			}
 		}
 		
 		$opened = $zip->open($zip_file);
 		if (true !== $opened) {
 			$error_messages = array(
-				\ZipArchive::ER_EXISTS => __('File already exists.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_NOENT  => __('File not found.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_EXISTS => __('File already exists.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_NOENT  => __('File not found.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_READ   => __('Read error.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_SEEK   => __('Seek error.', 'diagnostics-toolkit'),
 			);
 			
 			// Log detailed error for debugging
 			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : 'Unknown error code: ' . $opened;
-			error_log(sprintf(
+			Operation_Logger::log('restore', sprintf(
 				'[WUDT Restore] Failed to open archive: %s | Error: %s (code: %d) | MIME: %s | Size: %d | Readable: %s | PHP: %s',
 				$archive,
 				$error_msg,
@@ -929,7 +929,7 @@ class Restore_Module extends Module_Base {
 			// Provide user-friendly error with code
 			$display_msg = isset($error_messages[$opened]) 
 				? $error_messages[$opened] 
-				: sprintf(__('Unable to open archive. Error code: %d. Please check the file exists and is a valid ZIP.', 'wp-ultimate-diagnostics-toolkit'), $opened);
+				: sprintf(__('Unable to open archive. Error code: %d. Please check the file exists and is a valid ZIP.', 'diagnostics-toolkit'), $opened);
 			
 			throw new \RuntimeException($display_msg);
 		}
@@ -961,23 +961,23 @@ class Restore_Module extends Module_Base {
 		$opened = $zip->open($archive);
 		if (true !== $opened) {
 			$error_messages = array(
-				\ZipArchive::ER_EXISTS => __('File already exists.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_NOENT  => __('File not found.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_READ   => __('Read error.', 'wp-ultimate-diagnostics-toolkit'),
-				\ZipArchive::ER_SEEK   => __('Seek error.', 'wp-ultimate-diagnostics-toolkit'),
+				\ZipArchive::ER_EXISTS => __('File already exists.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_INCONS => __('Zip archive inconsistent.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_INVAL  => __('Invalid argument.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_MEMORY => __('Memory allocation failure.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_NOENT  => __('File not found.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_NOZIP  => __('Not a zip archive.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_OPEN   => __('Cannot open file.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_READ   => __('Read error.', 'diagnostics-toolkit'),
+				\ZipArchive::ER_SEEK   => __('Seek error.', 'diagnostics-toolkit'),
 			);
 			
 			$error_msg = isset($error_messages[$opened]) ? $error_messages[$opened] : 'Unknown error code: ' . $opened;
-			error_log(sprintf('[WUDT Restore] Extract failed: %s | Error: %s (code: %d)', $archive, $error_msg, $opened));
+			Operation_Logger::log('restore', sprintf('[WUDT Restore] Extract failed: %s | Error: %s (code: %d)', $archive, $error_msg, $opened));
 			
 			$display_msg = isset($error_messages[$opened]) 
 				? $error_messages[$opened] 
-				: sprintf(__('Could not open backup archive. Error code: %d', 'wp-ultimate-diagnostics-toolkit'), $opened);
+				: sprintf(__('Could not open backup archive. Error code: %d', 'diagnostics-toolkit'), $opened);
 			throw new \RuntimeException($display_msg);
 		}
 		for ($i = 0; $i < $zip->numFiles; $i++) {
@@ -1014,7 +1014,7 @@ class Restore_Module extends Module_Base {
 		$zip->close();
 		
 		if ($extracted === 0 && $failed > 0) {
-			throw new \RuntimeException(__('Failed to extract any files from archive. The backup may be corrupted.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Failed to extract any files from archive. The backup may be corrupted.', 'diagnostics-toolkit'));
 		}
 	}
 
@@ -1231,13 +1231,13 @@ class Restore_Module extends Module_Base {
 	private function decompress_gzip(string $input, string $output): void {
 		$source = @gzopen($input, 'rb');
 		if (! is_resource($source)) {
-			throw new \RuntimeException(__('Could not open GZIP archive for reading: ', 'wp-ultimate-diagnostics-toolkit') . $input);
+			throw new \RuntimeException(__('Could not open GZIP archive for reading: ', 'diagnostics-toolkit') . $input);
 		}
 
 		$dest = @fopen($output, 'wb');
 		if (! is_resource($dest)) {
 			gzclose($source);
-			throw new \RuntimeException(__('Could not create output file: ', 'wp-ultimate-diagnostics-toolkit') . $output);
+			throw new \RuntimeException(__('Could not create output file: ', 'diagnostics-toolkit') . $output);
 		}
 
 		while (! gzeof($source)) {
@@ -1246,13 +1246,13 @@ class Restore_Module extends Module_Base {
 				gzclose($source);
 				fclose($dest);
 				unlink($output);
-				throw new \RuntimeException(__('Error reading GZIP data from: ', 'wp-ultimate-diagnostics-toolkit') . $input);
+				throw new \RuntimeException(__('Error reading GZIP data from: ', 'diagnostics-toolkit') . $input);
 			}
 			if (fwrite($dest, $data) === false) {
 				gzclose($source);
 				fclose($dest);
 				unlink($output);
-				throw new \RuntimeException(__('Error writing decompressed data to: ', 'wp-ultimate-diagnostics-toolkit') . $output);
+				throw new \RuntimeException(__('Error writing decompressed data to: ', 'diagnostics-toolkit') . $output);
 			}
 		}
 
@@ -1261,7 +1261,7 @@ class Restore_Module extends Module_Base {
 
 		// Verify the output file was created
 		if (! file_exists($output) || filesize($output) === 0) {
-			throw new \RuntimeException(__('GZIP decompression failed - output file is empty or missing.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('GZIP decompression failed - output file is empty or missing.', 'diagnostics-toolkit'));
 		}
 	}
 
@@ -1282,7 +1282,7 @@ class Restore_Module extends Module_Base {
 		));
 
 		if (! is_dir($source)) {
-			throw new \RuntimeException(__('Source directory does not exist: ', 'wp-ultimate-diagnostics-toolkit') . $source);
+			throw new \RuntimeException(__('Source directory does not exist: ', 'diagnostics-toolkit') . $source);
 		}
 
 		// Count source files for logging
@@ -1296,7 +1296,7 @@ class Restore_Module extends Module_Base {
 		// Ensure target directory exists
 		if (! is_dir($target)) {
 			if (! wp_mkdir_p($target)) {
-				throw new \RuntimeException(__('Cannot create target directory: ', 'wp-ultimate-diagnostics-toolkit') . $target);
+				throw new \RuntimeException(__('Cannot create target directory: ', 'diagnostics-toolkit') . $target);
 			}
 		}
 
@@ -1308,7 +1308,7 @@ class Restore_Module extends Module_Base {
 				// Try to make writable
 				@chmod($target, 0755);
 				if (!is_writable($target)) {
-					throw new \RuntimeException(__('Target directory is not writable: ', 'wp-ultimate-diagnostics-toolkit') . $target);
+					throw new \RuntimeException(__('Target directory is not writable: ', 'diagnostics-toolkit') . $target);
 				}
 			}
 			$this->cleanup_target_for_replacement($source, $target, $exclude_roots);
@@ -1339,7 +1339,7 @@ class Restore_Module extends Module_Base {
 			
 			if ($item->isDir()) {
 				if (! wp_mkdir_p($dest)) {
-					throw new \RuntimeException(__('Cannot create directory: ', 'wp-ultimate-diagnostics-toolkit') . $dest);
+					throw new \RuntimeException(__('Cannot create directory: ', 'diagnostics-toolkit') . $dest);
 				}
 			} else {
 				// Ensure parent directory exists
@@ -1504,30 +1504,30 @@ class Restore_Module extends Module_Base {
 		
 		// Verify SQL file exists and is readable
 		if (! is_file($sql_file)) {
-			throw new \RuntimeException(__('SQL file not found: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+			throw new \RuntimeException(__('SQL file not found: ', 'diagnostics-toolkit') . $sql_file);
 		}
 		
 		if (! is_readable($sql_file)) {
-			throw new \RuntimeException(__('SQL file is not readable: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+			throw new \RuntimeException(__('SQL file is not readable: ', 'diagnostics-toolkit') . $sql_file);
 		}
 		
 		// Verify SQL file has content
 		$file_size = filesize($sql_file);
 		if ($file_size === false || $file_size === 0) {
-			throw new \RuntimeException(__('SQL file is empty: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+			throw new \RuntimeException(__('SQL file is empty: ', 'diagnostics-toolkit') . $sql_file);
 		}
 		
 		// Get list of tables that will be created from the SQL file
 		// Read only first 500KB to find table names (avoids memory issues with large SQL files)
 		$handle = fopen($sql_file, 'rb');
 		if (false === $handle) {
-			throw new \RuntimeException(__('Cannot read SQL file: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+			throw new \RuntimeException(__('Cannot read SQL file: ', 'diagnostics-toolkit') . $sql_file);
 		}
 		$sql_content = fread($handle, 512 * 1024);
 		fclose($handle);
 		
 		if (false === $sql_content) {
-			throw new \RuntimeException(__('Cannot read SQL file: ', 'wp-ultimate-diagnostics-toolkit') . $sql_file);
+			throw new \RuntimeException(__('Cannot read SQL file: ', 'diagnostics-toolkit') . $sql_file);
 		}
 		
 		// Extract table names from CREATE TABLE statements
@@ -1582,14 +1582,14 @@ class Restore_Module extends Module_Base {
 		$wpdb->prefix = $new_prefix;
 		
 		if (empty($tables_in_sql)) {
-			throw new \RuntimeException(__('SQL file does not contain any CREATE TABLE statements. The file may be corrupted or in an invalid format.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('SQL file does not contain any CREATE TABLE statements. The file may be corrupted or in an invalid format.', 'diagnostics-toolkit'));
 		}
 		
 		// Get current tables BEFORE dropping anything
 		$existing_tables = $wpdb->get_col('SHOW TABLES');
 		
 		if (empty($existing_tables)) {
-			throw new \RuntimeException(__('Database has no tables. This is unusual - cannot proceed with restore.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Database has no tables. This is unusual - cannot proceed with restore.', 'diagnostics-toolkit'));
 		}
 		
 		// Disable foreign key checks for the operation
@@ -1628,7 +1628,7 @@ class Restore_Module extends Module_Base {
 			));
 		}
 		
-		$this->set_progress('restoring_database', 91, __('Backing up existing tables...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('restoring_database', 91, __('Backing up existing tables...', 'diagnostics-toolkit'));
 		
 		// Rename tables to temp names instead of dropping
 		foreach ($tables_to_replace as $table) {
@@ -1652,7 +1652,7 @@ class Restore_Module extends Module_Base {
 			));
 		
 		// Import the SQL file - this is the critical step
-		$this->set_progress('restoring_database', 93, __('Importing database tables...', 'wp-ultimate-diagnostics-toolkit'));
+		$this->set_progress('restoring_database', 93, __('Importing database tables...', 'diagnostics-toolkit'));
 		
 		$import_success = false;
 		try {
@@ -1673,8 +1673,8 @@ class Restore_Module extends Module_Base {
 				'old_prefix' => $old_prefix,
 				'new_prefix' => $new_prefix
 			));
-			throw new \RuntimeException(__('Database import failed: ', 'wp-ultimate-diagnostics-toolkit') . $import_error);
-			$this->set_progress('restoring_database', 94, __('Import failed - restoring original tables...', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Database import failed: ', 'diagnostics-toolkit') . $import_error);
+			$this->set_progress('restoring_database', 94, __('Import failed - restoring original tables...', 'diagnostics-toolkit'));
 			
 			// Drop any partially imported tables with the original names
 			foreach ($renamed_tables as $table) {
@@ -1699,7 +1699,7 @@ class Restore_Module extends Module_Base {
 			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
 			
 			throw new \RuntimeException(
-				__('Database import failed. Your original tables have been restored. Error: ', 'wp-ultimate-diagnostics-toolkit') .
+				__('Database import failed. Your original tables have been restored. Error: ', 'diagnostics-toolkit') .
 				$e->getMessage()
 			);
 		}
@@ -1795,7 +1795,7 @@ class Restore_Module extends Module_Base {
 		$new_tables = $wpdb->get_col('SHOW TABLES');
 		if (empty($new_tables)) {
 			$wpdb->query('SET FOREIGN_KEY_CHECKS = 1');
-			throw new \RuntimeException(__('Database import completed but no tables were found. The SQL file may be corrupted.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('Database import completed but no tables were found. The SQL file may be corrupted.', 'diagnostics-toolkit'));
 		}
 		
 		// Re-enable foreign key checks
@@ -2003,7 +2003,7 @@ class Restore_Module extends Module_Base {
 		if (false === $handle) {
 			error_reporting($error_level);
 			ini_set('display_errors', $display_errors);
-			throw new \RuntimeException(__('Could not read SQL file: ', 'wp-ultimate-diagnostics-toolkit') . $file);
+			throw new \RuntimeException(__('Could not read SQL file: ', 'diagnostics-toolkit') . $file);
 		}
 		
 		$buffer = '';
@@ -2041,7 +2041,7 @@ class Restore_Module extends Module_Base {
 				// Some INSERT statements can be very large, so we allow them up to max_buffer_size
 				if (strlen($buffer) > $max_buffer_size) {
 					fclose($handle);
-					throw new \RuntimeException(__('SQL file contains a statement that exceeds the maximum size limit (5MB). The file may be corrupted or contain extremely large data.', 'wp-ultimate-diagnostics-toolkit'));
+					throw new \RuntimeException(__('SQL file contains a statement that exceeds the maximum size limit (5MB). The file may be corrupted or contain extremely large data.', 'diagnostics-toolkit'));
 				}
 			}
 			
@@ -2114,13 +2114,13 @@ class Restore_Module extends Module_Base {
 					if (strpos($error_message, 'doesn\'t exist') !== false || 
 					    strpos($error_message, 'Unknown table') !== false) {
 						fclose($handle);
-						throw new \RuntimeException(__('SQL Error: ', 'wp-ultimate-diagnostics-toolkit') . $error_message . ' | Query: ' . substr($query, 0, 100));
+						throw new \RuntimeException(__('SQL Error: ', 'diagnostics-toolkit') . $error_message . ' | Query: ' . substr($query, 0, 100));
 					}
 					
 					// Only count non-already-exists errors toward max_errors limit
 					if (!$is_already_exists && $error_count >= $max_errors) {
 						fclose($handle);
-						throw new \RuntimeException(__('Too many SQL errors. Last error: ', 'wp-ultimate-diagnostics-toolkit') . $error_message);
+						throw new \RuntimeException(__('Too many SQL errors. Last error: ', 'diagnostics-toolkit') . $error_message);
 					}
 				}
 				
@@ -2138,7 +2138,7 @@ class Restore_Module extends Module_Base {
 				// Update progress every 50 statements
 				if ($statement_count % 50 === 0) {
 					$this->set_progress('restoring_database', 93, sprintf(
-						__('Importing... %d statements processed (%d errors)', 'wp-ultimate-diagnostics-toolkit'),
+						__('Importing... %d statements processed (%d errors)', 'diagnostics-toolkit'),
 						$statement_count,
 						$error_count
 					));

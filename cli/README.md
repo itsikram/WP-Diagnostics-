@@ -1,4 +1,4 @@
-# WP Diagnostics CLI Usage
+# Diagnostics Toolkit CLI Usage
 
 The plugin exposes a full WP-CLI namespace:
 

@@ -1,5 +1,5 @@
 /**
- * WP Ultimate Diagnostics Toolkit - Admin JavaScript
+ * Diagnostics Toolkit - Admin JavaScript
  * Enhanced with modern UI utilities
  */
 

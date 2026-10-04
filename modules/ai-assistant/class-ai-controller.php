@@ -62,7 +62,7 @@ class AI_Controller extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('AI Assistant', 'wp-ultimate-diagnostics-toolkit');
+		return __('AI Assistant', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -101,9 +101,9 @@ class AI_Controller extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		$this->enforce_rate_limit();
 		$prompt   = sanitize_textarea_field((string) wp_unslash($_POST['prompt'] ?? ''));
-		$flags    = isset($_POST['context_flags']) ? (array) json_decode((string) wp_unslash($_POST['context_flags']), true) : array();
-		$file     = isset($_POST['file_content']) ? (string) wp_unslash($_POST['file_content']) : '';
-		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : '';
+		$flags    = isset($_POST['context_flags']) ? (array) json_decode(sanitize_text_field(wp_unslash($_POST['context_flags'])), true) : array();
+		$file     = isset($_POST['file_content']) ? (string) wp_unslash($_POST['file_content']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- text sent to the AI provider as-is; never output unescaped.
+		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- text sent to the AI provider as-is; never output unescaped.
 		$model    = sanitize_text_field((string) wp_unslash($_POST['model'] ?? ''));
 		$mode     = sanitize_key((string) wp_unslash($_POST['mode'] ?? 'ask'));
 		$ignore_history = ! empty($_POST['ignore_history']);
@@ -146,9 +146,9 @@ class AI_Controller extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		$this->enforce_rate_limit();
 		$prompt  = sanitize_textarea_field((string) wp_unslash($_POST['prompt'] ?? ''));
-		$flags   = isset($_POST['context_flags']) ? (array) json_decode((string) wp_unslash($_POST['context_flags']), true) : array();
-		$file    = isset($_POST['file_content']) ? (string) wp_unslash($_POST['file_content']) : '';
-		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : '';
+		$flags   = isset($_POST['context_flags']) ? (array) json_decode(sanitize_text_field(wp_unslash($_POST['context_flags'])), true) : array();
+		$file    = isset($_POST['file_content']) ? (string) wp_unslash($_POST['file_content']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- text sent to the AI provider as-is; never output unescaped.
+		$chat_txt = isset($_POST['chat_transcript']) ? (string) wp_unslash($_POST['chat_transcript']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- text sent to the AI provider as-is; never output unescaped.
 		$model   = sanitize_text_field((string) wp_unslash($_POST['model'] ?? ''));
 		$mode    = sanitize_key((string) wp_unslash($_POST['mode'] ?? 'ask'));
 		$ignore_history = ! empty($_POST['ignore_history']);
@@ -244,7 +244,7 @@ class AI_Controller extends Module_Base {
 		if (isset($action_aliases[$action])) {
 			$action = $action_aliases[$action];
 		}
-		$params = isset($_POST['params']) ? (array) json_decode((string) wp_unslash($_POST['params']), true) : array();
+		$params = isset($_POST['params']) ? (array) json_decode((string) wp_unslash($_POST['params']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- tool arguments (e.g. file contents) must stay exact; each tool validates its own arguments.
 		$result = array('applied' => false, 'message' => '', 'data' => null);
 
 		switch ($action) {
@@ -904,7 +904,7 @@ class AI_Controller extends Module_Base {
 		}
 
 		// style.css header
-		$style_css = "/*\nTheme Name: Hello Elementor Child\nTheme URI: https://example.com/\nDescription: Child theme for Hello Elementor\nAuthor: WP Diagnostics Toolkit\nTemplate: hello-elementor\nVersion: 1.0.0\n*/\n\n/* Basic child styles */\n";
+		$style_css = "/*\nTheme Name: Hello Elementor Child\nTheme URI: https://example.com/\nDescription: Child theme for Hello Elementor\nAuthor: Diagnostics Toolkit\nTemplate: hello-elementor\nVersion: 1.0.0\n*/\n\n/* Basic child styles */\n";
 		$style_path = $theme_dir . DIRECTORY_SEPARATOR . 'style.css';
 		if (false === file_put_contents($style_path, $style_css, LOCK_EX)) {
 			return array('applied' => false, 'message' => 'Failed to write style.css');
@@ -1174,7 +1174,7 @@ class AI_Controller extends Module_Base {
 	 */
 	public function ajax_execute_batch(): void {
 		Security_Guard::assert_ajax_admin();
-		$actions = isset($_POST['actions']) ? (array) json_decode((string) wp_unslash($_POST['actions']), true) : array();
+		$actions = isset($_POST['actions']) ? (array) json_decode((string) wp_unslash($_POST['actions']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- tool arguments (e.g. file contents) must stay exact; each tool validates its own arguments.
 		$execution_id = sanitize_key((string) wp_unslash($_POST['execution_id'] ?? uniqid('exec_')));
 		
 		if (empty($actions)) {
@@ -1438,7 +1438,7 @@ class AI_Controller extends Module_Base {
 		try {
 			$result = $this->agent->send(
 				sanitize_key((string) wp_unslash($_POST['id'] ?? '')),
-				(string) wp_unslash($_POST['message'] ?? ''),
+				(string) wp_unslash($_POST['message'] ?? ''), // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- chat message sent to the AI provider as-is.
 				sanitize_key((string) wp_unslash($_POST['provider'] ?? '')),
 				sanitize_text_field((string) wp_unslash($_POST['model'] ?? '')),
 				! empty($_POST['auto_approve'])
@@ -1452,7 +1452,7 @@ class AI_Controller extends Module_Base {
 	public function ajax_agent_continue(): void {
 		Security_Guard::assert_ajax_admin();
 		$this->raise_limits();
-		$decisions = json_decode((string) wp_unslash($_POST['decisions'] ?? '{}'), true);
+		$decisions = json_decode(sanitize_text_field(wp_unslash($_POST['decisions'] ?? '{}')), true);
 		try {
 			$result = $this->agent->proceed(
 				sanitize_key((string) wp_unslash($_POST['id'] ?? '')),
@@ -1476,8 +1476,8 @@ class AI_Controller extends Module_Base {
 
 	public function ajax_agent_save_settings(): void {
 		Security_Guard::assert_ajax_admin();
-		$keys = json_decode((string) wp_unslash($_POST['keys'] ?? '{}'), true);
-		$models = json_decode((string) wp_unslash($_POST['models'] ?? '{}'), true);
+		$keys = json_decode(sanitize_text_field(wp_unslash($_POST['keys'] ?? '{}')), true);
+		$models = json_decode(sanitize_text_field(wp_unslash($_POST['models'] ?? '{}')), true);
 		foreach ((array) $keys as $provider => $key) {
 			$key = trim((string) $key);
 			if (AI_Config::is_provider((string) $provider) && '' !== $key) {
@@ -1493,7 +1493,7 @@ class AI_Controller extends Module_Base {
 			AI_Config::set_active_provider(sanitize_key((string) wp_unslash($_POST['active'])));
 		}
 		if (isset($_POST['auto_approve'])) {
-			update_option(AI_Config::OPTION_AUTO_APPROVE, '1' === (string) $_POST['auto_approve'], false);
+			update_option(AI_Config::OPTION_AUTO_APPROVE, '1' === sanitize_text_field(wp_unslash($_POST['auto_approve'])), false);
 		}
 		if (isset($_POST['max_tokens'])) {
 			update_option('wudt_ai_max_tokens', max(1024, min(64000, (int) $_POST['max_tokens'])), false);
@@ -1994,7 +1994,7 @@ class AI_Controller extends Module_Base {
 			'wordpress_version' => get_bloginfo('version'),
 			'php_version' => phpversion(),
 			'mysql_version' => $GLOBALS['wpdb']->db_version(),
-			'web_server' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown',
+			'web_server' => sanitize_text_field(wp_unslash($_SERVER['SERVER_SOFTWARE'] ?? 'Unknown')),
 			'os' => php_uname('s') . ' ' . php_uname('r'),
 			'memory_limit' => ini_get('memory_limit'),
 			'max_execution_time' => ini_get('max_execution_time'),

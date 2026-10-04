@@ -1,4 +1,4 @@
-/* WP Diagnostics — Site Migration */
+/* Diagnostics Toolkit — Site Migration */
 .wudt-mig { --mig-accent: #2271b1; --mig-ok: #00a32a; --mig-bad: #d63638; --mig-warn: #dba617; --mig-line: #dcdcde; --mig-muted: #646970; --mig-bg: #fff; --mig-soft: #f6f7f7; max-width: 1100px; }
 .wudt-mig * { box-sizing: border-box; }
 .wudt-mig-head h2 { margin: 0 0 4px; font-size: 20px; }

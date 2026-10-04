@@ -430,7 +430,8 @@ class AI_Tools {
 		$response = wp_remote_get(add_query_arg('wudt_health', (string) time(), $url), array(
 			'timeout'     => 45,
 			'redirection' => 3,
-			'sslverify'   => false,
+			// Request to this same site, like WordPress's own loopback checks.
+			'sslverify'   => apply_filters('https_local_ssl_verify', false), // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core filter.
 			'cookies'     => $cookies,
 			'headers'     => array('Cache-Control' => 'no-cache'),
 		));
@@ -712,7 +713,7 @@ class AI_Tools {
 		$self = wp_normalize_path(dirname(WUDT_PLUGIN_FILE));
 		return 0 === stripos($abs . '/', rtrim(wp_normalize_path(WP_CONTENT_DIR), '/') . '/wudt-ai-backups/')
 			|| 0 === stripos($abs . '/', rtrim(wp_normalize_path(WP_CONTENT_DIR), '/') . '/wudt-migrations/')
-			|| 0 === stripos($abs, $self . '/rescue.php');
+			|| 0 === stripos($abs . '/', $self . '/');
 	}
 
 	/**
@@ -720,7 +721,7 @@ class AI_Tools {
 	 */
 	private function write_guarded(string $abs, string $content, string $description): array {
 		if ($this->is_protected_path($abs)) {
-			return $this->result('This path is managed by WP Diagnostics and cannot be changed by the agent.', true);
+			return $this->result('This path is managed by Diagnostics Toolkit and cannot be changed by the agent.', true);
 		}
 		$is_php = (bool) preg_match('/\.(php|phtml|inc)$/i', $abs);
 		if ($is_php) {
@@ -869,7 +870,7 @@ class AI_Tools {
 			return $this->result('name is required', true);
 		}
 		if (0 === strpos($name, 'wudt_')) {
-			return $this->result('WP Diagnostics settings cannot be changed by the agent.', true);
+			return $this->result('Diagnostics Toolkit settings cannot be changed by the agent.', true);
 		}
 		$raw = (string) ($a['value'] ?? '');
 		$decoded = json_decode($raw, true);
@@ -984,7 +985,7 @@ class AI_Tools {
 					return $this->result('Plugin is not active: ' . $plugin);
 				}
 				if (plugin_basename(WUDT_PLUGIN_FILE) === $file) {
-					return $this->result('WP Diagnostics cannot deactivate itself.', true);
+					return $this->result('Diagnostics Toolkit cannot deactivate itself.', true);
 				}
 				if (defined('WUDT_SAFE_MODE') && WUDT_SAFE_MODE) {
 					// In safe mode the active list is filtered; edit the stored list directly.

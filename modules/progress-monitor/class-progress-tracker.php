@@ -70,7 +70,7 @@ class Progress_Tracker {
 			'end_time'       => null,
 			'elapsed'        => 0,
 			'estimated'      => null,
-			'message'        => __('Initializing...', 'wp-ultimate-diagnostics-toolkit'),
+			'message'        => __('Initializing...', 'diagnostics-toolkit'),
 			'details'        => array(),
 			'errors'         => array(),
 			'warnings'       => array(),
@@ -185,7 +185,7 @@ class Progress_Tracker {
 		$data['progress'] = 100;
 		$data['end_time'] = time();
 		$data['elapsed'] = $data['end_time'] - $data['start_time'];
-		$data['message'] = ! empty($message) ? sanitize_text_field($message) : __('Completed', 'wp-ultimate-diagnostics-toolkit');
+		$data['message'] = ! empty($message) ? sanitize_text_field($message) : __('Completed', 'diagnostics-toolkit');
 		$data['results'] = $results;
 
 		return $this->save($data);
@@ -230,7 +230,7 @@ class Progress_Tracker {
 		$data['status'] = 'cancelled';
 		$data['end_time'] = time();
 		$data['elapsed'] = $data['end_time'] - $data['start_time'];
-		$data['message'] = ! empty($reason) ? sanitize_text_field($reason) : __('Cancelled', 'wp-ultimate-diagnostics-toolkit');
+		$data['message'] = ! empty($reason) ? sanitize_text_field($reason) : __('Cancelled', 'diagnostics-toolkit');
 
 		return $this->save($data);
 	}

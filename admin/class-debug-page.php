@@ -24,8 +24,8 @@ class Debug_Page {
 	public function register_menu(): void {
 		add_submenu_page(
 			'wudt-diagnostics',
-			__('WP Debug & Logs', 'wp-ultimate-diagnostics-toolkit'),
-			__('WP Debug & Logs', 'wp-ultimate-diagnostics-toolkit'),
+			__('Debug & Logs', 'diagnostics-toolkit'),
+			__('Debug & Logs', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-debug-logs',
 			array($this, 'render_page')
@@ -52,11 +52,14 @@ class Debug_Page {
 		if (! (bool) get_option(self::OPTION_RUNTIME_DEBUG, false)) {
 			return;
 		}
-		// Fallback runtime debug mode when constants cannot be changed dynamically.
+		// Opt-in runtime debug mode (switched on by an administrator on the Debug & Logs
+		// page): log every PHP error to wp-content/debug.log without showing it to visitors.
+		// phpcs:disable WordPress.PHP.DevelopmentFunctions.prevent_path_disclosure_error_reporting, WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_error_reporting, WordPress.PHP.IniSet.Risky, WordPress.PHP.IniSet.display_errors_Disallowed
 		error_reporting(E_ALL);
 		ini_set('display_errors', '0');
 		ini_set('log_errors', '1');
 		ini_set('error_log', WP_CONTENT_DIR . '/debug.log');
+		// phpcs:enable
 	}
 
 	public function handle_toggle_runtime_debug(): void {
@@ -77,29 +80,29 @@ class Debug_Page {
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
 		$runtime_debug = (bool) get_option(self::OPTION_RUNTIME_DEBUG, false);
 		$lines         = $this->read_debug_log_lines();
 		?>
 		<div class="wudt-fullscreen-page">
 			<div style="padding: 20px; overflow-y: auto;">
-				<h1><?php esc_html_e('WP Debug & Logs', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-				<p><?php esc_html_e('Manage runtime debugging and inspect debug.log quickly.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+				<h1><?php esc_html_e('Debug & Logs', 'diagnostics-toolkit'); ?></h1>
+				<p><?php esc_html_e('Manage runtime debugging and inspect debug.log quickly.', 'diagnostics-toolkit'); ?></p>
 
 				<div class="wudt-card" style="max-width: 860px;">
-					<h2><?php esc_html_e('Debug Mode Controls', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+					<h2><?php esc_html_e('Debug Mode Controls', 'diagnostics-toolkit'); ?></h2>
 					<p>
-						<?php esc_html_e('WP_DEBUG constant:', 'wp-ultimate-diagnostics-toolkit'); ?>
-						<strong><?php echo defined('WP_DEBUG') && WP_DEBUG ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?></strong>
+						<?php esc_html_e('WP_DEBUG constant:', 'diagnostics-toolkit'); ?>
+						<strong><?php echo defined('WP_DEBUG') && WP_DEBUG ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?></strong>
 					</p>
 					<p>
-						<?php esc_html_e('WP_DEBUG_LOG constant:', 'wp-ultimate-diagnostics-toolkit'); ?>
-						<strong><?php echo defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?></strong>
+						<?php esc_html_e('WP_DEBUG_LOG constant:', 'diagnostics-toolkit'); ?>
+						<strong><?php echo defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?></strong>
 					</p>
 					<p>
-						<?php esc_html_e('Runtime debug fallback:', 'wp-ultimate-diagnostics-toolkit'); ?>
-						<strong><?php echo $runtime_debug ? esc_html__('Enabled', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Disabled', 'wp-ultimate-diagnostics-toolkit'); ?></strong>
+						<?php esc_html_e('Runtime debug fallback:', 'diagnostics-toolkit'); ?>
+						<strong><?php echo $runtime_debug ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?></strong>
 					</p>
 
 					<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -107,21 +110,21 @@ class Debug_Page {
 						<input type="hidden" name="enabled" value="<?php echo $runtime_debug ? '0' : '1'; ?>" />
 						<?php wp_nonce_field('wudt_toggle_runtime_debug'); ?>
 						<button type="submit" class="button button-primary">
-							<?php echo $runtime_debug ? esc_html__('Disable Runtime Debug', 'wp-ultimate-diagnostics-toolkit') : esc_html__('Enable Runtime Debug', 'wp-ultimate-diagnostics-toolkit'); ?>
+							<?php echo $runtime_debug ? esc_html__('Disable Runtime Debug', 'diagnostics-toolkit') : esc_html__('Enable Runtime Debug', 'diagnostics-toolkit'); ?>
 						</button>
 					</form>
 					<p class="description">
-						<?php esc_html_e('Runtime debug mode enables PHP error logging to wp-content/debug.log without editing wp-config.php.', 'wp-ultimate-diagnostics-toolkit'); ?>
+						<?php esc_html_e('Runtime debug mode enables PHP error logging to wp-content/debug.log without editing wp-config.php.', 'diagnostics-toolkit'); ?>
 					</p>
 				</div>
 
 				<div class="wudt-card" style="margin-top: 16px;">
 					<div class="wudt-toolbar">
-						<h2 style="margin:0;"><?php esc_html_e('debug.log (latest entries)', 'wp-ultimate-diagnostics-toolkit'); ?></h2>
+						<h2 style="margin:0;"><?php esc_html_e('debug.log (latest entries)', 'diagnostics-toolkit'); ?></h2>
 						<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
 							<input type="hidden" name="action" value="wudt_clear_debug_log" />
 							<?php wp_nonce_field('wudt_clear_debug_log'); ?>
-							<button type="submit" class="button"><?php esc_html_e('Clear debug.log', 'wp-ultimate-diagnostics-toolkit'); ?></button>
+							<button type="submit" class="button"><?php esc_html_e('Clear debug.log', 'diagnostics-toolkit'); ?></button>
 						</form>
 					</div>
 					<pre class="wudt-pre" style="max-height:600px;"><?php echo esc_html(implode("\n", $lines)); ?></pre>
@@ -137,24 +140,24 @@ class Debug_Page {
 	private function read_debug_log_lines(): array {
 		$debug_file = WP_CONTENT_DIR . '/debug.log';
 		if (! file_exists($debug_file)) {
-			return array(__('debug.log not found in wp-content.', 'wp-ultimate-diagnostics-toolkit'));
+			return array(__('debug.log not found in wp-content.', 'diagnostics-toolkit'));
 		}
 		if (! is_readable($debug_file)) {
-			return array(__('debug.log is not readable.', 'wp-ultimate-diagnostics-toolkit'));
+			return array(__('debug.log is not readable.', 'diagnostics-toolkit'));
 		}
 		$content = file($debug_file, FILE_IGNORE_NEW_LINES);
 		if (! is_array($content)) {
-			return array(__('Could not read debug.log.', 'wp-ultimate-diagnostics-toolkit'));
+			return array(__('Could not read debug.log.', 'diagnostics-toolkit'));
 		}
 		if (empty($content)) {
-			return array(__('debug.log is currently empty.', 'wp-ultimate-diagnostics-toolkit'));
+			return array(__('debug.log is currently empty.', 'diagnostics-toolkit'));
 		}
 		return array_slice($content, -500);
 	}
 
 	private function authorize_action(string $nonce_action): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
 		check_admin_referer($nonce_action);
 	}

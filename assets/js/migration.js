@@ -1,5 +1,5 @@
 /**
- * WP Diagnostics — Site Migration UI.
+ * Diagnostics Toolkit — Site Migration UI.
  *
  * Mounted by pro-admin.js into #wudt-migration-root. Keeps its own state so a
  * running migration survives re-renders of the surrounding admin app.
@@ -180,7 +180,7 @@
 		// This site.
 		h += '<div class="wudt-mig-card">'
 			+ '<h3>This site’s connection key</h3>'
-			+ '<p class="wudt-mig-muted">Copy this key into WP Diagnostics on the other site (Site Migration → Add a site). It contains this site’s address and secret key.</p>'
+			+ '<p class="wudt-mig-muted">Copy this key into Diagnostics Toolkit on the other site (Site Migration → Add a site). It contains this site’s address and secret key.</p>'
 			+ '<div class="wudt-mig-keyrow"><input type="text" readonly class="wudt-mig-input wudt-mig-mono" id="wudt-mig-conn" value="' + esc(d.connection_string) + '">'
 			+ '<button class="button button-primary" data-mig="copy-conn">Copy</button></div>'
 			+ '<button type="button" class="button-link" data-mig="toggle-key">' + (S.showKey ? 'Hide details' : 'Show URL and API key separately') + '</button>';
@@ -236,7 +236,7 @@
 				+ '<label>API key<input type="text" class="wudt-mig-input wudt-mig-mono" id="wudt-mig-key" placeholder="48-character key"></label>'
 				+ '<button class="button button-primary" data-mig="add-manual"' + (S.busy ? ' disabled' : '') + '>Save and test</button></div>';
 		}
-		h += '<p class="wudt-mig-muted wudt-mig-help">Both sites need WP Diagnostics active. A live server cannot reach your localhost, so always start migrations from the <strong>local</strong> site: use Pull to bring live here, Push to publish local to live.</p>';
+		h += '<p class="wudt-mig-muted wudt-mig-help">Both sites need Diagnostics Toolkit active. A live server cannot reach your localhost, so always start migrations from the <strong>local</strong> site: use Pull to bring live here, Push to publish local to live.</p>';
 		h += '</div></div>';
 
 		// History.
@@ -321,7 +321,7 @@
 		(S.data.components || []).forEach(function (c) {
 			var ok = allComps.indexOf(c) !== -1;
 			h += '<label class="wudt-mig-check' + (ok ? '' : ' is-disabled') + '"><input type="checkbox" data-mig-comp="' + esc(c) + '"' + (w.components.indexOf(c) !== -1 ? ' checked' : '') + (ok ? '' : ' disabled') + '> <strong>' + esc(COMPONENT_LABELS[c] || c) + '</strong><small>'
-				+ esc(ok ? (COMPONENT_HELP[c] || 'only changed files are sent') : 'update WP Diagnostics on the remote site to use this') + '</small></label>';
+				+ esc(ok ? (COMPONENT_HELP[c] || 'only changed files are sent') : 'update Diagnostics Toolkit on the remote site to use this') + '</small></label>';
 		});
 		h += '</div>';
 		if (allComps.length) {
@@ -338,7 +338,7 @@
 			h += '<div class="wudt-mig-sub"><strong class="wudt-mig-sub-title">Database</strong>'
 				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace"' + (w.dbMode === 'replace' ? ' checked' : '') + '> <strong>Replace</strong> — the destination’s tables are overwritten with the source’s (an exact copy).</label>'
 				+ '<label class="wudt-mig-mode' + (canMerge ? '' : ' is-disabled') + '"><input type="radio" name="wudt-mig-dbmode" value="merge"' + (w.dbMode === 'merge' ? ' checked' : '') + (canMerge ? '' : ' disabled') + '> <strong>Add as new content</strong> — keep every existing post, page, user and term on the destination and add the source’s content as new items.'
-				+ (canMerge ? '' : ' <em>(update WP Diagnostics on the remote site to use this)</em>') + '</label>';
+				+ (canMerge ? '' : ' <em>(update Diagnostics Toolkit on the remote site to use this)</em>') + '</label>';
 			if (w.dbMode === 'merge') {
 				h += '<div class="wudt-mig-merge">';
 				[['posts', 'Posts, pages & all custom post types', 'includes media library entries, menus and products, with their custom fields'],
@@ -669,7 +669,7 @@
 						S.showManual = false;
 						var peer = r.data.peer || '';
 						var peerMsg = peer === 'added' ? ' This site was also added to the other site’s Connected sites automatically.'
-							: (peer === 'unsupported' ? ' Update WP Diagnostics on the other site so it connects back automatically.'
+							: (peer === 'unsupported' ? ' Update Diagnostics Toolkit on the other site so it connects back automatically.'
 								: (peer.indexOf('failed') === 0 ? ' Could not add this site on the other site automatically (' + peer.substr(8) + ').' : ''));
 						setNotice(r.data.warning ? 'warning' : 'success', r.data.warning ? 'Site saved, but the connection test failed: ' + r.data.warning : 'Site connected.' + peerMsg);
 						render();

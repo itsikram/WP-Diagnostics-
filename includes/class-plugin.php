@@ -7,6 +7,10 @@ declare(strict_types=1);
 
 namespace WUDT;
 
+if (! defined('ABSPATH')) {
+	exit;
+}
+
 use WUDT\Admin\Admin_Page;
 use WUDT\Admin\Debug_Page;
 use WUDT\Admin\Settings_Page;

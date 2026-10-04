@@ -37,8 +37,8 @@ class Admin_Page {
 
 	public function register_menu(): void {
 		add_menu_page(
-			__('WP Diagnostics', 'wp-ultimate-diagnostics-toolkit'),
-			__('WP Diagnostics', 'wp-ultimate-diagnostics-toolkit'),
+			__('Diagnostics Toolkit', 'diagnostics-toolkit'),
+			__('Diagnostics Toolkit', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-diagnostics',
 			array($this, 'render_page'),
@@ -69,12 +69,12 @@ class Admin_Page {
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
 		?>
 		<div class="wrap wudt-wrap">
-			<h1><?php esc_html_e('WP Ultimate Diagnostics Toolkit', 'wp-ultimate-diagnostics-toolkit'); ?></h1>
-			<p><?php esc_html_e('Diagnose performance, security, errors, conflicts, cron, REST, and database health.', 'wp-ultimate-diagnostics-toolkit'); ?></p>
+			<h1><?php esc_html_e('Diagnostics Toolkit', 'diagnostics-toolkit'); ?></h1>
+			<p><?php esc_html_e('Diagnose performance, security, errors, conflicts, cron, REST, and database health.', 'diagnostics-toolkit'); ?></p>
 			<div id="wudt-admin-app"></div>
 		</div>
 		<?php
@@ -90,13 +90,13 @@ class Admin_Page {
 		$data = $this->get_full_report();
 		$json = wp_json_encode($data, JSON_PRETTY_PRINT);
 		if (false === $json) {
-			wp_send_json_error(array('message' => __('Could not generate report JSON.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Could not generate report JSON.', 'diagnostics-toolkit')), 500);
 		}
 
 		$upload_dir = wp_get_upload_dir();
 		$dir        = trailingslashit($upload_dir['basedir']) . 'wudt-reports/';
 		if (! wp_mkdir_p($dir)) {
-			wp_send_json_error(array('message' => __('Unable to create reports directory.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Unable to create reports directory.', 'diagnostics-toolkit')), 500);
 		}
 		$file = $dir . 'diagnostic-report-' . gmdate('Ymd-His') . '.json';
 		file_put_contents($file, (string) $json); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
@@ -112,21 +112,21 @@ class Admin_Page {
 		$this->check_permissions();
 		$email = isset($_POST['email']) ? sanitize_email((string) wp_unslash($_POST['email'])) : '';
 		if (! is_email($email)) {
-			wp_send_json_error(array('message' => __('Please provide a valid email address.', 'wp-ultimate-diagnostics-toolkit')), 400);
+			wp_send_json_error(array('message' => __('Please provide a valid email address.', 'diagnostics-toolkit')), 400);
 		}
 
 		$report = wp_json_encode($this->get_full_report(), JSON_PRETTY_PRINT);
 		$sent   = wp_mail(
 			$email,
-			__('WordPress Diagnostic Report', 'wp-ultimate-diagnostics-toolkit'),
+			__('WordPress Diagnostic Report', 'diagnostics-toolkit'),
 			(string) $report,
 			array('Content-Type: text/plain; charset=UTF-8')
 		);
 
 		if (! $sent) {
-			wp_send_json_error(array('message' => __('Failed to send email report.', 'wp-ultimate-diagnostics-toolkit')), 500);
+			wp_send_json_error(array('message' => __('Failed to send email report.', 'diagnostics-toolkit')), 500);
 		}
-		wp_send_json_success(array('message' => __('Report sent successfully.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Report sent successfully.', 'diagnostics-toolkit')));
 	}
 
 	/**
@@ -151,7 +151,7 @@ class Admin_Page {
 	private function check_permissions(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(new WP_Error('forbidden', __('Insufficient permissions.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(new WP_Error('forbidden', __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 		}
 	}
 }

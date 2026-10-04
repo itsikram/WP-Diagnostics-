@@ -57,7 +57,7 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Site Migration', 'wp-ultimate-diagnostics-toolkit');
+		return __('Site Migration', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -110,14 +110,14 @@ class Migration_Module extends Module_Base {
 
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
 		$label = sanitize_text_field((string) wp_unslash($_POST['label'] ?? ''));
-		$url = trim((string) wp_unslash($_POST['url'] ?? ''));
-		$api_key = trim((string) wp_unslash($_POST['api_key'] ?? ''));
-		$connection = trim((string) wp_unslash($_POST['connection'] ?? ''));
+		$url = trim(sanitize_text_field(wp_unslash($_POST['url'] ?? '')));
+		$api_key = trim(sanitize_text_field(wp_unslash($_POST['api_key'] ?? '')));
+		$connection = trim(sanitize_text_field(wp_unslash($_POST['connection'] ?? '')));
 
 		if ('' !== $connection) {
 			$parsed = Migration_API::parse_connection_string($connection);
 			if (null === $parsed) {
-				wp_send_json_error(array('message' => __('That connection key is not valid. Copy it again from the other site (it starts with "wudt:").', 'wp-ultimate-diagnostics-toolkit')));
+				wp_send_json_error(array('message' => __('That connection key is not valid. Copy it again from the other site (it starts with "wudt:").', 'diagnostics-toolkit')));
 			}
 			$url = $parsed['url'];
 			$api_key = $parsed['key'];
@@ -131,13 +131,13 @@ class Migration_Module extends Module_Base {
 
 		$url = esc_url_raw(untrailingslashit($url));
 		if ('' === $url || ! preg_match('#^https?://#i', $url)) {
-			wp_send_json_error(array('message' => __('Enter the full site URL, e.g. https://example.com', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Enter the full site URL, e.g. https://example.com', 'diagnostics-toolkit')));
 		}
 		if (strlen($api_key) < 32 || ! preg_match('/^[A-Za-z0-9]+$/', $api_key)) {
-			wp_send_json_error(array('message' => __('The API key looks wrong. Copy the key (or the connection key) from the other site’s Site Migration tab.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('The API key looks wrong. Copy the key (or the connection key) from the other site’s Site Migration tab.', 'diagnostics-toolkit')));
 		}
 		if (untrailingslashit(home_url()) === $url) {
-			wp_send_json_error(array('message' => __('That is this site. Add the other site instead.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('That is this site. Add the other site instead.', 'diagnostics-toolkit')));
 		}
 		$auto_label = '' === $label;
 		if ($auto_label) {
@@ -265,7 +265,7 @@ class Migration_Module extends Module_Base {
 			wp_send_json_success(array(
 				'message' => sprintf(
 					/* translators: 1: site name, 2: WordPress version */
-					__('Connected to “%1$s” (WordPress %2$s).', 'wp-ultimate-diagnostics-toolkit'),
+					__('Connected to “%1$s” (WordPress %2$s).', 'diagnostics-toolkit'),
 					(string) ($info['site_name'] ?? ''),
 					(string) ($info['wp_version'] ?? '')
 				),
@@ -288,7 +288,7 @@ class Migration_Module extends Module_Base {
 	public function ajax_preflight(): void {
 		Security_Guard::assert_ajax_admin();
 		$site = $this->require_site();
-		$direction = 'push' === ($_POST['direction'] ?? '') ? 'push' : 'pull';
+		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
 
 		try {
 			$remote = $this->remote_info($site);
@@ -314,19 +314,19 @@ class Migration_Module extends Module_Base {
 	public function ajax_start(): void {
 		Security_Guard::assert_ajax_admin();
 		$site = $this->require_site();
-		$direction = 'push' === ($_POST['direction'] ?? '') ? 'push' : 'pull';
+		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
 
-		$components = json_decode((string) wp_unslash($_POST['components'] ?? '[]'), true);
-		$tables = json_decode((string) wp_unslash($_POST['tables'] ?? '[]'), true);
-		$excludes_raw = (string) wp_unslash($_POST['excludes'] ?? '');
+		$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
+		$tables = json_decode(sanitize_text_field(wp_unslash($_POST['tables'] ?? '[]')), true);
+		$excludes_raw = sanitize_textarea_field(wp_unslash($_POST['excludes'] ?? ''));
 		$excludes = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array()));
-		$db_mode = 'merge' === ($_POST['db_mode'] ?? '') ? 'merge' : 'replace';
-		$merge_groups = json_decode((string) wp_unslash($_POST['merge_groups'] ?? '[]'), true);
-		$pt_filter = sanitize_key((string) ($_POST['pt_filter'] ?? 'all'));
+		$db_mode = 'merge' === sanitize_key(wp_unslash($_POST['db_mode'] ?? '')) ? 'merge' : 'replace';
+		$merge_groups = json_decode(sanitize_text_field(wp_unslash($_POST['merge_groups'] ?? '[]')), true);
+		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
 
 		$active = Migration_Runner::active_job();
 		if ($active) {
-			wp_send_json_error(array('message' => __('Another migration is already running. Wait for it to finish or cancel it first.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Another migration is already running. Wait for it to finish or cancel it first.', 'diagnostics-toolkit')));
 		}
 
 		try {
@@ -343,7 +343,7 @@ class Migration_Module extends Module_Base {
 			}
 			foreach ($needs as $feature) {
 				if (! in_array($feature, (array) ($remote['features'] ?? array()), true)) {
-					$errors[] = __('The remote site runs an older WP Diagnostics version that does not support the selected options. Update the plugin on the remote site and try again.', 'wp-ultimate-diagnostics-toolkit');
+					$errors[] = __('The remote site runs an older Diagnostics Toolkit version that does not support the selected options. Update the plugin on the remote site and try again.', 'diagnostics-toolkit');
 					break;
 				}
 			}
@@ -396,7 +396,7 @@ class Migration_Module extends Module_Base {
 	public function ajax_delete_job(): void {
 		Security_Guard::assert_ajax_admin();
 		try {
-			Migration_Runner::delete((string) wp_unslash($_POST['job_id'] ?? ''));
+			Migration_Runner::delete(sanitize_text_field(wp_unslash($_POST['job_id'] ?? '')));
 		} catch (\Throwable $e) {
 			wp_send_json_error(array('message' => $e->getMessage()));
 		}
@@ -424,12 +424,12 @@ class Migration_Module extends Module_Base {
 		wp_send_json_success(array(
 			'message' => sprintf(
 				/* translators: 1: tables, 2: files */
-				__('Rollback complete: %1$d tables and %2$d files restored.', 'wp-ultimate-diagnostics-toolkit'),
+				__('Rollback complete: %1$d tables and %2$d files restored.', 'diagnostics-toolkit'),
 				(int) ($result['tables'] ?? 0),
 				(int) ($result['files'] ?? 0)
 			) . (empty($result['merged_removed']) ? '' : ' ' . sprintf(
 				/* translators: %d: number of items */
-				__('%d added items removed.', 'wp-ultimate-diagnostics-toolkit'),
+				__('%d added items removed.', 'diagnostics-toolkit'),
 				(int) $result['merged_removed']
 			)),
 		));
@@ -444,8 +444,8 @@ class Migration_Module extends Module_Base {
 	/* ------------------------------ Helpers ----------------------------- */
 
 	private function require_job_with_token(): Migration_Runner {
-		$job_id = (string) wp_unslash($_POST['job_id'] ?? '');
-		$token = (string) wp_unslash($_POST['token'] ?? '');
+		$job_id = sanitize_text_field(wp_unslash($_POST['job_id'] ?? ''));
+		$token = sanitize_text_field(wp_unslash($_POST['token'] ?? ''));
 		try {
 			$runner = Migration_Runner::load($job_id);
 		} catch (\Throwable $e) {
@@ -453,7 +453,7 @@ class Migration_Module extends Module_Base {
 		}
 		$is_admin = current_user_can('manage_options') && false !== check_ajax_referer('wudt_admin_nonce', 'nonce', false);
 		if (! $runner || (! $runner->check_token($token) && ! $is_admin)) {
-			wp_send_json_error(array('message' => __('Migration job not found or access denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Migration job not found or access denied.', 'diagnostics-toolkit')), 403);
 		}
 		return $runner;
 	}
@@ -462,7 +462,7 @@ class Migration_Module extends Module_Base {
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
 		$sites = $this->get_sites();
 		if ('' === $site_id || ! isset($sites[$site_id])) {
-			wp_send_json_error(array('message' => __('Site not found. Add it again.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Site not found. Add it again.', 'diagnostics-toolkit')));
 		}
 		return $sites[$site_id];
 	}
@@ -476,7 +476,7 @@ class Migration_Module extends Module_Base {
 			throw $e;
 		}
 		if (! is_array($info) || (int) ($info['api_version'] ?? 0) < Migration_Engine::API_VERSION) {
-			throw new \RuntimeException(__('The remote site runs an older WP Diagnostics version. Update the plugin on the remote site and try again.', 'wp-ultimate-diagnostics-toolkit'));
+			throw new \RuntimeException(__('The remote site runs an older Diagnostics Toolkit version. Update the plugin on the remote site and try again.', 'diagnostics-toolkit'));
 		}
 		$changes = array(
 			'transport'  => $client->get_transport(),
@@ -521,17 +521,17 @@ class Migration_Module extends Module_Base {
 		$warnings = array();
 
 		if (! empty($src['multisite']) || ! empty($dst['multisite'])) {
-			$errors[] = __('Multisite networks are not supported by Site Migration.', 'wp-ultimate-diagnostics-toolkit');
+			$errors[] = __('Multisite networks are not supported by Site Migration.', 'diagnostics-toolkit');
 		}
 		if (untrailingslashit((string) $src['home']) === untrailingslashit((string) $dst['home'])) {
-			$errors[] = __('Both ends report the same site URL — you are connected to this same site.', 'wp-ultimate-diagnostics-toolkit');
+			$errors[] = __('Both ends report the same site URL — you are connected to this same site.', 'diagnostics-toolkit');
 		}
 
 		$dst_themes = (array) ($dst['themes'] ?? array());
 		foreach (array_unique(array((string) $src['stylesheet'], (string) $src['template'])) as $theme) {
 			if ('' !== $theme && ! isset($dst_themes[$theme])) {
 				/* translators: %s: theme slug */
-				$warnings[] = sprintf(__('Theme “%s” is not installed on the destination — include Themes.', 'wp-ultimate-diagnostics-toolkit'), $theme);
+				$warnings[] = sprintf(__('Theme “%s” is not installed on the destination — include Themes.', 'diagnostics-toolkit'), $theme);
 			}
 		}
 		$dst_plugins = (array) ($dst['plugins'] ?? array());
@@ -546,15 +546,15 @@ class Migration_Module extends Module_Base {
 		}
 		if (! empty($missing)) {
 			/* translators: %s: plugin list */
-			$warnings[] = sprintf(__('Active plugins missing on the destination (include Plugins): %s', 'wp-ultimate-diagnostics-toolkit'), implode(', ', array_slice($missing, 0, 12)));
+			$warnings[] = sprintf(__('Active plugins missing on the destination (include Plugins): %s', 'diagnostics-toolkit'), implode(', ', array_slice($missing, 0, 12)));
 		}
 		if (version_compare((string) $src['wp_version'], (string) $dst['wp_version'], '>')) {
 			/* translators: 1: source version, 2: destination version */
-			$warnings[] = sprintf(__('Source runs WordPress %1$s but the destination runs %2$s. Update WordPress on the destination first.', 'wp-ultimate-diagnostics-toolkit'), $src['wp_version'], $dst['wp_version']);
+			$warnings[] = sprintf(__('Source runs WordPress %1$s but the destination runs %2$s. Update WordPress on the destination first.', 'diagnostics-toolkit'), $src['wp_version'], $dst['wp_version']);
 		}
 		if (version_compare((string) $src['php_version'], (string) $dst['php_version'], '>') && version_compare((string) $dst['php_version'], '8.0', '<')) {
 			/* translators: %s: PHP version */
-			$warnings[] = sprintf(__('The destination runs an older PHP (%s); some plugins may not work there.', 'wp-ultimate-diagnostics-toolkit'), $dst['php_version']);
+			$warnings[] = sprintf(__('The destination runs an older PHP (%s); some plugins may not work there.', 'diagnostics-toolkit'), $dst['php_version']);
 		}
 		$src_size = 0;
 		foreach ((array) $src['tables'] as $t) {
@@ -562,12 +562,12 @@ class Migration_Module extends Module_Base {
 		}
 		if (! empty($dst['free_space']) && $dst['free_space'] < $src_size * 3) {
 			/* translators: %s: free space */
-			$warnings[] = sprintf(__('Low disk space on the destination (%s free).', 'wp-ultimate-diagnostics-toolkit'), size_format((int) $dst['free_space']));
+			$warnings[] = sprintf(__('Low disk space on the destination (%s free).', 'diagnostics-toolkit'), size_format((int) $dst['free_space']));
 		}
 		if ('pull' === $direction) {
-			$warnings[] = __('When the database is replaced (not added as new content), you will log in to this site with the remote site’s username and password afterwards.', 'wp-ultimate-diagnostics-toolkit');
+			$warnings[] = __('When the database is replaced (not added as new content), you will log in to this site with the remote site’s username and password afterwards.', 'diagnostics-toolkit');
 		} else {
-			$warnings[] = __('When the database is replaced (not added as new content), pushing the users table replaces the remote site’s users with this site’s users.', 'wp-ultimate-diagnostics-toolkit');
+			$warnings[] = __('When the database is replaced (not added as new content), pushing the users table replaces the remote site’s users with this site’s users.', 'diagnostics-toolkit');
 		}
 		return array($errors, $warnings);
 	}

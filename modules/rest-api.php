@@ -24,7 +24,7 @@ class REST_API_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('REST API', 'wp-ultimate-diagnostics-toolkit');
+		return __('REST API', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -36,11 +36,11 @@ class REST_API_Module extends Module_Base {
 	public function ajax_test_rest_route(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 		$method = isset($_POST['method']) ? strtoupper(sanitize_text_field((string) wp_unslash($_POST['method']))) : 'GET';
 		$route  = isset($_POST['route']) ? sanitize_text_field((string) wp_unslash($_POST['route'])) : '/';
-		$body   = isset($_POST['body']) ? json_decode((string) wp_unslash($_POST['body']), true) : array();
+		$body   = isset($_POST['body']) ? json_decode((string) wp_unslash($_POST['body']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- request body for the REST endpoint tester, sent as entered.
 		if (! is_array($body)) {
 			$body = array();
 		}

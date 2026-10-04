@@ -67,7 +67,7 @@ class Search_Controller extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Search & Replace', 'wp-ultimate-diagnostics-toolkit');
+		return __('Search & Replace', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -87,7 +87,7 @@ class Search_Controller extends Module_Base {
 		$search_text = isset($_POST['search']) ? sanitize_textarea_field((string) wp_unslash($_POST['search'])) : '';
 		
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		// Build options from request
@@ -114,7 +114,7 @@ class Search_Controller extends Module_Base {
 		$search_text = isset($_POST['search']) ? sanitize_textarea_field((string) wp_unslash($_POST['search'])) : '';
 
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		// Build options from request
@@ -142,7 +142,7 @@ class Search_Controller extends Module_Base {
 		$replace_text = isset($_POST['replace']) ? sanitize_textarea_field((string) wp_unslash($_POST['replace'])) : '';
 
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		$options = $this->build_file_search_options($_POST);
@@ -165,7 +165,7 @@ class Search_Controller extends Module_Base {
 		$replace_text = isset($_POST['replace']) ? sanitize_textarea_field((string) wp_unslash($_POST['replace'])) : '';
 
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		$options = $this->build_db_search_options($_POST);
@@ -190,11 +190,11 @@ class Search_Controller extends Module_Base {
 		$create_backup = isset($_POST['backup']) && '1' === (string) wp_unslash($_POST['backup']);
 
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		if (! $confirmed) {
-			wp_send_json_error(array('message' => __('Replacement must be confirmed.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Replacement must be confirmed.', 'diagnostics-toolkit')));
 		}
 
 		$options = $this->build_file_search_options($_POST);
@@ -221,11 +221,11 @@ class Search_Controller extends Module_Base {
 		$create_backup = isset($_POST['backup']) && '1' === (string) wp_unslash($_POST['backup']);
 
 		if (empty($search_text)) {
-			wp_send_json_error(array('message' => __('Search text is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Search text is required.', 'diagnostics-toolkit')));
 		}
 
 		if (! $confirmed) {
-			wp_send_json_error(array('message' => __('Replacement must be confirmed.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Replacement must be confirmed.', 'diagnostics-toolkit')));
 		}
 
 		$options = $this->build_db_search_options($_POST);
@@ -259,7 +259,7 @@ class Search_Controller extends Module_Base {
 		$table = isset($_POST['table']) ? sanitize_text_field((string) wp_unslash($_POST['table'])) : '';
 		
 		if (empty($table)) {
-			wp_send_json_error(array('message' => __('Table name is required.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('Table name is required.', 'diagnostics-toolkit')));
 		}
 
 		$columns = $this->db_search->get_table_columns_info($table);
@@ -323,11 +323,11 @@ class Search_Controller extends Module_Base {
 	public function ajax_export_results(): void {
 		Security_Guard::assert_ajax_admin();
 
-		$results = isset($_POST['results']) ? (array) json_decode((string) wp_unslash($_POST['results']), true) : array();
+		$results = isset($_POST['results']) ? (array) json_decode((string) wp_unslash($_POST['results']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- search/replace preview rows; each row is re-validated against the database before use.
 		$format  = isset($_POST['format']) ? sanitize_key((string) wp_unslash($_POST['format'])) : 'json';
 
 		if (empty($results)) {
-			wp_send_json_error(array('message' => __('No results to export.', 'wp-ultimate-diagnostics-toolkit')));
+			wp_send_json_error(array('message' => __('No results to export.', 'diagnostics-toolkit')));
 		}
 
 		if ($format === 'csv') {

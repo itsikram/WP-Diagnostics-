@@ -28,7 +28,7 @@ class Error_Logger_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Error Logs', 'wp-ultimate-diagnostics-toolkit');
+		return __('Error Logs', 'diagnostics-toolkit');
 	}
 
 	/**
@@ -137,7 +137,7 @@ class Error_Logger_Module extends Module_Base {
 	public function ajax_clear_logs(): void {
 		$this->verify_ajax();
 		update_option(self::OPTION_KEY, array(), false);
-		wp_send_json_success(array('message' => __('Logs cleared.', 'wp-ultimate-diagnostics-toolkit')));
+		wp_send_json_success(array('message' => __('Logs cleared.', 'diagnostics-toolkit')));
 	}
 
 	public function ajax_toggle_debug(): void {
@@ -185,7 +185,7 @@ class Error_Logger_Module extends Module_Base {
 	private function verify_ajax(): void {
 		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Permission denied.', 'wp-ultimate-diagnostics-toolkit')), 403);
+			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
 	}
 }

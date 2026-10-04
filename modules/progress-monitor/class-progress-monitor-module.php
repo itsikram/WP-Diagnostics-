@@ -37,7 +37,7 @@ class Progress_Monitor_Module extends Module_Base {
 	}
 
 	public function get_label(): string {
-		return __('Progress Monitor', 'wp-ultimate-diagnostics-toolkit');
+		return __('Progress Monitor', 'diagnostics-toolkit');
 	}
 
 	public function get_dashboard_data(): array {
@@ -121,7 +121,7 @@ class Progress_Monitor_Module extends Module_Base {
 			wp_send_json_error(array('message' => 'Operation not running'));
 		}
 
-		$tracker->cancel(__('Cancelled by user', 'wp-ultimate-diagnostics-toolkit'));
+		$tracker->cancel(__('Cancelled by user', 'diagnostics-toolkit'));
 		
 		wp_send_json_success(array(
 			'cancelled' => true,
@@ -142,7 +142,7 @@ class Progress_Monitor_Module extends Module_Base {
 			'deleted' => $deleted,
 			'message' => sprintf(
 				/* translators: %d: number of deleted operations */
-				__('Cleaned up %d old operations', 'wp-ultimate-diagnostics-toolkit'),
+				__('Cleaned up %d old operations', 'diagnostics-toolkit'),
 				$deleted
 			),
 		));
@@ -183,7 +183,7 @@ class Progress_Monitor_Module extends Module_Base {
 	private function get_all_module_status(): array {
 		$modules = array(
 			'system_info' => array(
-				'label' => __('System Info', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('System Info', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-desktop',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_system_info_last_run', null),
@@ -191,7 +191,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '< 1 second',
 			),
 			'error_logger' => array(
-				'label' => __('Error Logger', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Error Logger', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-warning',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_error_logger_last_run', null),
@@ -200,7 +200,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '< 1 second',
 			),
 			'conflict_detector' => array(
-				'label' => __('Conflict Detector', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Conflict Detector', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-plug',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_conflict_detector_last_run', null),
@@ -209,7 +209,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '2-5 seconds',
 			),
 			'performance' => array(
-				'label' => __('Performance', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Performance', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-performance',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_performance_last_run', null),
@@ -217,7 +217,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '5-10 seconds',
 			),
 			'db_tools' => array(
-				'label' => __('Database Tools', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Database Tools', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-database',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_db_tools_last_run', null),
@@ -226,7 +226,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '2-5 seconds',
 			),
 			'rest_api' => array(
-				'label' => __('REST API', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('REST API', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-rest-api',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_rest_api_last_run', null),
@@ -234,7 +234,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '< 1 second',
 			),
 			'cron' => array(
-				'label' => __('Cron Jobs', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Cron Jobs', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-clock',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_cron_last_run', null),
@@ -243,7 +243,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '< 1 second',
 			),
 			'file_integrity' => array(
-				'label' => __('File Integrity', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('File Integrity', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-media-document',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_file_integrity_last_run', null),
@@ -252,7 +252,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_long_running' => true,
 			),
 			'security' => array(
-				'label' => __('Security', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Security', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-lock',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_security_last_run', null),
@@ -260,7 +260,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '5-10 seconds',
 			),
 			'external_requests' => array(
-				'label' => __('External Requests', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('External Requests', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-external',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_external_requests_last_run', null),
@@ -268,7 +268,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'estimated_time' => '5-10 seconds',
 			),
 			'file_manager' => array(
-				'label' => __('File Manager', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('File Manager', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-open-folder',
 				'status' => 'ready',
 				'last_run' => null,
@@ -277,7 +277,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_pro' => true,
 			),
 			'database_manager' => array(
-				'label' => __('Database Manager', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Database Manager', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-database',
 				'status' => 'ready',
 				'last_run' => null,
@@ -286,7 +286,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_pro' => true,
 			),
 			'malware_scanner' => array(
-				'label' => __('Malware Scanner', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Malware Scanner', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-shield',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_malware_last_run', null),
@@ -296,7 +296,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_pro' => true,
 			),
 			'backup' => array(
-				'label' => __('Backup', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Backup', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-backup',
 				'status' => 'ready',
 				'last_run' => get_option('wudt_backup_last_run', null),
@@ -307,7 +307,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_pro' => true,
 			),
 			'restore' => array(
-				'label' => __('Restore', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('Restore', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-migrate',
 				'status' => 'ready',
 				'last_run' => null,
@@ -317,7 +317,7 @@ class Progress_Monitor_Module extends Module_Base {
 				'is_pro' => true,
 			),
 			'ai_assistant' => array(
-				'label' => __('AI Assistant', 'wp-ultimate-diagnostics-toolkit'),
+				'label' => __('AI Assistant', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-art',
 				'status' => 'ready',
 				'last_run' => null,

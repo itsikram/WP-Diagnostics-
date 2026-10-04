@@ -19,8 +19,8 @@ class Backup_Page {
 
 	public function register_menu(): void {
 		add_management_page(
-			__('Diagnostics Backups', 'wp-ultimate-diagnostics-toolkit'),
-			__('Diagnostics Backups', 'wp-ultimate-diagnostics-toolkit'),
+			__('Diagnostics Backups', 'diagnostics-toolkit'),
+			__('Diagnostics Backups', 'diagnostics-toolkit'),
 			'manage_options',
 			'wudt-diagnostics-backups',
 			array($this, 'render_page')
@@ -43,8 +43,8 @@ class Backup_Page {
 
 	public function render_page(): void {
 		if (! current_user_can('manage_options')) {
-			wp_die(esc_html__('You do not have permission to access this page.', 'wp-ultimate-diagnostics-toolkit'));
+			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
-		echo '<div class="wudt-fullscreen-page"><div style="padding: 20px;"><h1>' . esc_html__('Tools -> Diagnostics -> Backups', 'wp-ultimate-diagnostics-toolkit') . '</h1><div id="wudt-pro-admin-app"></div></div></div>';
+		echo '<div class="wudt-fullscreen-page"><div style="padding: 20px;"><h1>' . esc_html__('Tools -> Diagnostics -> Backups', 'diagnostics-toolkit') . '</h1><div id="wudt-pro-admin-app"></div></div></div>';
 	}
 }
