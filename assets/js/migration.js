@@ -387,7 +387,9 @@
 
 		if (w.components.length) {
 			h += '<div class="wudt-mig-sub"><label class="wudt-mig-block">Exclude files or folders (optional, one per line, relative to the component folder, wildcards allowed)'
-				+ '<textarea class="wudt-mig-input wudt-mig-mono" rows="3" id="wudt-mig-excludes" placeholder="2019/*&#10;my-plugin/cache">' + esc(w.excludes) + '</textarea></label></div>';
+				+ '<textarea class="wudt-mig-input wudt-mig-mono" rows="3" id="wudt-mig-excludes" placeholder="2019/*&#10;my-plugin/cache">' + esc(w.excludes) + '</textarea></label>'
+				+ '<label class="wudt-mig-inline"><input type="checkbox" data-mig-field="excludedev"' + (w.excludeDev ? ' checked' : '') + '> Exclude development files '
+				+ '<small>(.git, .gitignore, .github, .vscode, .idea, .claude, .cursor, CLAUDE.md, lint / test config, editor swap files…)</small></label></div>';
 		}
 
 		var dbOk = w.db && (w.dbMode === 'merge' ? w.mergeGroups.length > 0 && (pf.tables || []).length > 0 : (w.tableMode === 'all' ? (pf.tables || []).length > 0 : w.tables.length > 0));
@@ -556,7 +558,7 @@
 		S.wizard = {
 			siteId: siteId, direction: direction, loading: true, error: '', preflight: null,
 			db: true, components: DEFAULT_COMPONENTS.slice(), tableMode: 'all', tables: [],
-			skipUnchanged: true, override: false, excludes: '', dbSize: 0,
+			skipUnchanged: true, override: false, excludes: '', excludeDev: true, dbSize: 0,
 			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all',
 			ptSelected: { plugins: [], themes: [] }, ptSearch: ''
 		};
@@ -599,7 +601,7 @@
 		if (!tables.length) { skipped.push('Database'); }
 		(S.data.components || []).forEach(function (c) { if (w.components.indexOf(c) === -1) { skipped.push(COMPONENT_LABELS[c] || c); } });
 		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
-		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
+		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
 			return;
 		}
 		S.busy = true;
@@ -612,6 +614,7 @@
 			skip_unchanged: w.skipUnchanged && !w.override ? 1 : '',
 			override: w.override ? 1 : '',
 			excludes: w.excludes,
+			exclude_dev: w.excludeDev && w.components.length ? 1 : '',
 			db_mode: merge ? 'merge' : 'replace',
 			merge_groups: JSON.stringify(w.mergeGroups),
 			pt_filter: w.ptFilter,
@@ -843,6 +846,7 @@
 			if ($i.is('[data-mig-field="db"]')) { w.db = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="skip"]')) { w.skipUnchanged = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="override"]')) { w.override = $i.is(':checked'); }
+			if ($i.is('[data-mig-field="excludedev"]')) { w.excludeDev = $i.is(':checked'); }
 			if ($i.is('[name="wudt-mig-tmode"]')) { w.tableMode = $i.val(); }
 			if ($i.is('[name="wudt-mig-scope"]')) {
 				var sc = $i.val();

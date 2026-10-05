@@ -103,7 +103,7 @@ class Migration_API {
 			'sig'    => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_SIG'] ?? '')),
 			'enc'    => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_WUDT_ENC'] ?? '')),
 		);
-		$this->respond($this->process($headers, $body), 'wire' === sanitize_key(wp_unslash($_SERVER['HTTP_X_WUDT_ACCEPT'] ?? '')));
+		$this->respond($this->process($headers, $body), sanitize_key(wp_unslash($_SERVER['HTTP_X_WUDT_ACCEPT'] ?? '')));
 	}
 
 	public function handle_rest(\WP_REST_Request $request): void {
@@ -114,7 +114,7 @@ class Migration_API {
 			'sig'    => (string) $request->get_header('x_wudt_sig'),
 			'enc'    => (string) $request->get_header('x_wudt_enc'),
 		);
-		$this->respond($this->process($headers, (string) $request->get_body()), 'wire' === (string) $request->get_header('x_wudt_accept'));
+		$this->respond($this->process($headers, (string) $request->get_body()), sanitize_key((string) $request->get_header('x_wudt_accept')));
 	}
 
 	private function process(array $h, string $body): array {
@@ -248,19 +248,22 @@ class Migration_API {
 		throw new \RuntimeException('Unknown migration action: ' . $action);
 	}
 
-	private function respond(array $payload, bool $wire = false): void {
+	/**
+	 * @param string $accept "wire" for the binary format, "wire2" for it with solid compression.
+	 */
+	private function respond(array $payload, string $accept = ''): void {
 		while (ob_get_level() > 0) {
 			@ob_end_clean();
 		}
 		$payload['wudt_api'] = Migration_Engine::API_VERSION;
-		if ($wire) {
+		if ('wire' === $accept || 'wire2' === $accept) {
 			if (! headers_sent()) {
 				status_header(200);
 				header('Content-Type: ' . Migration_Wire::CONTENT_TYPE);
 				header('Cache-Control: no-store, no-cache, must-revalidate');
 				header('X-Robots-Tag: noindex');
 			}
-			echo Migration_Wire::pack($payload); // phpcs:ignore WordPress.Security.EscapeOutput
+			echo Migration_Wire::pack($payload, 'wire2' === $accept); // phpcs:ignore WordPress.Security.EscapeOutput
 			exit;
 		}
 		$json = wp_json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);

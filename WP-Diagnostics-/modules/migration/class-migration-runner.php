@@ -50,7 +50,7 @@ class Migration_Runner {
 
 	/**
 	 * @param array $site    {id,label,url,api_key,transport}
-	 * @param array $options {components:string[], tables:string[], skip_unchanged:bool, excludes:string[]}
+	 * @param array $options {components:string[], tables:string[], skip_unchanged:bool, excludes:string[], exclude_dev:bool}
 	 */
 	public static function create(array $site, string $direction, array $options, array $remote_info, array $local_info): self {
 		$id = 'm' . gmdate('ymdHis') . '_' . wp_generate_password(10, false, false);
@@ -119,7 +119,11 @@ class Migration_Runner {
 			// Override replaces everything, so tables are never skipped as "unchanged";
 			// a merge needs every content table imported to map IDs.
 			'skip_unchanged' => ! $merge && empty($options['override']) && ! empty($options['skip_unchanged']),
-			'excludes'   => array_values(array_filter(array_map('trim', (array) ($options['excludes'] ?? array())))),
+			'excludes'   => array_values(array_unique(array_merge(
+				array_filter(array_map('trim', (array) ($options['excludes'] ?? array()))),
+				! empty($options['exclude_dev']) ? Migration_Engine::DEV_EXCLUDES : array()
+			))),
+			'exclude_dev' => ! empty($options['exclude_dev']),
 			'db_mode'    => $merge ? 'merge' : 'replace',
 			'merge_groups' => $merge_groups,
 			'pt_filter'  => $pt_filter,
@@ -1040,7 +1044,7 @@ class Migration_Runner {
 	private function client(): Remote_Client {
 		if (null === $this->client) {
 			$this->client = new Remote_Client($this->state['site']['url'], $this->state['key'], $this->state['transport']);
-			$this->client->set_wire($this->remote_has('wire'));
+			$this->client->set_wire($this->remote_has('wire'), $this->remote_has('solid'));
 		}
 		return $this->client;
 	}

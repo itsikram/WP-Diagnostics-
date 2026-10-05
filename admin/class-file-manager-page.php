@@ -49,6 +49,6 @@ class File_Manager_Page {
 		if (! current_user_can('manage_options')) {
 			wp_die(esc_html__('You do not have permission to access this page.', 'diagnostics-toolkit'));
 		}
-		echo '<div class="wudt-ai-fullscreen"><div id="wudt-pro-admin-app"></div></div>';
+		echo '<div class="wudt-ai-fullscreen wudt-fm-page"><div id="wudt-pro-admin-app"></div></div>';
 	}
 }

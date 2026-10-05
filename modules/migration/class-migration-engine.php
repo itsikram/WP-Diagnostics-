@@ -28,12 +28,28 @@ class Migration_Engine {
 	// 'core' stays last so WordPress core files are moved into place after everything else.
 	public const COMPONENTS = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages', 'content', 'core');
 	// Capabilities newer than API v2; the other side must list one before it is used.
-	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast');
+	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid');
 	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
 	// Tables (without prefix) that "add as new content" mode reads.
 	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
 	// Files the whole-folder components never overwrite: they hold this server's own settings.
 	private const CORE_KEEP = array('wp-config.php', '.htaccess', 'web.config', '.user.ini', 'php.ini', '.maintenance');
+	/**
+	 * Development-only files and folders (version control, editor / AI tool
+	 * settings, lint and test config). Matched by name at any depth.
+	 */
+	public const DEV_EXCLUDES = array(
+		'.git', '.gitignore', '.gitattributes', '.gitmodules', '.gitkeep', '.github', '.gitlab', '.gitlab-ci.yml',
+		'.svn', '.hg', '.hgignore', '.bzr',
+		'.vscode', '.idea', '.fleet', '.vs', '.claude', '.claudeignore', 'CLAUDE.md', '.cursor', '.cursorrules', '.cursorignore',
+		'.windsurf', '.windsurfrules', '.aider*', '.copilot', '.continue', '.codeium', '.zed',
+		'.editorconfig', '.eslintrc*', '.eslintignore', 'eslint.config.*', '.prettierrc*', '.prettierignore',
+		'.stylelintrc*', '.stylelintignore', '.babelrc', '.browserslistrc', '.npmrc', '.nvmrc', '.yarnrc*', '.husky',
+		'phpcs.xml', 'phpcs.xml.dist', '.phpcs.xml', '.phpcs.xml.dist', '.php-cs-fixer*', 'phpstan.neon*', 'psalm.xml*',
+		'phpunit.xml', 'phpunit.xml.dist', '.phpunit.result.cache', '.phpunit.cache',
+		'.travis.yml', '.circleci', '.distignore', '.wp-env.json', '.phpstorm.meta.php', '.sass-cache',
+		'*.swp', '*.swo', '*~',
+	);
 	private const CONTENT_SKIP = array('wudt-migrations', 'cache', 'upgrade', 'upgrade-temp-backup', 'ai1wm-backups', 'updraft', 'wpvividbackups', 'backups-dup-lite', 'wflogs', 'et-cache', 'litespeed','object-cache.php', 'advanced-cache.php');
 
 	private const TMP_PREFIX = 'wudt_tmp_';

@@ -113,6 +113,15 @@
 	background: linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
 }
 .wudt-fm-search { margin-left: auto; max-width: 260px; }
+
+/* Dedicated File Manager page: the fullscreen wrapper clips overflow, so bound the
+   height chain down to the panes and let the sidebar/content scroll on their own. */
+.wudt-fm-page .wudt-app-shell { height: 100%; grid-template-rows: minmax(0, 1fr); }
+.wudt-fm-page .wudt-panel { min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; }
+.wudt-fm-page .wudt-fm-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wudt-fm-page .wudt-fm-main { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.wudt-fm-page .wudt-fm-sidebar,
+.wudt-fm-page .wudt-fm-content { min-height: 0; }
 .wudt-fm-breadcrumb {
 	padding: 8px 12px;
 	border-bottom: 1px solid #eef1f4;

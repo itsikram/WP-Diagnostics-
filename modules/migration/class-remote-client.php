@@ -22,6 +22,7 @@ class Remote_Client {
 	private int $clock_offset = 0;
 	private string $redirected_url = '';
 	private bool $wire = false;
+	private bool $solid = false;
 
 	/** @var resource|\CurlMultiHandle|null Shared multi handle: keeps connections alive between calls. */
 	private static $multi = null;
@@ -39,10 +40,12 @@ class Remote_Client {
 	}
 
 	/**
-	 * Use the binary wire format (the remote site must list the "wire" feature).
+	 * Use the binary wire format (the remote site must list the "wire" feature),
+	 * optionally with solid compression (the "solid" feature).
 	 */
-	public function set_wire(bool $wire): void {
+	public function set_wire(bool $wire, bool $solid = false): void {
 		$this->wire = $wire;
+		$this->solid = $wire && $solid;
 	}
 
 	/**
@@ -222,7 +225,7 @@ class Remote_Client {
 	private function build_request(string $transport, string $action, array $params): array {
 		$enc = '';
 		if ($this->wire) {
-			$body = Migration_Wire::pack($params);
+			$body = Migration_Wire::pack($params, $this->solid);
 			$enc = 'wire';
 		} else {
 			$params = self::raw_to_base64($params);
@@ -247,7 +250,7 @@ class Remote_Client {
 			'X-WUDT-Enc'   => $enc,
 		);
 		if ($this->wire) {
-			$headers['X-WUDT-Accept'] = 'wire';
+			$headers['X-WUDT-Accept'] = $this->solid ? 'wire2' : 'wire';
 		}
 		return array('endpoint' => $this->endpoint($transport, $action), 'headers' => $headers, 'body' => $body);
 	}

@@ -363,6 +363,7 @@ class Migration_Module extends Module_Base {
 					'skip_unchanged' => ! empty($_POST['skip_unchanged']),
 					'override'       => ! empty($_POST['override']),
 					'excludes'       => $excludes,
+					'exclude_dev'    => ! empty($_POST['exclude_dev']),
 					'db_mode'        => $db_mode,
 					'merge_groups'   => is_array($merge_groups) ? $merge_groups : array(),
 					'pt_filter'      => $pt_filter,
