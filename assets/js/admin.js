@@ -6,10 +6,18 @@
 (function ($) {
 	'use strict';
 
+	function getSavedDarkMode() {
+		try {
+			return window.localStorage.getItem('wudt-dark-mode') === 'true';
+		} catch (e) {
+			return false;
+		}
+	}
+
 	const state = {
-		data: window.wudtAdmin?.data || { tabs: [] },
+		data: (window.wudtAdmin && window.wudtAdmin.data) || { tabs: [] },
 		activeTab: 'system_info',
-		darkMode: localStorage.getItem('wudt-dark-mode') === 'true',
+		darkMode: getSavedDarkMode(),
 	};
 
 	function escHtml(str) {
@@ -17,11 +25,102 @@
 	}
 
 	function post(action, payload = {}) {
-		return $.post(window.wudtAdmin.ajaxUrl, {
-			action,
-			nonce: window.wudtAdmin.nonce,
-			...payload,
+		return $.ajax({
+			url: window.wudtAdmin.ajaxUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: Object.assign({
+				action,
+				nonce: window.wudtAdmin.nonce,
+			}, payload),
 		});
+	}
+
+	function responseMessage(res, xhr) {
+		if (res && res.data && res.data.message) {
+			return res.data.message;
+		}
+		if (xhr && xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) {
+			return xhr.responseJSON.data.message;
+		}
+		if (xhr && xhr.status) {
+			return `Request failed (HTTP ${xhr.status}).`;
+		}
+		return 'The request could not be completed. Please try again.';
+	}
+
+	function notify(type, message) {
+		$('#wudt-status').text(message);
+		if (window.WUDTUI && window.WUDTUI.Toast && window.WUDTUI.Toast[type]) {
+			window.WUDTUI.Toast[type](escHtml(message));
+		}
+	}
+
+	function runButton($button, pendingText, request, onSuccess) {
+		const originalText = $button.text();
+		$button.prop('disabled', true).text(pendingText);
+		request.done((res) => {
+			if (res && res.success) {
+				onSuccess(res);
+			} else {
+				notify('error', responseMessage(res));
+			}
+		}).fail((xhr) => {
+			notify('error', responseMessage(null, xhr));
+		}).always(() => {
+			$button.prop('disabled', false).text(originalText);
+		});
+	}
+
+	function refreshData(onSuccess) {
+		post('wudt_refresh_dashboard').done((res) => {
+			if (res && res.success) {
+				state.data = res.data;
+				render();
+				onSuccess();
+			} else {
+				notify('error', responseMessage(res));
+			}
+		}).fail((xhr) => {
+			notify('error', responseMessage(null, xhr));
+		});
+	}
+
+	function copyText(text) {
+		const legacyCopy = () => new Promise((resolve, reject) => {
+			const textarea = document.createElement('textarea');
+			textarea.value = text;
+			textarea.setAttribute('readonly', '');
+			textarea.style.position = 'fixed';
+			textarea.style.left = '-9999px';
+			document.body.appendChild(textarea);
+			textarea.select();
+			const copied = document.execCommand('copy');
+			textarea.remove();
+			if (copied) {
+				resolve();
+			} else {
+				reject(new Error('Clipboard access is unavailable in this browser.'));
+			}
+		});
+
+		if (navigator.clipboard && window.isSecureContext) {
+			return navigator.clipboard.writeText(text).catch(legacyCopy);
+		}
+		return legacyCopy();
+	}
+
+	function downloadReport(content, filename) {
+		const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+		const url = window.URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = filename || 'diagnostic-report.json';
+		link.hidden = true;
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 	}
 
 	function render() {
@@ -57,14 +156,6 @@
 		return `<div class="wudt-card"><h3>${escHtml(title)}</h3><pre class="wudt-pre">${escHtml(JSON.stringify(data, null, 2))}</pre></div>`;
 	}
 
-	function setStatus(message) {
-		$('#wudt-status').text(message);
-		// Also show toast if WUDTUI is available
-		if (window.WUDTUI && message) {
-			window.WUDTUI.Toast.info(message, { duration: 2000 });
-		}
-	}
-
 	function renderTab(key, data) {
 		if (key === 'system_info') {
 			return `
@@ -96,84 +187,103 @@
 	function bindEvents() {
 		$('.wudt-tab').on('click', function () { state.activeTab = $(this).data('key'); render(); });
 		$('#wudt-dark-mode').on('click', function () {
-		state.darkMode = !state.darkMode;
-		localStorage.setItem('wudt-dark-mode', state.darkMode);
-		render();
-		if (window.WUDTUI) {
-			window.WUDTUI.Toast.info(state.darkMode ? 'Dark mode enabled' : 'Light mode enabled', { duration: 2000 });
-		}
-	});
+			state.darkMode = !state.darkMode;
+			let preferenceSaved = true;
+			try {
+				window.localStorage.setItem('wudt-dark-mode', state.darkMode);
+			} catch (e) {
+				preferenceSaved = false;
+			}
+			render();
+			notify(
+				preferenceSaved ? 'success' : 'warning',
+				preferenceSaved
+					? (state.darkMode ? 'Dark mode enabled' : 'Light mode enabled')
+					: 'Theme changed for this session, but the preference could not be saved.'
+			);
+		});
 		$('#wudt-refresh').on('click', function () {
-		const $btn = $(this);
-		$btn.prop('disabled', true).text('Refreshing...');
-		setStatus('Refreshing data...');
-		post('wudt_refresh_dashboard').done((res) => {
-			if (res.success) {
+			const $button = $(this);
+			runButton($button, 'Refreshing...', post('wudt_refresh_dashboard'), (res) => {
 				state.data = res.data;
 				render();
-				setStatus('Data refreshed successfully');
-				if (window.WUDTUI) {
-					window.WUDTUI.Toast.success('Dashboard refreshed successfully');
-				}
-			} else {
-				if (window.WUDTUI) {
-					window.WUDTUI.Toast.error('Failed to refresh dashboard');
-				}
-			}
-		}).always(() => {
-			$btn.prop('disabled', false).text('Refresh');
+				notify('success', 'Dashboard refreshed successfully.');
+			});
 		});
-	});
 		$('#wudt-export-json').on('click', function () {
-			post('wudt_export_report').done((res) => { if (res.success) window.open(res.data.file, '_blank'); });
+			const $button = $(this);
+			runButton($button, 'Exporting...', post('wudt_export_report'), (res) => {
+				if (!res.data || !res.data.content) {
+					notify('error', 'The report could not be prepared for download.');
+					return;
+				}
+				downloadReport(res.data.content, res.data.filename);
+				notify('success', 'Diagnostic report downloaded.');
+			});
 		});
 		$('#wudt-export-text').on('click', function () {
-		navigator.clipboard.writeText(JSON.stringify(state.data, null, 2)).then(() => {
-			if (window.WUDTUI) {
-				window.WUDTUI.Toast.success('Report copied to clipboard');
+			copyText(JSON.stringify(state.data, null, 2)).then(() => {
+				notify('success', 'Report copied to clipboard.');
+			}).catch((error) => {
+				notify('error', error.message || 'Could not copy the report.');
+			});
+		});
+		$('#wudt-email-report').on('click', function () {
+			const send = (email) => {
+				post('wudt_email_report', { email }).done((res) => {
+					if (res && res.success) {
+						notify('success', res.data.message || 'Report sent successfully.');
+					} else {
+						notify('error', responseMessage(res));
+					}
+				}).fail((xhr) => {
+					notify('error', responseMessage(null, xhr));
+				});
+			};
+			if (window.WUDTUI && window.WUDTUI.Modal && window.WUDTUI.Modal.open) {
+				window.WUDTUI.Modal.open({
+					title: 'Email Report',
+					content: '<p>Enter email address to send the report:</p><input type="email" id="wudt-email-input" class="wudt-input" placeholder="email@example.com" required>',
+					confirmText: 'Send',
+					onConfirm: function () {
+						const input = document.getElementById('wudt-email-input');
+						send(input ? input.value.trim() : '');
+					}
+				});
 			} else {
-				setStatus('Copied to clipboard');
+				const email = window.prompt('Send report to email:');
+				if (email !== null) { send(email.trim()); }
 			}
 		});
-	});
-		$('#wudt-email-report').on('click', function () {
-		if (window.WUDTUI) {
-			window.WUDTUI.Modal.open({
-				title: 'Email Report',
-				content: '<p>Enter email address to send the report:</p><input type="email" id="wudt-email-input" class="wudt-input" placeholder="email@example.com">',
-				confirmText: 'Send',
-				onConfirm: function() {
-					const email = $('#wudt-email-input').val();
-					if (email) {
-						post('wudt_email_report', { email }).done((res) => {
-							if (res.success) {
-								window.WUDTUI.Toast.success('Report sent successfully');
-							} else {
-								window.WUDTUI.Toast.error('Failed to send report');
-							}
-						});
-					}
-				}
+		$('#wudt-clear-logs').on('click', function () {
+			const $button = $(this);
+			if (!window.confirm('Clear all saved diagnostic error logs?')) { return; }
+			runButton($button, 'Clearing...', post('wudt_clear_error_logs'), () => {
+				refreshData(() => notify('success', 'Error logs cleared.'));
 			});
-		} else {
-			const email = prompt('Send report to email:');
-			if (email) post('wudt_email_report', { email }).done((res) => alert((res.data && res.data.message) || 'Done'));
-		}
-	});
-		$('#wudt-clear-logs').on('click', function () { post('wudt_clear_error_logs').done(() => post('wudt_refresh_dashboard').done((res) => { state.data = res.data; render(); })); });
+		});
 		$('#wudt-toggle-test-mode').on('click', function () {
-			const current = (state.data.tabs.find((t) => t.key === 'conflict_detector')?.data?.test_mode_enabled) ? '0' : '1';
-			post('wudt_toggle_test_mode', { enabled: current }).done(() => post('wudt_refresh_dashboard').done((res) => { state.data = res.data; render(); }));
+			const detector = state.data.tabs.find((tab) => tab.key === 'conflict_detector');
+			const enabled = detector && detector.data && detector.data.test_mode_enabled ? '0' : '1';
+			const $button = $(this);
+			runButton($button, 'Saving...', post('wudt_toggle_test_mode', { enabled }), () => {
+				refreshData(() => notify('success', enabled === '1' ? 'Test mode enabled.' : 'Test mode disabled.'));
+			});
 		});
 		$('#wudt-test-route').on('click', function () {
-			setStatus('Testing REST route...');
-			post('wudt_test_rest_route', {
+			const $button = $(this);
+			const route = $.trim($('#wudt-route').val());
+			if (!route) {
+				notify('warning', 'Enter a REST API route to test.');
+				return;
+			}
+			runButton($button, 'Testing...', post('wudt_test_rest_route', {
 				method: $('#wudt-method').val(),
-				route: $('#wudt-route').val(),
+				route,
 				body: $('#wudt-body').val(),
-			}).done((res) => {
-				$('#wudt-rest-result').text(JSON.stringify(res, null, 2));
-				setStatus('REST test complete');
+			}), (res) => {
+				$('#wudt-rest-result').text(JSON.stringify(res.data, null, 2));
+				notify('success', 'REST route test completed.');
 			});
 		});
 	}

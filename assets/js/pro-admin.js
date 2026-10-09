@@ -1237,7 +1237,7 @@
 		// Listen for hash changes (browser back/forward buttons)
 		$(window).off('hashchange.wudt').on('hashchange.wudt', function () {
 			var newTab = window.location.hash.replace('#', '');
-			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
+			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp', 'site_migration'];
 			if (newTab && validTabs.indexOf(newTab) !== -1 && newTab !== state.tab) {
 				state.tab = newTab;
 				state.tabLoading = true;

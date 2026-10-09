@@ -43,11 +43,23 @@ class Pro_Admin_Page {
 			'wudt-diagnostics-pro',
 			array($this, 'render_page')
 		);
+		add_submenu_page(
+			'wudt-diagnostics',
+			__('Site Migration', 'diagnostics-toolkit'),
+			__('Site Migration', 'diagnostics-toolkit'),
+			'manage_options',
+			'wudt-site-migration',
+			array($this, 'render_page')
+		);
 	}
 
 	public function enqueue_assets(string $hook): void {
 		$page = isset($_GET['page']) ? sanitize_text_field((string) wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		if ('wudt-diagnostics_page_wudt-diagnostics-pro' !== $hook && 'wudt-diagnostics-pro' !== $page) {
+		if (
+			'wudt-diagnostics_page_wudt-diagnostics-pro' !== $hook
+			&& 'wudt-diagnostics-pro' !== $page
+			&& 'wudt-site-migration' !== $page
+		) {
 			return;
 		}
 		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION);
@@ -78,7 +90,7 @@ class Pro_Admin_Page {
 				'ajaxUrl'     => admin_url('admin-ajax.php'),
 				'nonce'       => wp_create_nonce('wudt_admin_nonce'),
 				'data'        => $data,
-				'defaultTab'  => 'dashboard',
+				'defaultTab'  => 'wudt-site-migration' === $page ? 'site_migration' : 'dashboard',
 			)
 		);
 	}

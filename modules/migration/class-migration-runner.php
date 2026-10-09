@@ -50,7 +50,7 @@ class Migration_Runner {
 
 	/**
 	 * @param array $site    {id,label,url,api_key,transport}
-	 * @param array $options {components:string[], tables:string[], skip_unchanged:bool, excludes:string[], exclude_dev:bool}
+	 * @param array $options {components:string[], tables:string[], skip_unchanged:bool, excludes:string[], exclude_dev:bool, sites_snapshot:array}
 	 */
 	public static function create(array $site, string $direction, array $options, array $remote_info, array $local_info): self {
 		$id = 'm' . gmdate('ymdHis') . '_' . wp_generate_password(10, false, false);
@@ -115,10 +115,12 @@ class Migration_Runner {
 			'par'        => max(1, min(8, (int) apply_filters('wudt_migration_parallel', self::DEFAULT_PARALLEL))),
 			'components' => $components,
 			'tables'     => $tables,
+			'sites_snapshot' => (array) ($options['sites_snapshot'] ?? array()),
 			'override'   => ! empty($options['override']),
 			// Override replaces everything, so tables are never skipped as "unchanged";
 			// a merge needs every content table imported to map IDs.
 			'skip_unchanged' => ! $merge && empty($options['override']) && ! empty($options['skip_unchanged']),
+			'custom_excludes' => array_values(array_unique(array_filter(array_map('trim', (array) ($options['excludes'] ?? array()))))),
 			'excludes'   => array_values(array_unique(array_merge(
 				array_filter(array_map('trim', (array) ($options['excludes'] ?? array()))),
 				! empty($options['exclude_dev']) ? Migration_Engine::DEV_EXCLUDES : array()
@@ -274,18 +276,26 @@ class Migration_Runner {
 			'direction'  => $s['direction'],
 			'site'       => $s['site'],
 			'components' => $s['components'],
-			'override'   => ! empty($s['override']),
-			'tables'     => count($s['tables']),
-			'db_mode'    => $s['db_mode'] ?? 'replace',
-			'pt_filter'  => $s['pt_filter'] ?? 'all',
-			'pt_selected' => $s['pt_selected'] ?? array(),
-			'created'    => $s['created'],
-			'updated'    => $s['updated'],
-			'log'        => array_slice($s['log'], -40),
-			'warnings'   => $s['warnings'],
-			'stats'      => array(
-				'rows'          => $s['db']['rows'],
-				'tables_done'   => count($s['db']['imported']),
+			'selected_tables'  => $s['tables'],
+			'skip_unchanged'   => ! empty($s['skip_unchanged']),
+			'excludes'         => $s['custom_excludes'] ?? array_values(array_diff(
+				(array) $s['excludes'],
+				! empty($s['exclude_dev']) ? Migration_Engine::DEV_EXCLUDES : array()
+			)),
+			'exclude_dev'      => ! empty($s['exclude_dev']),
+			'override'         => ! empty($s['override']),
+			'tables'           => count($s['tables']),
+			'db_mode'          => $s['db_mode'] ?? 'replace',
+			'merge_groups'     => $s['merge_groups'] ?? array(),
+			'pt_filter'        => $s['pt_filter'] ?? 'all',
+			'pt_selected'      => $s['pt_selected'] ?? array(),
+			'created'          => $s['created'],
+			'updated'          => $s['updated'],
+			'log'              => array_slice($s['log'], -40),
+			'warnings'         => $s['warnings'],
+			'stats'            => array(
+				'rows'           => $s['db']['rows'],
+				'tables_done'    => count($s['db']['imported']),
 				'tables_skipped'=> count($s['db']['skipped']),
 				'files_changed' => $s['files']['changed'],
 				'files_scanned' => $s['files']['scanned'],
@@ -951,6 +961,9 @@ class Migration_Runner {
 				'tables'        => $imported,
 				'source_prefix' => $this->state['src']['prefix'],
 			));
+			if ('pull' === $this->state['direction'] && ! empty($this->state['sites_snapshot'])) {
+				update_option('wudt_migration_sites', $this->state['sites_snapshot'], false);
+			}
 			$this->state['db']['finalized'] = true;
 			$this->log(sprintf('Database switched over (%d tables).', count($imported)));
 		}

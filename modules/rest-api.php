@@ -40,9 +40,10 @@ class REST_API_Module extends Module_Base {
 		}
 		$method = isset($_POST['method']) ? strtoupper(sanitize_text_field((string) wp_unslash($_POST['method']))) : 'GET';
 		$route  = isset($_POST['route']) ? sanitize_text_field((string) wp_unslash($_POST['route'])) : '/';
-		$body   = isset($_POST['body']) ? json_decode((string) wp_unslash($_POST['body']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- request body for the REST endpoint tester, sent as entered.
-		if (! is_array($body)) {
-			$body = array();
+		$raw_body = isset($_POST['body']) ? trim((string) wp_unslash($_POST['body'])) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- request body for the REST endpoint tester, sent as entered.
+		$body     = '' === $raw_body ? array() : json_decode($raw_body, true);
+		if (('' !== $raw_body && JSON_ERROR_NONE !== json_last_error()) || ! is_array($body)) {
+			wp_send_json_error(array('message' => __('The request body must be a valid JSON object or array.', 'diagnostics-toolkit')), 400);
 		}
 
 		$request = new WP_REST_Request($method, $route);

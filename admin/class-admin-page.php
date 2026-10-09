@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace WUDT\Admin;
 
+use WP_Admin_Bar;
 use WP_Error;
 use WUDT\Includes\Module_Base;
 
@@ -29,10 +30,47 @@ class Admin_Page {
 
 	public function register_hooks(): void {
 		add_action('admin_menu', array($this, 'register_menu'));
+		add_action('admin_bar_menu', array($this, 'add_admin_bar_menu'), 100);
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 		add_action('wp_ajax_wudt_refresh_dashboard', array($this, 'ajax_refresh_dashboard'));
 		add_action('wp_ajax_wudt_export_report', array($this, 'ajax_export_report'));
 		add_action('wp_ajax_wudt_email_report', array($this, 'ajax_email_report'));
+	}
+
+	public function add_admin_bar_menu(WP_Admin_Bar $admin_bar): void {
+		if (! is_admin_bar_showing() || ! current_user_can('manage_options')) {
+			return;
+		}
+
+		$admin_bar->add_node(
+			array(
+				'id'    => 'wudt-diagnostics',
+				'title' => __('Diagnostics Toolkit', 'diagnostics-toolkit'),
+				'href'  => admin_url('admin.php?page=wudt-diagnostics'),
+			)
+		);
+
+		$tools = array(
+			'admin-tools' => array(__('Admin Tools', 'diagnostics-toolkit'), 'admin.php?page=wudt-diagnostics-pro'),
+			'site-migration' => array(__('Site Migration', 'diagnostics-toolkit'), 'admin.php?page=wudt-site-migration'),
+			'ai-assistant' => array(__('AI Assistant', 'diagnostics-toolkit'), 'admin.php?page=wudt-ai-assistant'),
+			'file-manager' => array(__('File Manager', 'diagnostics-toolkit'), 'admin.php?page=wudt-file-manager'),
+			'backups'     => array(__('Backups', 'diagnostics-toolkit'), 'tools.php?page=wudt-diagnostics-backups'),
+			'search'      => array(__('Search & Replace', 'diagnostics-toolkit'), 'admin.php?page=wudt-search'),
+			'debug-logs'  => array(__('Debug & Logs', 'diagnostics-toolkit'), 'admin.php?page=wudt-debug-logs'),
+			'settings'    => array(__('Settings', 'diagnostics-toolkit'), 'admin.php?page=wudt-settings'),
+		);
+
+		foreach ($tools as $id => $tool) {
+			$admin_bar->add_node(
+				array(
+					'id'     => 'wudt-' . $id,
+					'parent' => 'wudt-diagnostics',
+					'title'  => $tool[0],
+					'href'   => admin_url($tool[1]),
+				)
+			);
+		}
 	}
 
 	public function register_menu(): void {
@@ -55,7 +93,13 @@ class Admin_Page {
 		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
 		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
 		wp_enqueue_script('wudt-ui-utils', WUDT_PLUGIN_URL . 'assets/js/ui-utils.js', array('jquery'), WUDT_VERSION, true);
-		wp_enqueue_script('wudt-admin', WUDT_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'wudt-ui-utils'), WUDT_VERSION, true);
+		wp_enqueue_script(
+			'wudt-admin',
+			WUDT_PLUGIN_URL . 'assets/js/admin.js',
+			array('jquery', 'wudt-ui-utils'),
+			WUDT_VERSION . '.' . (int) filemtime(WUDT_PLUGIN_DIR . 'assets/js/admin.js'),
+			true
+		);
 		wp_localize_script(
 			'wudt-admin',
 			'wudtAdmin',
@@ -93,17 +137,10 @@ class Admin_Page {
 			wp_send_json_error(array('message' => __('Could not generate report JSON.', 'diagnostics-toolkit')), 500);
 		}
 
-		$upload_dir = wp_get_upload_dir();
-		$dir        = trailingslashit($upload_dir['basedir']) . 'wudt-reports/';
-		if (! wp_mkdir_p($dir)) {
-			wp_send_json_error(array('message' => __('Unable to create reports directory.', 'diagnostics-toolkit')), 500);
-		}
-		$file = $dir . 'diagnostic-report-' . gmdate('Ymd-His') . '.json';
-		file_put_contents($file, (string) $json); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-
 		wp_send_json_success(
 			array(
-				'file' => str_replace(trailingslashit($upload_dir['basedir']), trailingslashit($upload_dir['baseurl']), $file),
+				'content'  => $json,
+				'filename' => 'diagnostic-report-' . gmdate('Ymd-His') . '.json',
 			)
 		);
 	}
@@ -116,6 +153,9 @@ class Admin_Page {
 		}
 
 		$report = wp_json_encode($this->get_full_report(), JSON_PRETTY_PRINT);
+		if (false === $report) {
+			wp_send_json_error(array('message' => __('Could not generate report JSON.', 'diagnostics-toolkit')), 500);
+		}
 		$sent   = wp_mail(
 			$email,
 			__('WordPress Diagnostic Report', 'diagnostics-toolkit'),

@@ -369,6 +369,7 @@ class Migration_Module extends Module_Base {
 					'pt_filter'      => $pt_filter,
 					'pt_plugins'     => is_array($pt_plugins) ? $pt_plugins : array(),
 					'pt_themes'      => is_array($pt_themes) ? $pt_themes : array(),
+					'sites_snapshot' => $this->get_sites(),
 				),
 				$remote,
 				$local

@@ -282,6 +282,44 @@
 		});
 	}
 
+	function restoreSavedOptions(w) {
+		var history = (S.data && S.data.history) || [];
+		var saved = null;
+		for (var i = 0; i < history.length; i++) {
+			var job = history[i];
+			if (job.site && job.site.id === w.siteId && job.direction === w.direction && Array.isArray(job.selected_tables)) {
+				saved = job;
+				break;
+			}
+		}
+		if (!saved) { return false; }
+
+		var allTables = (w.preflight.tables || []).map(function (table) { return table.name; });
+		w.tables = saved.selected_tables.filter(function (table) { return allTables.indexOf(table) !== -1; });
+		w.db = w.tables.length > 0;
+		w.tableMode = w.tables.length === allTables.length ? 'all' : 'custom';
+		w.components = (saved.components || []).filter(function (component) {
+			return availableComponents(w).indexOf(component) !== -1;
+		});
+		w.skipUnchanged = !!saved.skip_unchanged;
+		w.override = !!saved.override;
+		w.dbMode = saved.db_mode === 'merge' ? 'merge' : 'replace';
+		w.mergeGroups = (saved.merge_groups || []).filter(function (group) {
+			return ['posts', 'terms', 'comments', 'users'].indexOf(group) !== -1;
+		});
+		w.excludes = Array.isArray(saved.excludes) ? saved.excludes.join('\n') : '';
+		w.excludeDev = !!saved.exclude_dev;
+		w.ptFilter = ['all', 'active', 'inactive', 'selected'].indexOf(saved.pt_filter) !== -1 ? saved.pt_filter : 'all';
+		w.ptSelected = { plugins: [], themes: [] };
+		['plugins', 'themes'].forEach(function (component) {
+			var items = ((w.preflight.items || {})[component] || []).map(function (item) { return item.id; });
+			w.ptSelected[component] = ((saved.pt_selected || {})[component] || []).filter(function (item) {
+				return items.indexOf(item) !== -1;
+			});
+		});
+		return true;
+	}
+
 	function renderWizard() {
 		var w = S.wizard;
 		var s = site(w.siteId) || { label: '', url: '' };
@@ -569,6 +607,9 @@
 			S.wizard.preflight = r.data;
 			S.wizard.tables = (r.data.tables || []).map(function (t) { return t.name; });
 			S.wizard.dbSize = (r.data.tables || []).reduce(function (a, t) { return a + (Number(t.size) || 0); }, 0);
+			if (restoreSavedOptions(S.wizard)) {
+				setNotice('info', 'Your previous migration choices for this site and direction have been restored.');
+			}
 			render();
 		}).fail(function (xhr) {
 			S.wizard.loading = false;
