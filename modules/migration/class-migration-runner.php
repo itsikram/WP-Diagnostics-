@@ -63,12 +63,21 @@ class Migration_Runner {
 		foreach ((array) ($src['tables'] ?? array()) as $t) {
 			$src_tables[$t['name']] = (int) $t['rows'];
 		}
-		$merge = 'merge' === ($options['db_mode'] ?? '');
+		$db_mode = in_array(($options['db_mode'] ?? ''), array('replace', 'replace_content', 'merge'), true)
+			? (string) $options['db_mode']
+			: 'replace';
+		$merge = 'merge' === $db_mode;
+		$replace_content = 'replace_content' === $db_mode;
 		$wanted = (array) ($options['tables'] ?? array());
 		$merge_groups = array_values(array_intersect(Migration_Engine::MERGE_GROUPS, (array) ($options['merge_groups'] ?? array())));
 		if ($merge) {
-			// Adding content needs the WordPress content tables only; settings and plugin tables are never merged.
+			// Adding content uses core content tables, never site settings or plugin tables.
 			$wanted = empty($wanted) || empty($merge_groups) ? array() : array_map(static function ($suffix) use ($src) {
+				return (string) ($src['prefix'] ?? '') . $suffix;
+			}, Migration_Engine::MERGE_TABLES);
+		} elseif ($replace_content) {
+			// Replace only the coordinated WordPress content tables; preserve settings and plugin tables.
+			$wanted = empty($wanted) ? array() : array_map(static function ($suffix) use ($src) {
 				return (string) ($src['prefix'] ?? '') . $suffix;
 			}, Migration_Engine::MERGE_TABLES);
 		}
@@ -126,7 +135,7 @@ class Migration_Runner {
 				! empty($options['exclude_dev']) ? Migration_Engine::DEV_EXCLUDES : array()
 			))),
 			'exclude_dev' => ! empty($options['exclude_dev']),
-			'db_mode'    => $merge ? 'merge' : 'replace',
+			'db_mode'    => $db_mode,
 			'merge_groups' => $merge_groups,
 			'pt_filter'  => $pt_filter,
 			'pt_selected' => 'selected' === $pt_filter ? $pt_selected : array(),
@@ -183,7 +192,10 @@ class Migration_Runner {
 		}
 		$runner->log(sprintf(
 			'Selected — database: %s; files: %s.',
-			empty($tables) ? 'not included' : ($merge ? 'add as new content (' . implode(', ', $merge_groups) . ')' : count($tables) . ' tables'),
+			empty($tables) ? 'not included' : (
+				$merge ? 'add as new content (' . implode(', ', $merge_groups) . ')'
+					: ($replace_content ? 'replace selected WordPress content tables' : count($tables) . ' tables')
+			),
 			empty($components) ? 'not included' : implode(', ', $components) . $pt_note
 		));
 		$runner->save();

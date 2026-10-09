@@ -321,7 +321,10 @@ class Migration_Module extends Module_Base {
 		$tables = json_decode(sanitize_text_field(wp_unslash($_POST['tables'] ?? '[]')), true);
 		$excludes_raw = sanitize_textarea_field(wp_unslash($_POST['excludes'] ?? ''));
 		$excludes = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array()));
-		$db_mode = 'merge' === sanitize_key(wp_unslash($_POST['db_mode'] ?? '')) ? 'merge' : 'replace';
+		$db_mode = sanitize_key(wp_unslash($_POST['db_mode'] ?? 'replace'));
+		if (! in_array($db_mode, array('replace', 'replace_content', 'merge'), true)) {
+			wp_send_json_error(array('message' => __('Choose a valid database migration mode.', 'diagnostics-toolkit')), 400);
+		}
 		$merge_groups = json_decode(sanitize_text_field(wp_unslash($_POST['merge_groups'] ?? '[]')), true);
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
 		$pt_plugins = json_decode(sanitize_text_field(wp_unslash($_POST['pt_plugins'] ?? '[]')), true);

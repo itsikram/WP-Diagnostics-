@@ -262,7 +262,11 @@
 	// What a job included, e.g. "DB: 55 tables · Files: Plugins, Themes (120 files)".
 	function jobScope(j) {
 		var parts = [];
-		if (j.tables > 0) { parts.push(j.db_mode === 'merge' ? 'DB: added as new content' : 'DB: ' + esc(j.stats.tables_done) + ' tables'); }
+		if (j.tables > 0) {
+			parts.push(j.db_mode === 'merge'
+				? 'DB: added as new content'
+				: (j.db_mode === 'replace_content' ? 'DB: replaced WordPress content' : 'DB: ' + esc(j.stats.tables_done) + ' tables'));
+		}
 		if ((j.components || []).length) {
 			var sel = j.pt_filter === 'selected' ? (j.pt_selected || {}) : null;
 			parts.push('Files: ' + j.components.map(function (c) {
@@ -303,7 +307,7 @@
 		});
 		w.skipUnchanged = !!saved.skip_unchanged;
 		w.override = !!saved.override;
-		w.dbMode = saved.db_mode === 'merge' ? 'merge' : 'replace';
+		w.dbMode = saved.db_mode === 'merge' ? 'merge' : (saved.db_mode === 'replace_content' ? 'replace_content' : 'replace');
 		w.mergeGroups = (saved.merge_groups || []).filter(function (group) {
 			return ['posts', 'terms', 'comments', 'users'].indexOf(group) !== -1;
 		});
@@ -328,7 +332,7 @@
 		h += '<div class="wudt-mig-flow">'
 			+ '<div class="wudt-mig-flow-box"><span>From</span><strong>' + esc(isPull ? s.label : 'This site') + '</strong><small>' + esc(isPull ? s.url : S.data.local_site_url) + '</small></div>'
 			+ '<div class="wudt-mig-flow-arrow">→</div>'
-			+ '<div class="wudt-mig-flow-box is-dest"><span>To (will be overwritten)</span><strong>' + esc(isPull ? 'This site' : s.label) + '</strong><small>' + esc(isPull ? S.data.local_site_url : s.url) + '</small></div>'
+			+ '<div class="wudt-mig-flow-box is-dest"><span>' + (w.dbMode === 'replace_content' ? 'To (selected content replaced)' : 'To (will be overwritten)') + '</span><strong>' + esc(isPull ? 'This site' : s.label) + '</strong><small>' + esc(isPull ? S.data.local_site_url : s.url) + '</small></div>'
 			+ '</div>';
 
 		if (w.loading) {
@@ -379,6 +383,7 @@
 			if (!canMerge && w.dbMode === 'merge') { w.dbMode = 'replace'; }
 			h += '<div class="wudt-mig-sub"><strong class="wudt-mig-sub-title">Database</strong>'
 				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace"' + (w.dbMode === 'replace' ? ' checked' : '') + '> <strong>Replace</strong> — the destination’s tables are overwritten with the source’s (an exact copy).</label>'
+				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace_content"' + (w.dbMode === 'replace_content' ? ' checked' : '') + '> <strong>Replace content only</strong> — replace the destination’s users, posts, pages, custom post types, taxonomies and comments with the source’s. Site settings and plugin-specific tables are preserved. User accounts and passwords will become the source site’s.</label>'
 				+ '<label class="wudt-mig-mode' + (canMerge ? '' : ' is-disabled') + '"><input type="radio" name="wudt-mig-dbmode" value="merge"' + (w.dbMode === 'merge' ? ' checked' : '') + (canMerge ? '' : ' disabled') + '> <strong>Add as new content</strong> — keep every existing post, page, user and term on the destination and add the source’s content as new items.'
 				+ (canMerge ? '' : ' <em>(update Diagnostics Toolkit on the remote site to use this)</em>') + '</label>';
 			if (w.dbMode === 'merge') {
@@ -390,6 +395,8 @@
 					h += '<label><input type="checkbox" data-mig-group="' + g[0] + '"' + (w.mergeGroups.indexOf(g[0]) !== -1 ? ' checked' : '') + '> ' + esc(g[1]) + ' <small>' + esc(g[2]) + '</small></label>';
 				});
 				h += '<p class="wudt-mig-muted">Everything gets new IDs, so nothing on the destination is overwritten. Content added by an earlier merge from the same site is skipped. Settings and plugin-specific tables (for example WooCommerce orders) are not merged. Tick <strong>Media uploads</strong> too, so the image files come along. Rollback removes everything that was added.</p></div>';
+			} else if (w.dbMode === 'replace_content') {
+				h += '<p class="wudt-mig-muted">The WordPress content tables are backed up for rollback before replacement. Plugin-specific tables and site settings are preserved, though plugin data linked to replaced users or posts may need reconciliation. Media files still follow your Files selections.</p>';
 			} else {
 				h += '<div class="wudt-mig-tmodes"><label><input type="radio" name="wudt-mig-tmode" value="all"' + (w.tableMode === 'all' ? ' checked' : '') + '> All tables</label> '
 					+ '<label><input type="radio" name="wudt-mig-tmode" value="custom"' + (w.tableMode === 'custom' ? ' checked' : '') + '> Choose tables</label>'
@@ -430,7 +437,9 @@
 				+ '<small>(.git, .gitignore, .github, .vscode, .idea, .claude, .cursor, CLAUDE.md, lint / test config, editor swap files…)</small></label></div>';
 		}
 
-		var dbOk = w.db && (w.dbMode === 'merge' ? w.mergeGroups.length > 0 && (pf.tables || []).length > 0 : (w.tableMode === 'all' ? (pf.tables || []).length > 0 : w.tables.length > 0));
+		var dbOk = w.db && (w.dbMode === 'merge'
+			? w.mergeGroups.length > 0 && (pf.tables || []).length > 0
+			: ((w.dbMode === 'replace_content' || w.tableMode === 'all') ? (pf.tables || []).length > 0 : w.tables.length > 0));
 		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0) && !ptMissing(w).length;
 		h += '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>'
 			+ '<button class="button button-primary button-hero" data-mig="start"' + (canStart && !S.busy ? '' : ' disabled') + '>'
@@ -622,14 +631,21 @@
 		var w = S.wizard;
 		w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
 		var merge = w.dbMode === 'merge';
+		var replaceContent = w.dbMode === 'replace_content';
 		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
-		var tables = w.db ? (merge ? (w.mergeGroups.length ? allTables : []) : (w.tableMode === 'all' ? allTables : w.tables)) : [];
+		var tables = w.db
+			? (merge ? (w.mergeGroups.length ? allTables : []) : (replaceContent || w.tableMode === 'all' ? allTables : w.tables))
+			: [];
 		if (!tables.length && !w.components.length) { return; }
 		if (ptMissing(w).length) { return; }
 		var s = site(w.siteId);
 		var parts = [];
 		if (tables.length) {
-			parts.push(merge ? 'Database: ADD as new content (' + w.mergeGroups.join(', ') + ') — existing content is kept' : tables.length + ' database tables (replaced)');
+			parts.push(merge
+				? 'Database: ADD as new content (' + w.mergeGroups.join(', ') + ') — existing content is kept'
+				: (replaceContent
+					? 'Database: replace target users, posts/pages/custom post types, taxonomies and comments; preserve site settings and plugin-specific tables'
+					: tables.length + ' database tables (replaced)'));
 		}
 		w.components.forEach(function (c) {
 			var pt = '';
@@ -642,7 +658,7 @@
 		if (!tables.length) { skipped.push('Database'); }
 		(S.data.components || []).forEach(function (c) { if (w.components.indexOf(c) === -1) { skipped.push(COMPONENT_LABELS[c] || c); } });
 		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
-		if (!window.confirm('Overwrite ' + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
+		if (!window.confirm((replaceContent ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + '\n\nThe previous version is kept so you can roll back. Continue?')) {
 			return;
 		}
 		S.busy = true;
@@ -656,7 +672,7 @@
 			override: w.override ? 1 : '',
 			excludes: w.excludes,
 			exclude_dev: w.excludeDev && w.components.length ? 1 : '',
-			db_mode: merge ? 'merge' : 'replace',
+			db_mode: merge ? 'merge' : (replaceContent ? 'replace_content' : 'replace'),
 			merge_groups: JSON.stringify(w.mergeGroups),
 			pt_filter: w.ptFilter,
 			pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
