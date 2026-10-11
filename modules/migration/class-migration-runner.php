@@ -34,6 +34,9 @@ class Migration_Runner {
 	private const CALL_WINDOW = 200;
 	// Smallest upload per request when the connection is slow.
 	private const MIN_CHUNK = 256 * KB_IN_BYTES;
+	// Most files per transfer request: small files share one request, so the other
+	// site loads WordPress once for many of them.
+	private const BATCH_FILES = 2000;
 
 	private array $state;
 	private float $started;
@@ -43,6 +46,11 @@ class Migration_Runner {
 	private float $last_report = 0.0;
 	private ?Remote_Client $client = null;
 	private ?Migration_API $local = null;
+	// Seconds this step may run (set by step()).
+	private float $budget = 20.0;
+	// While files stream, progress reports to the other site join the stream instead of blocking it.
+	private bool $streaming = false;
+	private ?array $pending_report = null;
 
 	private function __construct(array $state) {
 		$this->state = $state;
@@ -213,6 +221,8 @@ class Migration_Runner {
 			),
 			// Pull only: this site loads media from the source site instead of copying uploads.
 			'live_media' => $live_media,
+			// The schedule that started this job ({id, name}); it then runs in the background.
+			'scheduled'  => self::scheduled_ref((array) ($options['scheduled'] ?? array())),
 			'src'        => self::slim_info($src),
 			'dst'        => self::slim_info($dst),
 			'pairs'      => Migration_Replacer::build_pairs($src, $dst),
@@ -399,6 +409,13 @@ class Migration_Runner {
 		return '.' === $dir ? $file : $dir;
 	}
 
+	private static function scheduled_ref(array $scheduled): ?array {
+		if (empty($scheduled['id'])) {
+			return null;
+		}
+		return array('id' => (string) $scheduled['id'], 'name' => (string) ($scheduled['name'] ?? ''));
+	}
+
 	private static function slim_info(array $info): array {
 		$keep = array('home', 'siteurl', 'abspath', 'abspath_raw', 'prefix', 'post_max_size', 'memory_limit', 'max_packet', 'self_plugin_dir', 'wp_version');
 		return array_intersect_key($info, array_flip($keep));
@@ -437,23 +454,28 @@ class Migration_Runner {
 		}
 		$this->last_report = microtime(true);
 		$s = $this->summary();
+		$report = array(
+			'id'          => $s['id'],
+			'from'        => untrailingslashit(home_url()),
+			'from_label'  => get_bloginfo('name'),
+			'direction'   => $s['direction'],
+			'status'      => $s['status'],
+			'phase'       => $s['phase'],
+			'message'     => $s['message'],
+			'error'       => $s['error'],
+			'percent'     => $s['percent'],
+			'tables'      => $s['tables'],
+			'components'  => $s['components'],
+			'files_count' => $s['files_count'],
+			'stats'       => $s['stats'],
+			'log'         => array_slice($s['log'], -20),
+		);
+		if ($this->streaming) {
+			$this->pending_report = $report;
+			return;
+		}
 		try {
-			$this->client()->call('progress', array(
-				'id'          => $s['id'],
-				'from'        => untrailingslashit(home_url()),
-				'from_label'  => get_bloginfo('name'),
-				'direction'   => $s['direction'],
-				'status'      => $s['status'],
-				'phase'       => $s['phase'],
-				'message'     => $s['message'],
-				'error'       => $s['error'],
-				'percent'     => $s['percent'],
-				'tables'      => $s['tables'],
-				'components'  => $s['components'],
-				'files_count' => $s['files_count'],
-				'stats'       => $s['stats'],
-				'log'         => array_slice($s['log'], -20),
-			), 5, 1);
+			$this->client()->call('progress', $report, 5, 1);
 		} catch (\Throwable $e) {
 			// Not worth slowing the migration down.
 			$this->state['report_off_until'] = time() + 60;
@@ -553,6 +575,7 @@ class Migration_Runner {
 			'keep_backup'      => ! isset($s['keep_backup']) || ! empty($s['keep_backup']),
 			'repo'             => self::repo_summary($s),
 			'live_media'       => $s['live_media'] ?? null,
+			'scheduled'        => $s['scheduled'] ?? null,
 			'progress_url'     => (string) ($s['progress']['url'] ?? ''),
 			'phase_started'    => (int) ($s['phase_started'] ?? $s['created']),
 			'seq'              => (int) ($s['seq'] ?? 0),
@@ -657,6 +680,7 @@ class Migration_Runner {
 	 * Run the job for up to $budget seconds.
 	 */
 	public function step(float $budget = 20.0): array {
+		$this->budget = $budget;
 		if ('failed' === $this->state['status']) {
 			// Resume: every phase only advances after a sub-step succeeds, so retrying is safe.
 			$this->state['status'] = 'running';
@@ -1026,115 +1050,150 @@ class Migration_Runner {
 		}
 
 		$limit = $this->transfer_limit();
-		$par = $this->parallel();
-		$max_files = 400;
+		$lanes = $this->parallel();
+		$pull = 'pull' === $this->state['direction'];
 		$min_chunk = 64 * KB_IN_BYTES;
 		// Older destinations truncate a file when its first chunk arrives, so that
 		// chunk must be written before any other chunk of the file is sent.
 		$parallel_chunks = ! $this->is_remote('dst') || $this->remote_has('fast');
 
 		$fh = fopen($queue, 'rb');
-		fseek($fh, (int) $f['qpos']);
-		$pos = (int) $f['qpos'];
-		$seg = (int) $f['seg_offset'];
-		$batches = array();
-		$new_batch = static function (): array {
-			return array('reqs' => array(), 'bytes' => 0, 'files' => 0, 'final' => array(), 'pos' => 0, 'seg' => 0);
-		};
-		$cur = $new_batch();
-		$split = array(); // Files chunked in this round.
-		$entry = null;
-		$line_end = $pos;
-		while (count($batches) < $par) {
-			if (null === $entry) {
-				$line = fgets($fh);
-				if (false === $line) {
-					break;
+		$reader = array(
+			'pos'      => (int) $f['qpos'],
+			'seg'      => (int) $f['seg_offset'],
+			'line_end' => (int) $f['qpos'],
+			'entry'    => null,
+			'eof'      => false,
+		);
+		fseek($fh, $reader['pos']);
+
+		// Unfinished chunks of split files (file key => count): the last chunk of a
+		// file waits for them, because it checks the whole file on the destination.
+		$pending = array();
+
+		/*
+		 * The next batch from the queue: whole files up to the size limit, or one
+		 * chunk of a large file filling the rest of the batch. Null when nothing can
+		 * be sent now (the queue is done or a last chunk waits for earlier chunks).
+		 */
+		$build = static function () use ($fh, &$reader, &$pending, $limit, $min_chunk, $parallel_chunks): ?array {
+			$batch = array('reqs' => array(), 'bytes' => 0, 'files' => 0, 'final' => array(), 'chunks' => array(), 'pos' => $reader['pos'], 'seg' => $reader['seg']);
+			while (true) {
+				if (null === $reader['entry']) {
+					$line = fgets($fh);
+					if (false === $line) {
+						$reader['eof'] = true;
+						break;
+					}
+					$reader['line_end'] = ftell($fh);
+					$entry = json_decode(trim($line), true);
+					if (! is_array($entry)) {
+						$reader['pos'] = $reader['line_end'];
+						$reader['seg'] = 0;
+						continue;
+					}
+					$reader['entry'] = $entry;
 				}
-				$line_end = ftell($fh);
-				$entry = json_decode(trim($line), true);
-				if (! is_array($entry)) {
-					$entry = null;
-					$pos = $line_end;
-					$seg = 0;
-					$cur['pos'] = $pos;
-					$cur['seg'] = 0;
+				$entry = $reader['entry'];
+				$key = $entry['c'] . '/' . $entry['p'];
+				$seg = (int) $reader['seg'];
+				$remaining = max(0, (int) $entry['s'] - $seg);
+				$space = $limit - $batch['bytes'];
+				if ($remaining <= $space) {
+					if ($seg > 0 && ! empty($pending[$key])) {
+						break; // The last chunk waits until the earlier ones are written.
+					}
+					$batch['reqs'][] = array('c' => $entry['c'], 'p' => $entry['p'], 'o' => $seg, 'l' => $remaining);
+					$batch['final'][$key] = true;
+					$batch['bytes'] += $remaining;
+					$batch['files']++;
+					$reader['entry'] = null;
+					$reader['pos'] = $reader['line_end'];
+					$reader['seg'] = 0;
+					$batch['pos'] = $reader['pos'];
+					$batch['seg'] = 0;
+					if (count($batch['reqs']) >= self::BATCH_FILES) {
+						break;
+					}
 					continue;
 				}
-			}
-			$key = $entry['c'] . '/' . $entry['p'];
-			$remaining = max(0, (int) $entry['s'] - $seg);
-			$space = $limit - $cur['bytes'];
-			if ($remaining <= $space) {
-				if ($seg > 0 && isset($split[$key])) {
-					break; // The last chunk waits until the earlier ones are written.
+				if ($space < $min_chunk && ! empty($batch['reqs'])) {
+					break;
 				}
-				$cur['reqs'][] = array('c' => $entry['c'], 'p' => $entry['p'], 'o' => $seg, 'l' => $remaining);
-				$cur['final'][$key] = true;
-				$cur['bytes'] += $remaining;
-				$cur['files']++;
-				$entry = null;
-				$pos = $line_end;
-				$seg = 0;
-				$cur['pos'] = $pos;
-				$cur['seg'] = 0;
-				if (count($cur['reqs']) >= $max_files) {
-					$batches[] = $cur;
-					$cur = $new_batch();
+				if ($seg > 0 && ! $parallel_chunks && ! empty($pending[$key])) {
+					break;
 				}
-				continue;
-			}
-			if ($space < $min_chunk && ! empty($cur['reqs'])) {
-				$batches[] = $cur;
-				$cur = $new_batch();
-				continue;
-			}
-			$first_chunk = 0 === $seg;
-			$cur['reqs'][] = array('c' => $entry['c'], 'p' => $entry['p'], 'o' => $seg, 'l' => $space);
-			$cur['bytes'] += $space;
-			$seg += $space;
-			$split[$key] = true;
-			$cur['pos'] = $pos; // Start of this file's line: it continues from $seg.
-			$cur['seg'] = $seg;
-			$batches[] = $cur;
-			$cur = $new_batch();
-			if ($first_chunk && ! $parallel_chunks) {
+				$batch['reqs'][] = array('c' => $entry['c'], 'p' => $entry['p'], 'o' => $seg, 'l' => $space);
+				$batch['bytes'] += $space;
+				$batch['chunks'][] = $key;
+				$reader['seg'] = $seg + $space;
+				// Resume from the start of this file's line, continuing at the next chunk.
+				$batch['pos'] = $reader['pos'];
+				$batch['seg'] = $reader['seg'];
 				break;
 			}
-		}
-		fclose($fh);
-		if (! empty($cur['reqs'])) {
-			$batches[] = $cur;
-		}
+			if (empty($batch['reqs'])) {
+				return null;
+			}
+			foreach ($batch['chunks'] as $key) {
+				$pending[$key] = ($pending[$key] ?? 0) + 1;
+			}
+			return $batch;
+		};
 
-		if (empty($batches)) {
-			$f['qpos'] = $pos;
-			$f['seg_offset'] = 0;
-			$this->log(sprintf('Transferred %s files (%s).', number_format_i18n($f['done_files']), size_format($f['done_bytes'])));
-			$this->next_phase($this->after_transfer());
-			return;
-		}
-
-		$this->state['message'] = sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed']));
-
+		$batches = array();   // Sent and not yet counted, by sequence number.
+		$results = array();   // Finished batches waiting for the ones before them.
 		$errors = array();
-		$round_started = microtime(true);
-		$reads = array();
-		foreach ($batches as $b => $batch) {
-			$reads[$b] = array('requests' => $batch['reqs'], 'raw' => true);
-		}
-		$round_bytes = array_sum(array_column($batches, 'bytes'));
-		$round_files = array_sum(array_column($batches, 'files'));
-		$sent_so_far = sprintf('%s / %s', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])));
-		$this->progress(sprintf('Transferring files… %s — reading the next %s (%s files) from the source', $sent_so_far, size_format($round_bytes), number_format_i18n($round_files)), true);
-		$read = $this->call_many('src', 'read', $reads, $errors);
-		$this->progress(sprintf('Transferring files… %s — writing %s to the destination', $sent_so_far, size_format($round_bytes)), true);
+		$timed_out = false;
+		$seq = 0;
+		$counted = 0;
+		$stop = false;
+		$deadline = $this->started + $this->budget;
 
-		$writes = array();
-		$sent = array();
-		foreach ($read as $b => $segments) {
-			$write = array();
-			foreach ((array) $segments as $s) {
+		// Count finished batches in queue order, so a resumed job never skips a file.
+		$commit = function () use (&$f, &$batches, &$results, &$counted, $queue): void {
+			while (isset($results[$counted])) {
+				$batch = $batches[$counted];
+				$result = $results[$counted];
+				unset($batches[$counted], $results[$counted]);
+				$counted++;
+
+				$requeue = array();
+				foreach ((array) ($result['failed'] ?? array()) as $failed) {
+					$requeue[$failed['c'] . '/' . $failed['p']] = 'File changed during copy, retrying: ';
+				}
+				$sizes = array();
+				foreach ($batch['sent'] as $s) {
+					$key = $s['c'] . '/' . $s['p'];
+					if (empty($s['eof']) && isset($batch['final'][$key])) {
+						$requeue[$key] = 'File grew during copy, retrying: ';
+					}
+					$sizes[$key] = array($s['c'], $s['p'], (int) ($s['s'] ?? 0));
+				}
+				foreach ($requeue as $key => $why) {
+					$tries = (int) ($f['retries'][$key] ?? 0);
+					if ($tries < 2 && isset($sizes[$key])) {
+						$f['retries'][$key] = $tries + 1;
+						list($c, $path, $size) = $sizes[$key];
+						file_put_contents($queue, wp_json_encode(array('c' => $c, 'p' => $path, 's' => $size)) . "\n", FILE_APPEND | LOCK_EX);
+						$this->log($why . $key);
+					} else {
+						$f['skipped'][] = $key;
+						$this->state['warnings'][] = 'Skipped a file that kept changing during transfer: ' . $key;
+					}
+				}
+				$f['done_bytes'] += (int) ($result['bytes'] ?? 0);
+				$f['done_files'] += (int) $batch['files'];
+				$f['qpos'] = (int) $batch['pos'];
+				$f['seg_offset'] = (int) $batch['seg'];
+			}
+			$this->progress(sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed'])));
+		};
+
+		// Segments read from the source, without files that disappeared meanwhile.
+		$usable = function (array $segments) use (&$f): array {
+			$out = array();
+			foreach ($segments as $s) {
 				if (! empty($s['missing'])) {
 					$f['skipped'][] = $s['c'] . '/' . $s['p'];
 					$this->log('Skipped (no longer exists on source): ' . $s['c'] . '/' . $s['p']);
@@ -1145,65 +1204,135 @@ class Migration_Runner {
 					$s['raw'] = (string) base64_decode((string) ($s['d'] ?? ''));
 					unset($s['d']);
 				}
-				$write[] = $s;
+				$out[] = $s;
 			}
-			$sent[$b] = $write;
-			if (! empty($write)) {
-				$writes[$b] = array('job' => $this->state['id'], 'segments' => $write);
-			}
-		}
-		unset($read);
-		$written = empty($writes) ? array() : $this->call_many('dst', 'write', $writes, $errors);
+			return $out;
+		};
 
-		// Advance through the batches in order, up to the first one that failed.
-		foreach ($batches as $b => $batch) {
-			if (isset($errors[$b]) || ! isset($sent[$b])) {
-				break;
-			}
-			$result = (array) ($written[$b] ?? array('failed' => array(), 'bytes' => 0));
-			$requeue = array();
-			foreach ((array) ($result['failed'] ?? array()) as $failed) {
-				$requeue[$failed['c'] . '/' . $failed['p']] = 'File changed during copy, retrying: ';
-			}
-			foreach ($sent[$b] as $s) {
-				$key = $s['c'] . '/' . $s['p'];
-				if (empty($s['eof']) && isset($batch['final'][$key])) {
-					$requeue[$key] = 'File grew during copy, retrying: ';
+		$release = static function (array $batch) use (&$pending): void {
+			foreach ($batch['chunks'] as $key) {
+				if (--$pending[$key] <= 0) {
+					unset($pending[$key]);
 				}
 			}
-			$sizes = array();
-			foreach ($sent[$b] as $s) {
-				$sizes[$s['c'] . '/' . $s['p']] = array($s['c'], $s['p'], (int) ($s['s'] ?? 0));
+		};
+
+		$next = function () use (&$batches, &$results, &$errors, &$seq, &$stop, $deadline, $build, $usable, $release, $pull, $commit): ?array {
+			if (null !== $this->pending_report) {
+				$report = $this->pending_report;
+				$this->pending_report = null;
+				return array('report', 'progress', $report, array('timeout' => 5, 'retry' => false));
 			}
-			foreach ($requeue as $key => $why) {
-				$tries = (int) ($f['retries'][$key] ?? 0);
-				if ($tries < 2 && isset($sizes[$key])) {
-					$f['retries'][$key] = $tries + 1;
-					list($c, $path, $size) = $sizes[$key];
-					file_put_contents($queue, wp_json_encode(array('c' => $c, 'p' => $path, 's' => $size)) . "\n", FILE_APPEND | LOCK_EX);
-					$this->log($why . $key);
-				} else {
-					$f['skipped'][] = $key;
-					$this->state['warnings'][] = 'Skipped a file that kept changing during transfer: ' . $key;
+			// At least one batch per call, then only while the step has time left.
+			while (! $stop && (0 === $seq || microtime(true) < $deadline)) {
+				$batch = $build();
+				if (null === $batch) {
+					return null;
 				}
+				$id = $seq++;
+				if ($pull) {
+					$batches[$id] = $batch;
+					return array($id, 'read', array('requests' => $batch['reqs'], 'raw' => true));
+				}
+				// Push: read from this site just before sending.
+				$batches[$id] = $batch;
+				try {
+					$batch['sent'] = $usable((array) $this->local_api()->dispatch('read', array('requests' => $batch['reqs'], 'raw' => true)));
+				} catch (\Throwable $e) {
+					$release($batch);
+					$errors[$id] = $e->getMessage();
+					$stop = true;
+					return null;
+				}
+				$batches[$id] = $batch;
+				if (! empty($batch['sent'])) {
+					return array($id, 'write', array('job' => $this->state['id'], 'segments' => $batch['sent']));
+				}
+				$release($batch);
+				$results[$id] = array('bytes' => 0, 'failed' => array());
+				$commit();
 			}
-			$f['done_bytes'] += (int) ($result['bytes'] ?? 0);
-			$f['done_files'] += (int) $batch['files'];
-			$f['qpos'] = (int) $batch['pos'];
-			$f['seg_offset'] = (int) $batch['seg'];
-		}
+			return null;
+		};
 
-		$this->state['message'] = sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed']));
-
-		if (! empty($errors)) {
-			// Too much data per request for this connection: retry the rest with smaller requests.
-			if (self::is_timeout((string) reset($errors)) && $this->shrink_transfer($limit)) {
+		$done = function ($id, $data, ?string $error, bool $timeout) use (&$batches, &$results, &$errors, &$timed_out, &$stop, $usable, $release, $pull, $commit): void {
+			if ('report' === $id) {
+				if (null !== $error) {
+					// Not worth slowing the migration down.
+					$this->state['report_off_until'] = time() + 60;
+				}
 				return;
 			}
-			throw new \RuntimeException((string) reset($errors));
+			$batch = &$batches[$id];
+			if (null === $error && $pull) {
+				// Pull: write what the source sent into this site's staging area right away.
+				$batch['sent'] = $usable((array) $data);
+				try {
+					$data = empty($batch['sent'])
+						? array('bytes' => 0, 'failed' => array())
+						: $this->local_api()->dispatch('write', array('job' => $this->state['id'], 'segments' => $batch['sent']));
+				} catch (\Throwable $e) {
+					$error = $e->getMessage();
+				}
+				foreach ($batch['sent'] as &$s) {
+					unset($s['raw']); // Only the file details are needed from here on.
+				}
+				unset($s);
+			} elseif (null === $error) {
+				foreach ($batch['sent'] as &$s) {
+					unset($s['raw']);
+				}
+				unset($s);
+			}
+			$release($batch);
+			unset($batch);
+			if (null !== $error) {
+				$errors[$id] = $error;
+				$timed_out = $timed_out || $timeout;
+				$stop = true; // Finish what is running, start nothing new.
+				return;
+			}
+			$results[$id] = (array) $data;
+			$commit();
+		};
+
+		$this->progress(sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed'])), true);
+		$this->streaming = true;
+		try {
+			$this->client()->call_stream($next, $done, $lanes, 120);
+		} finally {
+			$this->streaming = false;
+			$this->pending_report = null; // Out of date by now; the next save reports again.
+			fclose($fh);
 		}
-		// A fast round after slowing down: allow larger requests again, step by step.
-		if (! empty($f['chunk_cap']) && microtime(true) - $round_started < 20) {
+		$this->sync_transport();
+
+		if (! empty($errors)) {
+			ksort($errors);
+			$error = (string) reset($errors);
+			if ($timed_out || self::is_timeout($error)) {
+				// Too much data per request for this connection: retry the rest with smaller requests.
+				if ($this->shrink_transfer($limit)) {
+					return;
+				}
+			} elseif ($lanes > 1) {
+				// The server may be refusing parallel requests: use fewer from now on.
+				$this->state['par'] = max(1, intdiv($lanes, 2));
+				$this->log(sprintf('Request failed; reducing parallel requests to %d.', $this->state['par']));
+			}
+			throw new \RuntimeException($error);
+		}
+		clearstatcache(true, $queue);
+		// Files queued again during this call (they changed while being copied) are still to send.
+		if ($reader['eof'] && null === $reader['entry'] && $counted === $seq && (int) filesize($queue) <= $reader['pos']) {
+			$f['qpos'] = $reader['pos'];
+			$f['seg_offset'] = 0;
+			$this->log(sprintf('Transferred %s files (%s).', number_format_i18n($f['done_files']), size_format($f['done_bytes'])));
+			$this->next_phase($this->after_transfer());
+			return;
+		}
+		// Faster again after slowing down: allow larger requests, step by step.
+		if (! empty($f['chunk_cap'])) {
 			$f['chunk_cap'] = (int) ($f['chunk_cap'] * 1.5);
 		}
 	}

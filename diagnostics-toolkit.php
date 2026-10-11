@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Diagnostics Toolkit
  * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, database and file manager, backups, site migration and an AI troubleshooting assistant.
- * Version:           1.10.0
+ * Version:           1.11.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            Programmer Ikram
@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('WUDT_VERSION')) {
-	define('WUDT_VERSION', '1.10.0');
+	define('WUDT_VERSION', '1.11.0');
 }
 if (! defined('WUDT_PLUGIN_FILE')) {
 	define('WUDT_PLUGIN_FILE', __FILE__);
@@ -97,6 +97,7 @@ safe_require('modules/migration/class-remote-client.php');
 safe_require('modules/migration/class-migration-runner.php');
 safe_require('modules/migration/class-peer-progress.php');
 safe_require('modules/migration/class-live-media.php');
+safe_require('modules/migration/class-migration-scheduler.php');
 safe_require('modules/migration/class-migration-module.php');
 safe_require('modules/malware/class-malware-scanner.php');
 safe_require('modules/malware/class-malware-db-scanner.php');
@@ -154,6 +155,9 @@ if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
 }
 
 register_deactivation_hook(__FILE__, static function (): void {
+	if (class_exists(__NAMESPACE__ . '\\Modules\\Migration\\Migration_Scheduler')) {
+		Modules\Migration\Migration_Scheduler::clear_cron();
+	}
 	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
 		Includes\Rescue_Manager::remove_loader();
 	}

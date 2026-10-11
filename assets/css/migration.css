@@ -289,3 +289,27 @@ button.wudt-mig-pk-name:hover { color: var(--mig-accent); text-decoration: under
 .wudt-mw-item-body > p.wudt-mig-muted { margin: 0 0 8px; }
 .wudt-mw-links { margin: 0 0 8px 18px; list-style: disc; }
 .wudt-mw-ignored { margin: 10px 0 0; }
+
+/* Scheduled migrations */
+.wudt-mig-sched-list { display: flex; flex-direction: column; gap: 8px; }
+.wudt-mig-sched-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--mig-line); border-radius: 6px; background: var(--mig-soft); }
+.wudt-mig-sched-row.is-paused { opacity: .75; }
+.wudt-mig-sched-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 320px; }
+.wudt-mig-sched-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; }
+.wudt-mig-sched-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.wudt-mig-sched-new label { font-weight: 600; }
+.wudt-mig-sched-new .wudt-mig-select { margin-left: 0; max-width: 100%; }
+.wudt-mig-sched-runner { margin-top: 14px; }
+.wudt-mig-sched-runner summary { cursor: pointer; font-weight: 600; }
+.wudt-mig-sched-runner code { word-break: break-all; font-size: 11px; }
+.wudt-mig-sched-form { border-left: 4px solid var(--mig-accent); }
+.wudt-mig-sched-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 14px; margin: 8px 0; }
+.wudt-mig-sched-grid label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; margin: 0; }
+.wudt-mig-sched-grid .wudt-mig-select { margin-left: 0; width: 100%; max-width: none; }
+.wudt-mig-sched-note { margin: 0 0 10px; }
+.wudt-mig-sched-tag { font-size: 11px; color: var(--mig-muted); white-space: nowrap; }
+.wudt-mig-status.is-sched-active { background: #edfaef; color: #008a20; }
+.wudt-mig-status.is-sched-paused { background: #f0f0f1; color: var(--mig-muted); }
+.wudt-mig-status.is-sched-failing { background: #fcf0f1; color: #b32d2e; }
+.wudt-mig-status.is-sched-running { background: #f0f6fc; color: #135e96; }
+.wudt-mig-status.is-cancelled { background: #f0f0f1; color: var(--mig-muted); }

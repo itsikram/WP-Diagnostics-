@@ -47,8 +47,12 @@
 		running: false,
 		netFailures: 0,
 		showManual: false,
-		showKey: false
+		showKey: false,
+		// Following a scheduled job that runs in the background (no steps from here).
+		watching: false
 	};
+	var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	var FREQUENCIES = [['once', 'Once'], ['hourly', 'Every hour'], ['every6h', 'Every 6 hours'], ['every12h', 'Every 12 hours'], ['daily', 'Every day'], ['weekly', 'Every week'], ['monthly', 'Every month']];
 
 	/* ----------------------------------------------------------------- */
 
@@ -354,13 +358,15 @@
 		h += '<p class="wudt-mig-muted wudt-mig-help">Both sites need Diagnostics Toolkit active. A live server cannot reach your localhost, so always start migrations from the <strong>local</strong> site: use Pull to bring live here, Push to publish local to live.</p>';
 		h += '</div></div>';
 
+		h += renderSchedules(d);
+
 		// History.
 		var hist = d.history || [];
 		if (hist.length) {
 			h += '<div class="wudt-mig-card"><h3>History</h3><table class="widefat striped wudt-mig-table"><thead><tr><th>When</th><th>Type</th><th>Site</th><th>Status</th><th>Details</th><th></th></tr></thead><tbody>';
 			hist.forEach(function (j) {
 				h += '<tr><td>' + esc(when(j.created)) + '</td>'
-					+ '<td>' + (j.direction === 'pull' ? '⬇ Pull' : '⬆ Push') + '</td>'
+					+ '<td>' + (j.direction === 'pull' ? '⬇ Pull' : '⬆ Push') + (j.scheduled ? ' <span class="wudt-mig-sched-tag" title="' + esc('Schedule: ' + j.scheduled.name) + '">🕒 scheduled</span>' : '') + '</td>'
 					+ '<td>' + esc(j.site.label || j.site.url) + '</td>'
 					+ '<td><span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.stale ? 'interrupted' : j.status) + '</span></td>'
 					+ '<td class="wudt-mig-muted">' + jobScope(j) + (j.error ? ' — ' + esc(j.error) : '') + '</td>'
@@ -372,6 +378,125 @@
 			h += '</tbody></table></div>';
 		}
 		return h;
+	}
+
+	/* -----------------------------------------------------------------
+	 * Scheduled migrations: run in the background on this server.
+	 * --------------------------------------------------------------- */
+
+	function schedules() {
+		return ((S.data && S.data.scheduler) || {}).schedules || [];
+	}
+
+	function schedule(id) {
+		var list = schedules();
+		for (var i = 0; i < list.length; i++) { if (list[i].id === id) { return list[i]; } }
+		return null;
+	}
+
+	function pad2(n) {
+		n = Number(n) || 0;
+		return (n < 10 ? '0' : '') + n;
+	}
+
+	// "Every Monday at 03:00".
+	function freqText(s) {
+		switch (s.frequency) {
+			case 'once': return 'Once, on ' + String(s.once_local || '').replace('T', ' at ');
+			case 'hourly': return 'Every hour at :' + String(s.time || '00:00').split(':')[1];
+			case 'every6h': return 'Every 6 hours (from ' + s.time + ')';
+			case 'every12h': return 'Every 12 hours (from ' + s.time + ')';
+			case 'weekly': return 'Every ' + WEEKDAYS[s.weekday] + ' at ' + s.time;
+			case 'monthly': return 'Every month on day ' + s.monthday + ' at ' + s.time;
+			default: return 'Every day at ' + s.time;
+		}
+	}
+
+	// What a schedule migrates, from its saved options.
+	function optScope(o) {
+		if (o.files_count > 0) {
+			var names = (o.files || []).slice(0, 3).map(function (f) { return f.p ? f.p.split('/').pop() : (COMPONENT_LABELS[f.c] || f.c); });
+			return 'Specific files: ' + names.join(', ') + (o.files_count > 3 ? ' +' + (o.files_count - 3) + ' more' : '');
+		}
+		var parts = [];
+		if (o.tables_all || (o.selected_tables || []).length) {
+			parts.push(o.db_mode === 'merge'
+				? 'Database: add as new content'
+				: (o.db_mode === 'replace_content' ? 'Database: replace content' : (o.tables_all ? 'Database: all tables' : 'Database: ' + o.selected_tables.length + ' tables')));
+		}
+		if (o.live_media) { parts.push('Media: live URLs'); }
+		if ((o.components || []).length) {
+			parts.push('Files: ' + o.components.map(function (c) { return COMPONENT_LABELS[c] || c; }).join(', '));
+		}
+		return parts.join(' · ');
+	}
+
+	function runStatus(run) {
+		if (!run) { return '<span class="wudt-mig-muted">never</span>'; }
+		var label = run.status === 'done' ? 'completed' : run.status;
+		return esc(when(run.started)) + ' <span class="wudt-mig-status is-' + esc(run.status) + '">' + esc(label) + '</span>'
+			+ (run.manual ? ' <small class="wudt-mig-muted">(run now)</small>' : '')
+			+ (run.retries ? ' <small class="wudt-mig-muted">(' + esc(run.retries) + ' retr' + (run.retries === 1 ? 'y' : 'ies') + ')</small>' : '')
+			+ (run.error ? '<div class="wudt-mig-error-inline">' + esc(run.error) + '</div>' : '');
+	}
+
+	function renderSchedules(d) {
+		var sch = d.scheduler || {};
+		var list = sch.schedules || [];
+		var rn = sch.runner || {};
+		var sites = (d.sites || []).filter(function (x) { return !x.local_only; });
+		if (!list.length && !sites.length) { return ''; }
+		var h = '<div class="wudt-mig-card wudt-mig-scheds"><h3>Scheduled migrations</h3>';
+		if (!list.length) {
+			h += '<p class="wudt-mig-muted">Pull or push automatically — for example, refresh this copy from the live site every night. Scheduled migrations run in the background on this server; no browser needs to stay open.</p>';
+		} else {
+			h += '<div class="wudt-mig-sched-list">';
+			list.forEach(function (s) {
+				var st = site(s.site_id);
+				var state = s.running ? 'running' : (!s.enabled ? 'paused' : (s.failures > 0 ? 'failing' : 'active'));
+				h += '<div class="wudt-mig-sched-row' + (s.enabled ? '' : ' is-paused') + '"><div class="wudt-mig-sched-info">'
+					+ '<div><strong>' + esc(s.name) + '</strong> <span class="wudt-mig-status is-sched-' + state + '">' + esc(state) + '</span></div>'
+					+ '<div class="wudt-mig-muted">' + (s.direction === 'pull' ? '⬇ Pull from ' : '⬆ Push to ') + esc(st ? st.label : 'a removed site') + ' · ' + esc(freqText(s)) + '</div>'
+					+ '<div class="wudt-mig-muted">' + esc(optScope(s.options)) + '</div>'
+					+ '<div class="wudt-mig-sched-meta"><span>Next run: <b>' + (s.running ? 'running now' : (s.enabled && s.next_text ? esc(s.next_text) : '—')) + '</b></span>'
+					+ '<span>Last run: ' + runStatus(s.last_run) + '</span></div>'
+					+ (s.note ? '<div class="wudt-mig-muted">' + esc(s.note) + '</div>' : '')
+					+ (st ? '' : '<div class="wudt-mig-error-inline">The connected site was removed. Add it again and edit this schedule, or delete it.</div>')
+					+ '</div><div class="wudt-mig-actions">';
+				if (s.running) {
+					h += '<button class="button button-primary" data-mig="resume" data-job="' + esc(s.job) + '">Watch</button>';
+				} else {
+					h += '<button class="button" data-mig="sch-run" data-sch="' + esc(s.id) + '"' + (st && !S.busy ? '' : ' disabled') + '>Run now</button>';
+				}
+				h += '<button class="button" data-mig="sch-edit" data-sch="' + esc(s.id) + '"' + (st ? '' : ' disabled') + '>Edit</button>'
+					+ '<button class="button" data-mig="sch-toggle" data-sch="' + esc(s.id) + '" data-op="' + (s.enabled ? 'pause' : 'resume') + '">' + (s.enabled ? 'Pause' : 'Resume') + '</button>'
+					+ '<button class="button-link wudt-mig-danger" data-mig="sch-delete" data-sch="' + esc(s.id) + '">Delete</button>'
+					+ '</div></div>';
+			});
+			h += '</div>';
+		}
+		if (sites.length) {
+			h += '<div class="wudt-mig-sched-new"><label for="wudt-mig-sch-site">New schedule</label>'
+				+ '<select id="wudt-mig-sch-site" class="wudt-mig-select">' + sites.map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.label + ' — ' + x.url) + '</option>'; }).join('') + '</select>'
+				+ '<select id="wudt-mig-sch-dir" class="wudt-mig-select"><option value="pull">⬇ Pull to this site</option><option value="push">⬆ Push to that site</option></select>'
+				+ '<button class="button button-primary" data-mig="sch-new">Choose what to migrate…</button></div>';
+		}
+
+		// How schedules are triggered.
+		var stalled = list.some(function (s) { return s.enabled; }) && rn.last_tick && (Date.now() / 1000 + clockSkew - rn.last_tick) > 900;
+		var warn = rn.wp_cron_disabled
+			? 'WP-Cron is turned off on this site (DISABLE_WP_CRON), so schedules only run when a server cron job calls the URL below.'
+			: (stalled ? 'Schedules were last checked ' + when(rn.last_tick) + '. WP-Cron only runs when the site is visited — set up the cron job below so schedules run on time.' : '');
+		if (warn) { h += '<div class="wudt-mig-notice is-warning">' + esc(warn) + '</div>'; }
+		h += '<details class="wudt-mig-sched-runner"' + (S.showCron || warn ? ' open' : '') + ' data-mig-cron><summary>How scheduled migrations run'
+			+ (rn.last_tick ? ' <span class="wudt-mig-muted">— last check ' + esc(when(rn.last_tick)) + (rn.last_tick_source ? ' (' + esc(rn.last_tick_source) + ')' : '') + '</span>' : '') + '</summary>'
+			+ '<p class="wudt-mig-muted">This site checks its schedules every minute through WP-Cron and runs due migrations in the background, retrying up to 3 times after an error. Times are in the site’s time zone (' + esc(rn.timezone || 'UTC') + ', now ' + esc(rn.now_local || '') + ').</p>'
+			+ '<p class="wudt-mig-muted">WP-Cron only runs when someone visits the site, so on a local computer or a quiet site a migration can start late. For exact timing, have the server (or Windows Task Scheduler) call this URL every minute:</p>'
+			+ '<div class="wudt-mig-keyrow"><input type="text" readonly class="wudt-mig-input wudt-mig-mono" value="' + esc(rn.cron_url || '') + '"><button class="button" data-mig="copy-cron">Copy</button></div>'
+			+ '<p class="wudt-mig-muted">Linux cron: <code>* * * * * curl -fsS "' + esc(rn.cron_url || '') + '" &gt;/dev/null</code><br>'
+			+ 'Windows: <code>schtasks /create /sc minute /mo 1 /tn "Diagnostics Toolkit migrations" /tr "curl.exe -s ' + esc(rn.cron_url || '') + '"</code></p>'
+			+ '<p class="wudt-mig-muted">Keep this URL private: it contains a secret key (anyone with it can only trigger the schedule check).</p></details>';
+		return h + '</div>';
 	}
 
 	// What a job included, e.g. "DB: 55 tables · Files: Plugins, Themes (120 files)".
@@ -437,9 +562,9 @@
 			+ '</select><button class="button button-primary" data-mig="lm-enable">Turn on</button></div></details>';
 	}
 
-	function restoreSavedOptions(w) {
-		var history = (S.data && S.data.history) || [];
-		var saved = null;
+	function restoreSavedOptions(w, given) {
+		var history = given ? [] : ((S.data && S.data.history) || []);
+		var saved = given || null;
 		for (var i = 0; i < history.length; i++) {
 			var job = history[i];
 			if (job.site && job.site.id === w.siteId && job.direction === w.direction && Array.isArray(job.selected_tables)) {
@@ -450,9 +575,9 @@
 		if (!saved) { return false; }
 
 		var allTables = (w.preflight.tables || []).map(function (table) { return table.name; });
-		w.tables = saved.selected_tables.filter(function (table) { return allTables.indexOf(table) !== -1; });
+		w.tables = saved.tables_all ? allTables.slice() : saved.selected_tables.filter(function (table) { return allTables.indexOf(table) !== -1; });
 		w.db = w.tables.length > 0;
-		w.tableMode = w.tables.length === allTables.length ? 'all' : 'custom';
+		w.tableMode = saved.tables_all || w.tables.length === allTables.length ? 'all' : 'custom';
 		w.components = (saved.components || []).filter(function (component) {
 			return availableComponents(w).indexOf(component) !== -1;
 		});
@@ -530,7 +655,7 @@
 		if (w.mode === 'pick') {
 			h += renderFilePicker(w);
 			h += renderOverride(w);
-			return h + renderWizardFooter(w, w.files.length > 0 && !(pf.errors && pf.errors.length)) + '</div>';
+			return h + renderSchedulePanel(w) + renderWizardFooter(w, w.files.length > 0 && !(pf.errors && pf.errors.length)) + '</div>';
 		}
 		h += '<p class="wudt-mig-muted">Only the items ticked below are copied; everything else on the destination is left untouched.</p><div class="wudt-mig-grid">';
 		h += '<label class="wudt-mig-check"><input type="checkbox" data-mig-field="db"' + (w.db ? ' checked' : '') + '> <strong>Database</strong><small>' + esc((pf.tables || []).length) + ' tables · ' + esc(bytes(w.dbSize)) + '</small></label>';
@@ -628,6 +753,7 @@
 			? w.mergeGroups.length > 0 && (pf.tables || []).length > 0
 			: ((w.dbMode === 'replace_content' || w.tableMode === 'all') ? (pf.tables || []).length > 0 : w.tables.length > 0));
 		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0) && !ptMissing(w).length;
+		h += renderSchedulePanel(w);
 		h += renderWizardFooter(w, canStart);
 		h += '</div>';
 		return h;
@@ -655,8 +781,70 @@
 		var label = w.mode === 'pick'
 			? (isPull ? '⬇ Pull ' : '⬆ Push ') + w.files.length + ' selected item' + (w.files.length === 1 ? '' : 's')
 			: (isPull ? '⬇ Start pull' : '⬆ Start push');
-		return '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>'
-			+ '<button class="button button-primary button-hero" data-mig="start"' + (canStart && !S.busy ? '' : ' disabled') + '>' + esc(label) + '</button></div>';
+		var off = canStart && !S.busy ? '' : ' disabled';
+		var h = '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>';
+		if (w.sched.open) {
+			h += '<button class="button" data-mig="start"' + off + '>' + esc(label + ' now') + '</button>'
+				+ '<button class="button button-primary button-hero" data-mig="schedule-save"' + off + '>🕒 ' + (w.sched.id ? 'Update schedule' : 'Save schedule') + '</button>';
+		} else {
+			h += '<button class="button button-hero" data-mig="schedule-open"' + (S.busy ? ' disabled' : '') + '>🕒 Schedule…</button>'
+				+ '<button class="button button-primary button-hero" data-mig="start"' + off + '>' + esc(label) + '</button>';
+		}
+		return h + '</div>';
+	}
+
+	// When and how often to run the migration chosen above.
+	function renderSchedulePanel(w) {
+		var sc = w.sched;
+		if (!sc.open) { return ''; }
+		var rn = ((S.data && S.data.scheduler) || {}).runner || {};
+		var h = '<div class="wudt-mig-sub wudt-mig-sched-form"><strong class="wudt-mig-sub-title">🕒 ' + (sc.id ? 'Edit schedule' : 'Schedule this migration') + '</strong>'
+			+ '<p class="wudt-mig-muted">The choices above run automatically in the background on this server — no browser needs to be open. Times are in the site’s time zone (' + esc(rn.timezone || 'UTC') + ', now ' + esc(rn.now_local || '') + ').</p>'
+			+ '<div class="wudt-mig-sched-grid">'
+			+ '<label>Name<input type="text" class="wudt-mig-input" data-mig-sch="name" value="' + esc(sc.name) + '" placeholder="' + esc((w.direction === 'pull' ? 'Pull from ' : 'Push to ') + ((site(w.siteId) || {}).label || '')) + '"></label>'
+			+ '<label>Repeat<select class="wudt-mig-select" data-mig-sch="frequency">' + FREQUENCIES.map(function (f) {
+				return '<option value="' + f[0] + '"' + (sc.frequency === f[0] ? ' selected' : '') + '>' + esc(f[1]) + '</option>';
+			}).join('') + '</select></label>';
+		if (sc.frequency === 'once') {
+			h += '<label>Date and time<input type="datetime-local" class="wudt-mig-input" data-mig-sch="once_at" value="' + esc(sc.once_at) + '"></label>';
+		} else if (sc.frequency === 'hourly') {
+			h += '<label>Minutes past the hour<input type="number" min="0" max="59" class="wudt-mig-input" data-mig-sch="minute" value="' + esc(Number(String(sc.time).split(':')[1]) || 0) + '"></label>';
+		} else {
+			h += '<label>' + (sc.frequency === 'every6h' || sc.frequency === 'every12h' ? 'Starting at' : 'At') + '<input type="time" class="wudt-mig-input" data-mig-sch="time" value="' + esc(sc.time) + '"></label>';
+		}
+		if (sc.frequency === 'weekly') {
+			h += '<label>On<select class="wudt-mig-select" data-mig-sch="weekday">' + WEEKDAYS.map(function (d, i) {
+				return '<option value="' + i + '"' + (Number(sc.weekday) === i ? ' selected' : '') + '>' + d + '</option>';
+			}).join('') + '</select></label>';
+		}
+		if (sc.frequency === 'monthly') {
+			var days = '';
+			for (var i = 1; i <= 31; i++) { days += '<option value="' + i + '"' + (Number(sc.monthday) === i ? ' selected' : '') + '>' + i + '</option>'; }
+			h += '<label>Day of the month<select class="wudt-mig-select" data-mig-sch="monthday">' + days + '</select></label>';
+		}
+		h += '<label>Email me<select class="wudt-mig-select" data-mig-sch="notify">'
+			+ [['failure', 'When it fails'], ['always', 'After every run'], ['never', 'Never']].map(function (o) {
+				return '<option value="' + o[0] + '"' + (sc.notify === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+			}).join('') + '</select></label>'
+			+ (sc.notify === 'never' ? '' : '<label>Email address<input type="email" class="wudt-mig-input" data-mig-sch="email" value="' + esc(sc.email) + '" placeholder="the site’s admin email"></label>')
+			+ '</div>';
+		if (sc.frequency === 'monthly' && Number(sc.monthday) > 28) {
+			h += '<p class="wudt-mig-muted">In shorter months it runs on the last day.</p>';
+		}
+		if (w.direction === 'pull' && w.db && w.dbMode !== 'merge') {
+			h += '<p class="wudt-mig-muted">Every run replaces this site’s ' + (w.dbMode === 'replace_content' ? 'content' : 'database') + ' with the remote site’s — changes made here in between are lost.</p>';
+		}
+		if (!w.keepBackup) {
+			h += '<p class="wudt-mig-error-inline">No backup is kept, so scheduled runs cannot be rolled back.</p>';
+		}
+		if (rn.wp_cron_disabled) {
+			h += '<p class="wudt-mig-error-inline">WP-Cron is turned off on this site: set up the cron URL shown under Scheduled migrations, or the schedule will not run.</p>';
+		}
+		return h + '</div>';
+	}
+
+	function newSched() {
+		return { open: false, id: '', name: '', frequency: 'daily', time: '03:00', weekday: 1, monthday: 1, once_at: '', notify: 'failure', email: '' };
 	}
 
 	/* ------------------------- Specific files picker ------------------------- */
@@ -903,6 +1091,11 @@
 		var h = '<div class="wudt-mig-card">';
 		h += '<div class="wudt-mig-progress-head"><h3>' + (isPull ? '⬇ Pulling from ' : '⬆ Pushing to ') + esc(j.site.label || j.site.url) + '</h3>'
 			+ '<span>' + (j.override ? '<span class="wudt-mig-status is-override">override</span> ' : '') + '<span class="wudt-mig-status is-' + esc(j.status) + '">' + esc(j.status) + '</span></span></div>';
+		if (j.scheduled) {
+			h += '<p class="wudt-mig-muted wudt-mig-sched-note">🕒 Scheduled migration “' + esc(j.scheduled.name) + '”'
+				+ (j.status === 'running' ? ' — it runs in the background on the server, so you can close this page.' : '.')
+				+ (j.status === 'failed' ? ' The scheduler retries it automatically (up to 3 times).' : '') + '</p>';
+		}
 		h += '<ol class="wudt-mig-phases">';
 		phases.forEach(function (p, idx) {
 			var cls = idx < phaseIdx ? 'is-done' : (idx === phaseIdx ? 'is-current' : '');
@@ -957,7 +1150,13 @@
 		h += '<div class="wudt-mig-footer">';
 		if (j.status === 'running') {
 			h += '<button class="button" data-mig="cancel-job">Cancel migration</button>';
-			if (!S.running) { h += '<button class="button button-primary" data-mig="continue">Continue</button>'; }
+			if (S.watching) {
+				h += '<button class="button button-primary" data-mig="home">Back to Site Migration</button>';
+			} else if (!S.running) {
+				h += j.scheduled && !j.stale
+					? '<button class="button button-primary" data-mig="watch">Watch progress</button>'
+					: '<button class="button button-primary" data-mig="continue">Continue</button>';
+			}
 		} else if (j.status === 'failed') {
 			h += '<button class="button" data-mig="cancel-job">Cancel and clean up</button><button class="button button-primary" data-mig="continue">Retry</button>';
 		} else {
@@ -1187,7 +1386,11 @@
 		});
 	}
 
-	function openWizard(siteId, direction) {
+	/**
+	 * @param {{schedule?: Object, scheduling?: boolean}} opts Edit a schedule, or open the schedule form at once.
+	 */
+	function openWizard(siteId, direction, opts) {
+		opts = opts || {};
 		S.view = 'wizard';
 		S.notice = null;
 		S.wizard = {
@@ -1198,8 +1401,19 @@
 			ptSelected: { plugins: [], themes: [] }, ptSearch: '',
 			mode: '', files: [], keepBackup: true,
 			repo: direction === 'push', liveMedia: false, liveMediaMode: 'missing',
-			pick: { c: 'core', p: '', entries: null, loading: false, error: '', roots: {}, filter: '', truncated: false }
+			pick: { c: 'core', p: '', entries: null, loading: false, error: '', roots: {}, filter: '', truncated: false },
+			sched: newSched()
 		};
+		var editing = opts.schedule || null;
+		if (editing) {
+			S.wizard.sched = {
+				open: true, id: editing.id, name: editing.name, frequency: editing.frequency, time: editing.time,
+				weekday: editing.weekday, monthday: editing.monthday, once_at: editing.once_local || '',
+				notify: editing.notify, email: editing.notify_email || ''
+			};
+		} else if (opts.scheduling) {
+			S.wizard.sched.open = true;
+		}
 		render();
 		ajax('wudt_migration_preflight', { site_id: siteId, direction: direction }, 120000).done(function (r) {
 			S.wizard.loading = false;
@@ -1207,7 +1421,10 @@
 			S.wizard.preflight = r.data;
 			S.wizard.tables = (r.data.tables || []).map(function (t) { return t.name; });
 			S.wizard.dbSize = (r.data.tables || []).reduce(function (a, t) { return a + (Number(t.size) || 0); }, 0);
-			if (restoreSavedOptions(S.wizard)) {
+			if (editing) {
+				restoreSavedOptions(S.wizard, editing.options);
+				setNotice('info', 'Editing the schedule “' + editing.name + '”. Change what to migrate or when, then click Update schedule.');
+			} else if (restoreSavedOptions(S.wizard)) {
 				setNotice('info', 'Your previous migration choices for this site and direction have been restored.');
 			}
 			render();
@@ -1216,27 +1433,6 @@
 			S.wizard.loading = false;
 			S.wizard.error = errMsg(null, xhr);
 			render();
-		});
-	}
-
-	function startPickJob(w) {
-		if (!w.files.length) { return; }
-		var s = site(w.siteId) || {};
-		var isPull = w.direction === 'pull';
-		var labels = w.files.map(function (f) { return pathLabel(w.pick.roots, f.c, f.p) || 'Entire WordPress folder'; });
-		var msg = (isPull ? 'Pull these from ' + s.url + ' and replace them on THIS site' : 'Push these to ' + s.url + ' and replace them there') + ':\n\n• '
-			+ labels.slice(0, 15).join('\n• ') + (labels.length > 15 ? '\n• …and ' + (labels.length - 15) + ' more' : '')
-			+ '\n\nThe database and all other files are not touched. ' + (w.keepBackup ? 'Replaced files are backed up so you can roll back.' : 'NO BACKUP: replaced files cannot be restored.') + ' Continue?';
-		if (!window.confirm(msg)) { return; }
-		launchJob({
-			site_id: w.siteId,
-			direction: w.direction,
-			components: '[]',
-			tables: '[]',
-			files: JSON.stringify(w.files.map(function (f) { return { c: f.c, p: f.p }; })),
-			override: w.override ? 1 : '',
-			keep_backup: w.keepBackup ? 1 : 0,
-			db_mode: 'replace'
 		});
 	}
 
@@ -1284,19 +1480,43 @@
 		});
 	}
 
-	function startJob() {
-		var w = S.wizard;
-		if (w.mode === 'pick') { startPickJob(w); return; }
+	/**
+	 * The request for the migration chosen in the wizard and the text to confirm it,
+	 * or null when nothing valid is selected.
+	 *
+	 * @return {{params: Object, confirm: string}|null}
+	 */
+	function describeJob(w) {
+		var s = site(w.siteId) || {};
+		var isPull = w.direction === 'pull';
+		if (w.mode === 'pick') {
+			if (!w.files.length) { return null; }
+			var labels = w.files.map(function (f) { return pathLabel(w.pick.roots, f.c, f.p) || 'Entire WordPress folder'; });
+			return {
+				params: {
+					site_id: w.siteId,
+					direction: w.direction,
+					components: '[]',
+					tables: '[]',
+					files: JSON.stringify(w.files.map(function (f) { return { c: f.c, p: f.p }; })),
+					override: w.override ? 1 : '',
+					keep_backup: w.keepBackup ? 1 : 0,
+					db_mode: 'replace'
+				},
+				confirm: (isPull ? 'Pull these from ' + s.url + ' and replace them on THIS site' : 'Push these to ' + s.url + ' and replace them there') + ':\n\n• '
+					+ labels.slice(0, 15).join('\n• ') + (labels.length > 15 ? '\n• …and ' + (labels.length - 15) + ' more' : '')
+					+ '\n\nThe database and all other files are not touched. ' + (w.keepBackup ? 'Replaced files are backed up so you can roll back.' : 'NO BACKUP: replaced files cannot be restored.') + ' Continue?'
+			};
+		}
 		w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
 		var merge = w.dbMode === 'merge';
 		var replaceContent = w.dbMode === 'replace_content';
 		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
-		var tables = w.db
-			? (merge ? (w.mergeGroups.length ? allTables : []) : (replaceContent || w.tableMode === 'all' ? allTables : w.tables))
-			: [];
-		if (!tables.length && !w.components.length) { return; }
-		if (ptMissing(w).length) { return; }
-		var s = site(w.siteId);
+		// Every table: a schedule then takes whatever tables the source has when it runs.
+		var tablesAll = w.db && (merge ? w.mergeGroups.length > 0 : (replaceContent || w.tableMode === 'all'));
+		var tables = w.db ? (tablesAll ? allTables : (merge ? [] : w.tables)) : [];
+		if (!tables.length && !w.components.length) { return null; }
+		if (ptMissing(w).length) { return null; }
 		var parts = [];
 		if (tables.length) {
 			parts.push(merge
@@ -1315,36 +1535,124 @@
 		var skipped = [];
 		if (!tables.length) { skipped.push('Database'); }
 		(S.data.components || []).forEach(function (c) { if (w.components.indexOf(c) === -1) { skipped.push(COMPONENT_LABELS[c] || c); } });
-		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
+		var target = isPull ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
 		var useRepo = w.repo && remoteSupports(w, 'repo') && (w.components.indexOf('plugins') !== -1 || w.components.indexOf('themes') !== -1);
-		var liveMedia = w.direction === 'pull' && w.liveMedia;
+		var liveMedia = isPull && w.liveMedia;
 		if (useRepo) { parts.push('Unmodified WordPress.org plugins/themes are installed from WordPress.org'); }
 		if (liveMedia) {
 			skipped = skipped.filter(function (x) { return x !== COMPONENT_LABELS.uploads; });
 			parts.push('Media: loaded from ' + s.url + ' (' + (w.liveMediaMode === 'all' ? 'all media' : 'files missing here') + '), not downloaded');
 		}
-		if (!window.confirm((replaceContent ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?')) {
+		return {
+			params: {
+				site_id: w.siteId,
+				direction: w.direction,
+				components: JSON.stringify(w.components),
+				tables: JSON.stringify(tables),
+				tables_all: tablesAll ? 1 : '',
+				skip_unchanged: w.skipUnchanged && !w.override ? 1 : '',
+				override: w.override ? 1 : '',
+				excludes: w.excludes,
+				exclude_dev: w.excludeDev && w.components.length ? 1 : '',
+				db_mode: merge ? 'merge' : (replaceContent ? 'replace_content' : 'replace'),
+				merge_groups: JSON.stringify(w.mergeGroups),
+				pt_filter: w.ptFilter,
+				pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
+				pt_themes: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.themes : []),
+				keep_backup: w.keepBackup ? 1 : 0,
+				repo: useRepo ? 1 : '',
+				live_media: liveMedia ? 1 : '',
+				live_media_mode: w.liveMediaMode
+			},
+			confirm: (replaceContent ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?'
+		};
+	}
+
+	function startJob() {
+		var job = describeJob(S.wizard);
+		if (!job || !window.confirm(job.confirm)) { return; }
+		launchJob(job.params);
+	}
+
+	function saveSchedule() {
+		var w = S.wizard;
+		var job = describeJob(w);
+		if (!job) { return; }
+		var sc = w.sched;
+		if (sc.frequency === 'once' && !sc.once_at) {
+			setNotice('error', 'Choose the date and time to run the migration.');
+			render();
 			return;
 		}
-		launchJob({
-			site_id: w.siteId,
-			direction: w.direction,
-			components: JSON.stringify(w.components),
-			tables: JSON.stringify(tables),
-			skip_unchanged: w.skipUnchanged && !w.override ? 1 : '',
-			override: w.override ? 1 : '',
-			excludes: w.excludes,
-			exclude_dev: w.excludeDev && w.components.length ? 1 : '',
-			db_mode: merge ? 'merge' : (replaceContent ? 'replace_content' : 'replace'),
-			merge_groups: JSON.stringify(w.mergeGroups),
-			pt_filter: w.ptFilter,
-			pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
-			pt_themes: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.themes : []),
-			keep_backup: w.keepBackup ? 1 : 0,
-			repo: useRepo ? 1 : '',
-			live_media: liveMedia ? 1 : '',
-			live_media_mode: w.liveMediaMode
+		S.busy = true;
+		render();
+		ajax('wudt_migration_save_schedule', $.extend({}, job.params, {
+			schedule_id: sc.id,
+			name: sc.name,
+			frequency: sc.frequency,
+			time: sc.time,
+			weekday: sc.weekday,
+			monthday: sc.monthday,
+			once_at: sc.once_at,
+			notify: sc.notify,
+			notify_email: sc.email
+		}), 60000).done(function (r) {
+			S.busy = false;
+			if (!r || !r.success) { setNotice('error', errMsg(r)); render(); return; }
+			S.data = r.data.state;
+			var saved = schedule(r.data.schedule_id);
+			S.view = 'home';
+			S.wizard = null;
+			setNotice('success', 'Schedule saved.' + (saved && saved.next_text ? ' Next run: ' + saved.next_text + '.' : ''));
+			render();
+		}).fail(function (xhr) {
+			S.busy = false;
+			setNotice('error', errMsg(null, xhr));
+			render();
 		});
+	}
+
+	function scheduleAction(id, op) {
+		S.busy = true;
+		render();
+		return ajax('wudt_migration_schedule_action', { schedule_id: id, op: op }, op === 'run' ? 180000 : 60000).done(function (r) {
+			S.busy = false;
+			if (r && r.data && r.data.state) { S.data = r.data.state; }
+			if (!r || !r.success) { setNotice('error', errMsg(r)); render(); return; }
+			if (op === 'run' && r.data.job) {
+				S.job = null;
+				S.logOpen = undefined;
+				mergeJob(S, r.data.job);
+				S.token = '';
+				S.view = 'progress';
+				setNotice('info', r.data.message);
+				watch();
+				return;
+			}
+			setNotice('success', r.data.message);
+			render();
+		}).fail(function (xhr) {
+			S.busy = false;
+			setNotice('error', errMsg(null, xhr));
+			render();
+			refresh();
+		});
+	}
+
+	// Follow a scheduled job: the server runs it, this page only shows its progress.
+	function watch() {
+		if (S.running) { return; }
+		S.running = true;
+		S.watching = true;
+		S.connectionLost = '';
+		startPolling(S, function () {
+			if (S.job && S.job.status !== 'running') {
+				stop();
+				refresh();
+			}
+			render();
+		});
+		render();
 	}
 
 	function ptNames(w, c) {
@@ -1365,6 +1673,7 @@
 
 	function stop() {
 		S.running = false;
+		S.watching = false;
 		stopPolling(S);
 		if (!(Q && Q.running)) { window.removeEventListener('beforeunload', warnLeave); }
 	}
@@ -1420,6 +1729,10 @@
 		mergeJob(S, job);
 		S.token = tokens()[jobId] || '';
 		S.view = 'progress';
+		if (job.scheduled && job.status === 'running' && !job.stale) {
+			watch();
+			return;
+		}
 		render();
 	}
 
@@ -1429,6 +1742,10 @@
 		var el = e.target;
 		if (el && el.hasAttribute && el.hasAttribute('data-mig-lm')) {
 			S.showLiveMedia = el.open;
+			return;
+		}
+		if (el && el.hasAttribute && el.hasAttribute('data-mig-cron')) {
+			S.showCron = el.open;
 			return;
 		}
 		if (el && el.hasAttribute && el.hasAttribute('data-mig-peer-log')) {
@@ -1502,7 +1819,41 @@
 					break;
 				case 'back':
 				case 'home':
+					if (S.watching) { stop(); }
 					S.view = 'home'; S.wizard = null; S.job = null; S.notice = null; render(); refresh();
+					break;
+				case 'watch':
+					watch();
+					break;
+				case 'copy-cron':
+					copy((((S.data || {}).scheduler || {}).runner || {}).cron_url || '', $b);
+					break;
+				case 'schedule-open':
+					S.wizard.sched.open = true;
+					render();
+					break;
+				case 'schedule-save':
+					saveSchedule();
+					break;
+				case 'sch-new':
+					openWizard(String($('#wudt-mig-sch-site').val() || ''), $('#wudt-mig-sch-dir').val() === 'push' ? 'push' : 'pull', { scheduling: true });
+					break;
+				case 'sch-edit':
+					var editSch = schedule(String($b.data('sch')));
+					if (editSch) { openWizard(editSch.site_id, editSch.direction, { schedule: editSch }); }
+					break;
+				case 'sch-run':
+					var runSch = schedule(String($b.data('sch')));
+					if (!runSch || !window.confirm('Run “' + runSch.name + '” now?\n\n' + (runSch.direction === 'pull' ? 'Pull from ' : 'Push to ') + ((site(runSch.site_id) || {}).url || '') + '\n' + optScope(runSch.options) + '\n\nIt runs in the background; the next scheduled run is not changed.')) { return; }
+					scheduleAction(runSch.id, 'run');
+					break;
+				case 'sch-toggle':
+					scheduleAction(String($b.data('sch')), String($b.data('op')));
+					break;
+				case 'sch-delete':
+					var delSch = schedule(String($b.data('sch')));
+					if (!delSch || !window.confirm('Delete the schedule “' + delSch.name + '”?' + (delSch.running ? ' The migration that is running now continues.' : ''))) { return; }
+					scheduleAction(delSch.id, 'delete');
 					break;
 				case 'tables-all':
 					S.wizard.tables = (S.wizard.preflight.tables || []).map(function (t) { return t.name; }); render();
@@ -1734,6 +2085,25 @@
 			$('#wudt-migration-root [data-pk-name]').each(function () {
 				this.style.display = !q || this.getAttribute('data-pk-name').indexOf(q) !== -1 ? '' : 'none';
 			});
+		});
+
+		// Schedule form: keep the values across re-renders; re-render only when fields appear or disappear.
+		$(document).on('input.wudtmig change.wudtmig', '#wudt-migration-root [data-mig-sch]', function (e) {
+			if (!S.wizard) { return; }
+			var sc = S.wizard.sched;
+			var key = this.getAttribute('data-mig-sch');
+			var val = $(this).val();
+			if (key === 'minute') {
+				sc.time = '00:' + pad2(Math.max(0, Math.min(59, parseInt(val, 10) || 0)));
+			} else if (key === 'email') {
+				sc.email = val;
+			} else {
+				sc[key] = val;
+			}
+			if (e.type === 'change' && (key === 'frequency' || key === 'notify' || key === 'monthday')) {
+				if (key === 'frequency' && val === 'hourly') { sc.time = '00:' + String(sc.time || '00:00').split(':')[1]; }
+				render();
+			}
 		});
 
 		$(document).on('input.wudtmig', '#wudt-mig-excludes', function () {
