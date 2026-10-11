@@ -208,6 +208,10 @@ class Migration_API {
 					! empty($p['cached_only']),
 					isset($p['only']) && is_array($p['only']) ? array_map('strval', $p['only']) : null
 				);
+			case 'repo_check':
+				return $engine->repo_check((array) ($p['items'] ?? array()), (int) ($p['offset'] ?? 0), array_map('strval', (array) ($p['excludes'] ?? array())), $budget);
+			case 'install_package':
+				return $engine->install_package((string) ($p['job'] ?? ''), (string) ($p['component'] ?? ''), (string) ($p['slug'] ?? ''), (string) ($p['version'] ?? ''));
 			case 'browse':
 				return $engine->browse((string) ($p['component'] ?? 'core'), (string) ($p['path'] ?? ''));
 			case 'diff':

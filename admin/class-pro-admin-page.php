@@ -62,7 +62,7 @@ class Pro_Admin_Page {
 		) {
 			return;
 		}
-		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION);
+		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array(), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/admin.css'));
 		wp_enqueue_style('wudt-migration', WUDT_PLUGIN_URL . 'assets/css/migration.css', array('wudt-admin'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/migration.css'));
 		wp_enqueue_script('wudt-migration', WUDT_PLUGIN_URL . 'assets/js/migration.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/migration.js'), true);
 		wp_enqueue_style('wudt-ai-agent', WUDT_PLUGIN_URL . 'assets/css/ai-agent.css', array('wudt-admin'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/ai-agent.css'));

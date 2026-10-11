@@ -248,3 +248,23 @@ button.wudt-mig-pk-name:hover { color: var(--mig-accent); text-decoration: under
 @media (prefers-reduced-motion: reduce) {
 	.wudt-mig-bar.is-live div::after, .wudt-mig-bar.is-indeterminate div, .wudt-mig-live-dot { animation: none; }
 }
+
+/* WordPress.org installs and live media */
+.wudt-mig-repo { display: block; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--mig-line); border-radius: 6px; background: #fff; cursor: pointer; }
+.wudt-mig-repo.is-on { border-color: #72aee6; background: #f0f6fc; }
+.wudt-mig-repo.is-disabled { opacity: .6; cursor: not-allowed; }
+.wudt-mig-repo span { display: block; margin: 2px 0 0 24px; color: var(--mig-muted); font-size: 12px; }
+.wudt-mig-lm-opt .wudt-mig-merge label { display: block; }
+.wudt-mig-lm summary { cursor: pointer; list-style: none; }
+.wudt-mig-lm summary::-webkit-details-marker { display: none; }
+.wudt-mig-lm summary::before { content: '▸'; display: inline-block; width: 16px; color: var(--mig-muted); }
+.wudt-mig-lm[open] summary::before { content: '▾'; }
+.wudt-mig-lm.is-on { border-color: #72aee6; background: linear-gradient(180deg, #f0f6fc, #fff 70%); }
+.wudt-mig-lm-head { display: flex; gap: 12px; align-items: flex-start; }
+.wudt-mig-lm-head p { margin: 4px 0 0; }
+.wudt-mig-lm-head code { word-break: break-all; }
+.wudt-mig-lm-icon { font-size: 26px; line-height: 1; }
+.wudt-mig-lm-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.wudt-mig-lm-row label { font-weight: 600; }
+.wudt-mig-lm-row .wudt-mig-select { margin-left: 0; max-width: 100%; }
+.wudt-mig-lm-note { margin: 8px 0 0; font-size: 12px; }

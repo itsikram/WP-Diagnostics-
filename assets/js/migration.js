@@ -30,6 +30,7 @@
 		{ key: 'database', label: 'Database' },
 		{ key: 'scan', label: 'Prepare files' },
 		{ key: 'transfer', label: 'Transfer' },
+		{ key: 'packages', label: 'WordPress.org' },
 		{ key: 'finalize_files', label: 'Apply' },
 		{ key: 'done', label: 'Done' }
 	];
@@ -295,6 +296,8 @@
 		}
 		h += '</div>';
 
+		h += renderLiveMediaCard(d);
+
 		// Local rollback.
 		if (d.rollback && d.rollback.available) {
 			h += '<div class="wudt-mig-card wudt-mig-rollback">'
@@ -376,6 +379,8 @@
 				? 'DB: added as new content'
 				: (j.db_mode === 'replace_content' ? 'DB: replaced WordPress content' : 'DB: ' + esc(j.stats.tables_done) + ' tables'));
 		}
+		if (j.live_media) { parts.push('Media: live URLs'); }
+		if (j.repo && j.repo.enabled && j.repo.installed) { parts.push(esc(j.repo.installed) + ' from WordPress.org'); }
 		if ((j.components || []).length) {
 			var sel = j.pt_filter === 'selected' ? (j.pt_selected || {}) : null;
 			parts.push('Files: ' + j.components.map(function (c) {
@@ -387,12 +392,41 @@
 	}
 
 	// File components both ends support (older remote versions lack the whole-folder ones).
+	// Uploads are left out while media is loaded from the live site.
 	function availableComponents(w) {
 		var pf = w.preflight || {};
 		var feats = ((w.direction === 'pull' ? pf.source : pf.dest) || {}).features || [];
 		return (S.data.components || []).filter(function (c) {
+			if (c === 'uploads' && w.liveMedia) { return false; }
 			return (c !== 'content' && c !== 'core') || feats.indexOf(c) !== -1;
 		});
+	}
+
+	function remoteSupports(w, feature) {
+		var pf = w.preflight || {};
+		return (((w.direction === 'pull' ? pf.source : pf.dest) || {}).features || []).indexOf(feature) !== -1;
+	}
+
+	// "Live media" card: this site loads its media from another site.
+	function renderLiveMediaCard(d) {
+		var lm = d.live_media || {};
+		if (lm.enabled) {
+			return '<div class="wudt-mig-card wudt-mig-lm is-on"><div class="wudt-mig-lm-head"><span class="wudt-mig-lm-icon" aria-hidden="true">🖼</span><div>'
+				+ '<strong>Media is loaded from ' + esc(lm.site || 'another site') + '</strong>'
+				+ '<p class="wudt-mig-muted">Image and file URLs of this site point to <code>' + esc(lm.url) + '</code>' + (lm.since ? ' (since ' + esc(when(lm.since)) + ')' : '') + '. Nothing is copied or changed in the database; turn this off any time.</p></div></div>'
+				+ '<div class="wudt-mig-lm-row"><label for="wudt-mig-lm-mode">Use the live copy for</label>'
+				+ '<select id="wudt-mig-lm-mode" class="wudt-mig-select">'
+				+ '<option value="missing"' + (lm.mode !== 'all' ? ' selected' : '') + '>Files missing on this site (recommended)</option>'
+				+ '<option value="all"' + (lm.mode === 'all' ? ' selected' : '') + '>All media</option></select>'
+				+ '<button class="button" data-mig="lm-disable">Turn off</button></div>'
+				+ '<p class="wudt-mig-muted wudt-mig-lm-note">“Files missing on this site” keeps working uploads you add here and files WordPress generates (like page-builder CSS).</p></div>';
+		}
+		if (!(d.sites || []).length) { return ''; }
+		return '<details class="wudt-mig-card wudt-mig-lm"' + (S.showLiveMedia ? ' open' : '') + ' data-mig-lm><summary><strong>Live media</strong> <span class="wudt-mig-muted">— use another site’s images instead of copying the uploads folder</span></summary>'
+			+ '<p class="wudt-mig-muted">Useful on a local copy of a live site: media URLs point to the live site, so you can skip downloading gigabytes of uploads.</p>'
+			+ '<div class="wudt-mig-lm-row"><label for="wudt-mig-lm-site">Load media from</label><select id="wudt-mig-lm-site" class="wudt-mig-select">'
+			+ d.sites.map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.label + ' — ' + x.url) + '</option>'; }).join('')
+			+ '</select><button class="button button-primary" data-mig="lm-enable">Turn on</button></div></details>';
 	}
 
 	function restoreSavedOptions(w) {
@@ -417,6 +451,9 @@
 		w.skipUnchanged = !!saved.skip_unchanged;
 		w.override = !!saved.override;
 		w.keepBackup = saved.keep_backup !== false;
+		w.repo = !!(saved.repo && saved.repo.enabled);
+		w.liveMedia = !!saved.live_media;
+		w.liveMediaMode = saved.live_media && saved.live_media.mode === 'all' ? 'all' : 'missing';
 		if (saved.files_count > 0 && pickerSupported(w)) {
 			w.mode = 'pick';
 			w.db = false;
@@ -491,10 +528,22 @@
 		h += '<label class="wudt-mig-check"><input type="checkbox" data-mig-field="db"' + (w.db ? ' checked' : '') + '> <strong>Database</strong><small>' + esc((pf.tables || []).length) + ' tables · ' + esc(bytes(w.dbSize)) + '</small></label>';
 		(S.data.components || []).forEach(function (c) {
 			var ok = allComps.indexOf(c) !== -1;
+			var live = c === 'uploads' && w.liveMedia;
 			h += '<label class="wudt-mig-check' + (ok ? '' : ' is-disabled') + '"><input type="checkbox" data-mig-comp="' + esc(c) + '"' + (w.components.indexOf(c) !== -1 ? ' checked' : '') + (ok ? '' : ' disabled') + '> <strong>' + esc(COMPONENT_LABELS[c] || c) + '</strong><small>'
-				+ esc(ok ? (COMPONENT_HELP[c] || 'only changed files are sent') : 'update Diagnostics Toolkit on the remote site to use this') + '</small></label>';
+				+ esc(live ? 'not copied — loaded from the live site (see below)' : (ok ? (COMPONENT_HELP[c] || 'only changed files are sent') : 'update Diagnostics Toolkit on the remote site to use this')) + '</small></label>';
 		});
 		h += '</div>';
+		if (isPull) {
+			h += '<div class="wudt-mig-sub wudt-mig-lm-opt"><strong class="wudt-mig-sub-title">Media</strong>'
+				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-media" value="copy"' + (w.liveMedia ? '' : ' checked') + '> <strong>Copy media files</strong> — download the uploads folder (tick <em>Media uploads</em> above).</label>'
+				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-media" value="live"' + (w.liveMedia ? ' checked' : '') + '> <strong>Use the live site’s media URLs</strong> — don’t download uploads; this site shows images and files straight from ' + esc(s.label || 'the live site') + '.</label>';
+			if (w.liveMedia) {
+				h += '<div class="wudt-mig-merge"><label><input type="radio" name="wudt-mig-lmmode" value="missing"' + (w.liveMediaMode !== 'all' ? ' checked' : '') + '> Only for files missing on this site <small>(recommended — uploads you add here still work)</small></label>'
+					+ '<label><input type="radio" name="wudt-mig-lmmode" value="all"' + (w.liveMediaMode === 'all' ? ' checked' : '') + '> For all media</label>'
+					+ '<p class="wudt-mig-muted">Nothing in the database is changed for this; you can switch it off later under Site Migration → Live media.</p></div>';
+			}
+			h += '</div>';
+		}
 		if (allComps.length) {
 			h += '<p><button class="button button-small" data-mig="files-all">Select the entire WordPress folder (all files)</button></p>';
 		}
@@ -550,6 +599,13 @@
 			if (w.ptFilter === 'selected') {
 				h += renderPtPicker(w);
 			}
+			var canRepo = remoteSupports(w, 'repo');
+			h += '<label class="wudt-mig-repo' + (w.repo && canRepo ? ' is-on' : '') + (canRepo ? '' : ' is-disabled') + '"><input type="checkbox" data-mig-field="repo"' + (w.repo && canRepo ? ' checked' : '') + (canRepo ? '' : ' disabled') + '> '
+				+ '<strong>Install from WordPress.org when possible</strong> — ' + (isPull ? 'this site' : 'the destination') + ' downloads free plugins and themes straight from WordPress.org instead of '
+				+ (isPull ? 'from ' + esc(s.label || 'the remote site') : 'uploading them from this site') + '.'
+				+ '<span>' + (canRepo
+					? 'Each one is first checked file-by-file against the official release; modified, premium or custom ones are copied as usual.'
+					: 'Update Diagnostics Toolkit on the remote site to use this.') + '</span></label>';
 			h += '</div>';
 		}
 
@@ -824,9 +880,10 @@
 		var phases = starting ? [{ key: 'prepare', label: 'Prepare' }] : PHASES.filter(function (p) {
 			if (p.key === 'database') { return j.tables > 0; }
 			if (p.key === 'scan' || p.key === 'transfer') { return hasFiles; }
+			if (p.key === 'packages') { return !!(j.repo && j.repo.enabled && (!j.repo.checked || j.repo.eligible > 0)); }
 			return true;
 		});
-		var order = ['database', 'scan', 'transfer', 'finalize_files', 'finalize_db', 'cleanup', 'done'];
+		var order = ['database', 'scan', 'transfer', 'packages', 'finalize_files', 'finalize_db', 'cleanup', 'done'];
 		var cur = order.indexOf(j.phase);
 		var phaseIdx = 0;
 		phases.forEach(function (p, idx) {
@@ -861,6 +918,12 @@
 				? '<div><span>Files changed</span><strong>' + esc(num(st.files_changed)) + ' <small>of ' + esc(num(st.files_scanned)) + '</small></strong></div>'
 					+ '<div><span>Transferred</span><strong>' + esc(bytes(st.bytes_done)) + ' <small>of ' + esc(bytes(st.bytes_total)) + '</small></strong></div>'
 				: '<div><span>Files</span><strong>not included</strong></div>')
+			+ (j.repo && j.repo.enabled
+				? '<div title="' + esc((j.repo.names || []).join(', ')) + '"><span>From WordPress.org</span><strong>'
+					+ (j.repo.checked ? esc(j.repo.installed) + ' <small>of ' + esc(j.repo.eligible) + (j.repo.bytes ? ' · ' + esc(bytes(j.repo.bytes)) + ' not copied' : '') + '</small>' : '<small>checking…</small>')
+					+ '</strong></div>'
+				: '')
+			+ (j.live_media ? '<div><span>Media</span><strong><small>loaded from the live site</small></strong></div>' : '')
 			+ '</div>';
 
 		if (j.status === 'failed') {
@@ -873,6 +936,7 @@
 			h += '<div class="wudt-mig-notice is-success"><strong>Migration complete' + (j.created ? ' in ' + esc(duration(j.updated - j.created)) : '') + '.</strong> ';
 			if (isPull) {
 				h += 'This site now contains the remote site’s content. If the users table was included, <a href="' + esc(S.data.local_site_url) + '/wp-login.php">log in again</a> with the remote site’s credentials.';
+				if (j.live_media) { h += ' Media is now loaded from <code>' + esc(j.live_media.url) + '</code>.'; }
 			} else {
 				h += 'The remote site has been updated. <a href="' + esc(j.site.url) + '" target="_blank" rel="noopener">Open it</a> and check it. If anything is wrong you can roll it back.';
 			}
@@ -944,6 +1008,7 @@
 			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all',
 			ptSelected: { plugins: [], themes: [] }, ptSearch: '',
 			mode: '', files: [], keepBackup: true,
+			repo: direction === 'push', liveMedia: false, liveMediaMode: 'missing',
 			pick: { c: 'core', p: '', entries: null, loading: false, error: '', roots: {}, filter: '', truncated: false }
 		};
 		render();
@@ -1062,6 +1127,13 @@
 		if (!tables.length) { skipped.push('Database'); }
 		(S.data.components || []).forEach(function (c) { if (w.components.indexOf(c) === -1) { skipped.push(COMPONENT_LABELS[c] || c); } });
 		var target = w.direction === 'pull' ? 'THIS site (' + S.data.local_site_url + ')' : s.url;
+		var useRepo = w.repo && remoteSupports(w, 'repo') && (w.components.indexOf('plugins') !== -1 || w.components.indexOf('themes') !== -1);
+		var liveMedia = w.direction === 'pull' && w.liveMedia;
+		if (useRepo) { parts.push('Unmodified WordPress.org plugins/themes are installed from WordPress.org'); }
+		if (liveMedia) {
+			skipped = skipped.filter(function (x) { return x !== COMPONENT_LABELS.uploads; });
+			parts.push('Media: loaded from ' + s.url + ' (' + (w.liveMediaMode === 'all' ? 'all media' : 'files missing here') + '), not downloaded');
+		}
 		if (!window.confirm((replaceContent ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?')) {
 			return;
 		}
@@ -1079,7 +1151,10 @@
 			pt_filter: w.ptFilter,
 			pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
 			pt_themes: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.themes : []),
-			keep_backup: w.keepBackup ? 1 : 0
+			keep_backup: w.keepBackup ? 1 : 0,
+			repo: useRepo ? 1 : '',
+			live_media: liveMedia ? 1 : '',
+			live_media_mode: w.liveMediaMode
 		});
 	}
 
@@ -1163,6 +1238,10 @@
 
 	function onLogToggle(e) {
 		var el = e.target;
+		if (el && el.hasAttribute && el.hasAttribute('data-mig-lm')) {
+			S.showLiveMedia = el.open;
+			return;
+		}
 		if (!el || !el.hasAttribute || !el.hasAttribute('data-mig-log')) { return; }
 		if ($(el).closest('#wudt-qt').length) {
 			if (Q) { Q.logOpen = el.open; }
@@ -1262,6 +1341,23 @@
 				case 'start':
 					startJob();
 					break;
+				case 'lm-enable':
+					var lmSite = String($('#wudt-mig-lm-site').val() || '');
+					var lmLabel = (site(lmSite) || {}).url || 'that site';
+					if (!window.confirm('Load this site’s media from ' + lmLabel + '?\n\nImages and files that are missing here will be shown from that site. Nothing is copied or changed in the database.')) { return; }
+					$b.prop('disabled', true).text('Connecting…');
+					ajax('wudt_migration_live_media', { op: 'enable', site_id: lmSite, mode: 'missing' }, 90000).done(function (r) {
+						if (r && r.success) { S.data = r.data.state; setNotice('success', 'Live media is on.'); } else { setNotice('error', errMsg(r)); }
+						render();
+					}).fail(function (xhr) { setNotice('error', errMsg(null, xhr)); render(); });
+					break;
+				case 'lm-disable':
+					if (!window.confirm('Stop loading media from the live site? Images that are not on this site will be broken until you copy the uploads folder.')) { return; }
+					ajax('wudt_migration_live_media', { op: 'disable' }).done(function (r) {
+						if (r && r.success) { S.data = r.data.state; setNotice('success', 'Live media is off. This site uses its own uploads folder again.'); } else { setNotice('error', errMsg(r)); }
+						render();
+					});
+					break;
 				case 'pk-open':
 					loadPicker(String($b.data('c')), String($b.data('p') || ''));
 					break;
@@ -1338,7 +1434,7 @@
 			}
 		});
 
-		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root [data-mig-group], #wudt-migration-root [data-mig-pt], #wudt-mig-ptfilter', function () {
+		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root input[name="wudt-mig-media"], #wudt-migration-root input[name="wudt-mig-lmmode"], #wudt-migration-root [data-mig-group], #wudt-migration-root [data-mig-pt], #wudt-mig-ptfilter', function () {
 			var w = S.wizard;
 			if (!w) { return; }
 			w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
@@ -1347,6 +1443,12 @@
 			if ($i.is('[data-mig-field="skip"]')) { w.skipUnchanged = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="override"]')) { w.override = $i.is(':checked'); }
 			if ($i.is('[data-mig-field="backup"]')) { w.keepBackup = $i.is(':checked'); }
+			if ($i.is('[data-mig-field="repo"]')) { w.repo = $i.is(':checked'); }
+			if ($i.is('[name="wudt-mig-media"]')) {
+				w.liveMedia = $i.val() === 'live';
+				if (w.liveMedia) { w.components = w.components.filter(function (c) { return c !== 'uploads'; }); }
+			}
+			if ($i.is('[name="wudt-mig-lmmode"]')) { w.liveMediaMode = $i.val() === 'all' ? 'all' : 'missing'; }
 			if ($i.is('[data-mig-field="excludedev"]')) { w.excludeDev = $i.is(':checked'); }
 			if ($i.is('[name="wudt-mig-tmode"]')) { w.tableMode = $i.val(); }
 			if ($i.is('[name="wudt-mig-scope"]')) {
@@ -1401,6 +1503,13 @@
 
 		document.removeEventListener('toggle', onLogToggle, true);
 		document.addEventListener('toggle', onLogToggle, true);
+
+		$(document).on('change.wudtmig', '#wudt-mig-lm-mode', function () {
+			ajax('wudt_migration_live_media', { op: 'mode', mode: $(this).val() }).done(function (r) {
+				if (r && r.success) { S.data = r.data.state; setNotice('success', 'Saved.'); } else { setNotice('error', errMsg(r)); }
+				render();
+			});
+		});
 
 		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-pk]', function () {
 			var w = S.wizard;

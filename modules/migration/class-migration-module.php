@@ -27,6 +27,7 @@ class Migration_Module extends Module_Base {
 
 	public function register_hooks(): void {
 		$this->api->register_hooks();
+		(new Live_Media())->register_hooks();
 		add_action('init', array(Migration_Engine::class, 'maybe_flush_rewrite'), 999);
 
 		$admin_actions = array(
@@ -42,6 +43,7 @@ class Migration_Module extends Module_Base {
 			'wudt_migration_discard_rollback' => 'ajax_discard_rollback',
 			'wudt_migration_browse'           => 'ajax_browse',
 			'wudt_migration_locate'           => 'ajax_locate',
+			'wudt_migration_live_media'       => 'ajax_live_media',
 		);
 		foreach ($admin_actions as $action => $method) {
 			add_action('wp_ajax_' . $action, array($this, $method));
@@ -97,6 +99,8 @@ class Migration_Module extends Module_Base {
 			'history'           => $history,
 			'rollback'          => $engine->rollback_summary(),
 			'components'        => Migration_Engine::COMPONENTS,
+			'live_media'        => Live_Media::settings(),
+			'local_uploads_url' => untrailingslashit((string) wp_get_upload_dir()['baseurl']),
 			'api_version'       => Migration_Engine::API_VERSION,
 		);
 	}
@@ -363,6 +367,10 @@ class Migration_Module extends Module_Base {
 					$needs[] = $c;
 				}
 			}
+			$repo = ! empty($_POST['repo']) && empty($files) && is_array($components) && array_intersect(array('plugins', 'themes'), $components);
+			if ($repo) {
+				$needs[] = 'repo';
+			}
 			if (! empty($files)) {
 				$needs[] = 'paths';
 				foreach ($files as $item) {
@@ -398,6 +406,9 @@ class Migration_Module extends Module_Base {
 					'pt_themes'      => is_array($pt_themes) ? $pt_themes : array(),
 					'files'          => $files,
 					'keep_backup'    => ! isset($_POST['keep_backup']) || ! empty($_POST['keep_backup']),
+					'repo'           => ! empty($repo),
+					'live_media'     => 'pull' === $direction && ! empty($_POST['live_media']),
+					'live_media_mode' => sanitize_key(wp_unslash($_POST['live_media_mode'] ?? 'missing')),
 					'sites_snapshot' => $this->get_sites(),
 				),
 				$remote,
@@ -474,6 +485,38 @@ class Migration_Module extends Module_Base {
 	public function ajax_discard_rollback(): void {
 		Security_Guard::assert_ajax_admin();
 		(new Migration_Engine())->discard_rollback();
+		wp_send_json_success(array('state' => $this->build_state()));
+	}
+
+	/* ------------------------------ Live media -------------------------- */
+
+	/**
+	 * Load this site's media from a connected site, change the mode or turn it off.
+	 */
+	public function ajax_live_media(): void {
+		Security_Guard::assert_ajax_admin();
+		$op = sanitize_key((string) wp_unslash($_POST['op'] ?? ''));
+		try {
+			if ('disable' === $op) {
+				Live_Media::disable();
+				Operation_Logger::log('migration', 'Live media turned off', array());
+			} elseif ('mode' === $op) {
+				Live_Media::set_mode(sanitize_key((string) wp_unslash($_POST['mode'] ?? 'missing')));
+			} elseif ('enable' === $op) {
+				$site = $this->require_site();
+				$info = $this->remote_info($site);
+				$url = (string) ($info['uploads_url'] ?? '');
+				if ('' === $url) {
+					throw new \RuntimeException(__('The other site did not report its media URL.', 'diagnostics-toolkit'));
+				}
+				Live_Media::enable($url, sanitize_key((string) wp_unslash($_POST['mode'] ?? 'missing')), (string) $site['label']);
+				Operation_Logger::log('migration', 'Live media turned on', array('url' => $url));
+			} else {
+				throw new \RuntimeException('Unknown action.');
+			}
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
+		}
 		wp_send_json_success(array('state' => $this->build_state()));
 	}
 

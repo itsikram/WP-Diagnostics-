@@ -134,6 +134,19 @@ class Migration_Runner {
 		}
 
 		$token = wp_generate_password(40, false, false);
+		$component_excludes = self::plugin_theme_excludes($src, $pt_filter, $pt_selected);
+		$repo_items = empty($picked) && ! empty($options['repo'])
+			? self::repo_candidates($src, $dst, $components, $component_excludes, ! empty($options['override']))
+			: array();
+		$live_media = null;
+		if ($is_pull && ! empty($options['live_media']) && '' !== (string) ($src['uploads_url'] ?? '')) {
+			$live_media = array(
+				'url'  => untrailingslashit((string) $src['uploads_url']),
+				'mode' => 'all' === ($options['live_media_mode'] ?? '') ? 'all' : 'missing',
+			);
+			$components = array_values(array_diff($components, array('uploads')));
+		}
+
 		$state = array(
 			'id'         => $id,
 			'token'      => $token,
@@ -179,7 +192,19 @@ class Migration_Runner {
 			'merge_groups' => $merge_groups,
 			'pt_filter'  => $pt_filter,
 			'pt_selected' => 'selected' === $pt_filter ? $pt_selected : array(),
-			'component_excludes' => self::plugin_theme_excludes($src, $pt_filter, $pt_selected),
+			'component_excludes' => $component_excludes,
+			// Plugins and themes the destination may install from WordPress.org.
+			'repo'       => array(
+				'enabled'    => ! empty($repo_items),
+				'items'      => $repo_items,
+				'offset'     => 0,
+				'checked'    => false,
+				'installed'  => 0,
+				'bytes'      => 0,
+				'requeued'   => false,
+			),
+			// Pull only: this site loads media from the source site instead of copying uploads.
+			'live_media' => $live_media,
 			'src'        => self::slim_info($src),
 			'dst'        => self::slim_info($dst),
 			'pairs'      => Migration_Replacer::build_pairs($src, $dst),
@@ -220,18 +245,24 @@ class Migration_Runner {
 		$runner->log(sprintf('%s migration %s %s', ucfirst($state['direction']), $is_pull ? 'from' : 'to', $state['site']['url']));
 		$pt_note = '';
 		if ('selected' === $pt_filter) {
-			$picked = array();
+			$pt_names = array();
 			foreach (array('plugins', 'themes') as $c) {
 				if (in_array($c, $components, true)) {
-					$picked[] = $c . ': ' . implode(', ', array_map(array(self::class, 'plugin_folder'), $pt_selected[$c]));
+					$pt_names[] = $c . ': ' . implode(', ', array_map(array(self::class, 'plugin_folder'), $pt_selected[$c]));
 				}
 			}
-			$pt_note = ' (only ' . implode('; ', $picked) . ')';
+			$pt_note = ' (only ' . implode('; ', $pt_names) . ')';
 		} elseif ('all' !== $pt_filter) {
 			$pt_note = ' (' . $pt_filter . ' plugins & themes only)';
 		}
 		if (empty($state['keep_backup'])) {
 			$runner->log('Backup turned off: replaced files and tables will not be kept for rollback.');
+		}
+		if (! empty($repo_items)) {
+			$runner->log(sprintf('WordPress.org: %d plugins/themes will be checked; unmodified ones are installed from WordPress.org instead of being copied.', count($repo_items)));
+		}
+		if (null !== $live_media) {
+			$runner->log('Media uploads are not copied: this site will load media from ' . $live_media['url'] . '.');
 		}
 		if (! empty($picked)) {
 			$runner->log(sprintf(
@@ -288,6 +319,46 @@ class Migration_Runner {
 		}
 		// A folder shared by a kept plugin file must not be excluded.
 		$out['plugins'] = array_values(array_diff(array_unique($out['plugins']), $keep_plugins));
+		return $out;
+	}
+
+	/**
+	 * Plugins and themes that could come from WordPress.org: included in the job,
+	 * in their own folder (named like their WordPress.org slug) and different from
+	 * the destination's version (or every one, with override).
+	 *
+	 * @return array<int,array{c:string,slug:string,version:string,status:string}>
+	 */
+	private static function repo_candidates(array $src, array $dst, array $components, array $component_excludes, bool $override): array {
+		$out = array();
+		if (in_array('plugins', $components, true)) {
+			$dst_plugins = (array) ($dst['plugins'] ?? array());
+			$seen = array();
+			foreach ((array) ($src['plugins'] ?? array()) as $file => $version) {
+				$dir = dirname((string) $file);
+				if ('.' === $dir || isset($seen[$dir]) || $dir === (string) ($src['self_plugin_dir'] ?? '') || in_array($dir, (array) ($component_excludes['plugins'] ?? array()), true)) {
+					continue;
+				}
+				$seen[$dir] = true;
+				if ('' === (string) $version || (! $override && isset($dst_plugins[$file]) && (string) $dst_plugins[$file] === (string) $version)) {
+					continue; // Same version on both sides: the normal comparison sends only what differs.
+				}
+				$out[] = array('c' => 'plugins', 'slug' => $dir, 'version' => (string) $version, 'status' => 'pending');
+			}
+		}
+		if (in_array('themes', $components, true)) {
+			$dst_themes = (array) ($dst['themes'] ?? array());
+			foreach ((array) ($src['themes'] ?? array()) as $slug => $version) {
+				$slug = (string) $slug;
+				if ('' === (string) $version || in_array($slug, (array) ($component_excludes['themes'] ?? array()), true)) {
+					continue;
+				}
+				if (! $override && isset($dst_themes[$slug]) && (string) $dst_themes[$slug] === (string) $version) {
+					continue;
+				}
+				$out[] = array('c' => 'themes', 'slug' => $slug, 'version' => (string) $version, 'status' => 'pending');
+			}
+		}
 		return $out;
 	}
 
@@ -434,6 +505,8 @@ class Migration_Runner {
 			'files'            => array_slice((array) ($s['picked'] ?? array()), 0, 200),
 			'files_count'      => count((array) ($s['picked'] ?? array())),
 			'keep_backup'      => ! isset($s['keep_backup']) || ! empty($s['keep_backup']),
+			'repo'             => self::repo_summary($s),
+			'live_media'       => $s['live_media'] ?? null,
 			'progress_url'     => (string) ($s['progress']['url'] ?? ''),
 			'phase_started'    => (int) ($s['phase_started'] ?? $s['created']),
 			'seq'              => (int) ($s['seq'] ?? 0),
@@ -452,6 +525,32 @@ class Migration_Runner {
 				'bytes_total'   => $s['files']['bytes_total'],
 			),
 			'stale'      => 'running' === $s['status'] && (time() - (int) $s['updated']) > self::STALE_AFTER,
+		);
+	}
+
+	private static function repo_summary(array $s): array {
+		$repo = (array) ($s['repo'] ?? array());
+		if (empty($repo['enabled'])) {
+			return array('enabled' => false);
+		}
+		$count = array('verified' => 0, 'installed' => 0, 'failed' => 0, 'skip' => 0, 'pending' => 0);
+		$names = array();
+		foreach ((array) ($repo['items'] ?? array()) as $item) {
+			$status = (string) ($item['status'] ?? 'pending');
+			$count[$status] = ($count[$status] ?? 0) + 1;
+			if ('installed' === $status) {
+				$names[] = (string) $item['slug'];
+			}
+		}
+		return array(
+			'enabled'   => true,
+			'checked'   => ! empty($repo['checked']),
+			'total'     => count((array) ($repo['items'] ?? array())),
+			'eligible'  => $count['verified'] + $count['installed'] + $count['failed'],
+			'installed' => $count['installed'],
+			'failed'    => $count['failed'],
+			'bytes'     => (int) ($repo['bytes'] ?? 0),
+			'names'     => array_slice($names, 0, 30),
 		);
 	}
 
@@ -589,6 +688,9 @@ class Migration_Runner {
 				return;
 			case 'transfer':
 				$this->phase_transfer();
+				return;
+			case 'packages':
+				$this->phase_packages();
 				return;
 			case 'finalize_files':
 				$this->phase_finalize_files();
@@ -769,9 +871,13 @@ class Migration_Runner {
 	private function phase_scan(): void {
 		$f = &$this->state['files'];
 		$components = $this->state['components'];
+		if (! empty($this->state['repo']['enabled']) && empty($this->state['repo']['checked'])) {
+			$this->repo_check_step();
+			return;
+		}
 		if ($f['ci'] >= count($components)) {
 			$this->log(sprintf('Scan complete: %s of %s files changed (%s).', number_format_i18n($f['changed']), number_format_i18n($f['scanned']), size_format($f['bytes_total'])));
-			$this->next_phase($f['changed'] > 0 ? 'transfer' : 'finalize_files');
+			$this->next_phase($f['changed'] > 0 ? 'transfer' : $this->after_transfer());
 			return;
 		}
 		$component = (string) $components[$f['ci']];
@@ -959,7 +1065,7 @@ class Migration_Runner {
 			$f['qpos'] = $pos;
 			$f['seg_offset'] = 0;
 			$this->log(sprintf('Transferred %s files (%s).', number_format_i18n($f['done_files']), size_format($f['done_bytes'])));
-			$this->next_phase('finalize_files');
+			$this->next_phase($this->after_transfer());
 			return;
 		}
 
@@ -1045,6 +1151,168 @@ class Migration_Runner {
 		if (! empty($errors)) {
 			throw new \RuntimeException((string) reset($errors));
 		}
+	}
+
+	/* ------------------------------ WordPress.org ---------------------- */
+
+	/**
+	 * Ask the source which candidate plugins and themes are unmodified WordPress.org
+	 * releases. Those are left out of the file copy and installed by the destination.
+	 */
+	private function repo_check_step(): void {
+		$repo = &$this->state['repo'];
+		$items = (array) $repo['items'];
+		$this->progress(sprintf('Checking plugins and themes against WordPress.org… (%d of %d)', (int) $repo['offset'], count($items)));
+		try {
+			$res = (array) $this->call('src', 'repo_check', array(
+				'items'    => array_map(static function ($item) {
+					return array('c' => $item['c'], 'slug' => $item['slug'], 'version' => $item['version']);
+				}, $items),
+				'offset'   => (int) $repo['offset'],
+				'excludes' => $this->state['excludes'],
+				'budget'   => 15,
+			));
+		} catch (\Throwable $e) {
+			// Not fatal: everything is copied as usual.
+			$this->log('WordPress.org check failed, copying all plugins and themes instead: ' . $e->getMessage());
+			$repo['enabled'] = false;
+			$repo['checked'] = true;
+			return;
+		}
+		foreach ((array) ($res['results'] ?? array()) as $result) {
+			foreach ($repo['items'] as $k => $item) {
+				if ($item['c'] === ($result['c'] ?? '') && $item['slug'] === ($result['slug'] ?? '') && 'pending' === $item['status']) {
+					$repo['items'][$k]['status'] = ! empty($result['ok']) ? 'verified' : 'skip';
+					$repo['items'][$k]['reason'] = (string) ($result['reason'] ?? '');
+					$repo['items'][$k]['bytes'] = (int) ($result['bytes'] ?? 0);
+					break;
+				}
+			}
+		}
+		$repo['offset'] = (int) ($res['next'] ?? count($items));
+		if (empty($res['done']) && $repo['offset'] < count($items)) {
+			return;
+		}
+		$repo['checked'] = true;
+		$verified = array();
+		$copied = array();
+		foreach ($repo['items'] as $item) {
+			if ('verified' === $item['status']) {
+				// The destination installs these: leave them out of the file comparison.
+				$this->state['component_excludes'][$item['c']][] = $item['slug'];
+				$verified[] = $item['slug'] . ' ' . $item['version'];
+			} else {
+				$copied[] = $item['slug'] . ' (' . ($item['reason'] ?? '') . ')';
+			}
+		}
+		$this->log(empty($verified)
+			? 'WordPress.org: no unmodified WordPress.org plugins or themes to install; all are copied.'
+			: sprintf('WordPress.org: %d will be installed from WordPress.org: %s.', count($verified), implode(', ', $verified)));
+		if (! empty($copied)) {
+			$this->log('Copied from the source instead: ' . implode('; ', array_slice($copied, 0, 20)) . (count($copied) > 20 ? ' …' : ''));
+		}
+	}
+
+	/**
+	 * Next stage after the file transfer: install WordPress.org packages if any are left.
+	 */
+	private function after_transfer(): string {
+		foreach ((array) ($this->state['repo']['items'] ?? array()) as $item) {
+			if ('verified' === ($item['status'] ?? '')) {
+				return 'packages';
+			}
+		}
+		return 'finalize_files';
+	}
+
+	/**
+	 * The destination downloads verified plugins and themes from WordPress.org into
+	 * its staging area. A package that cannot be installed is copied from the source.
+	 */
+	private function phase_packages(): void {
+		$repo = &$this->state['repo'];
+		$batch = array();
+		foreach ($repo['items'] as $k => $item) {
+			if ('verified' === $item['status']) {
+				$batch[$k] = $item;
+				if (count($batch) >= $this->parallel()) {
+					break;
+				}
+			}
+		}
+		if (empty($batch)) {
+			$failed = array_filter($repo['items'], static function ($item) {
+				return 'failed' === $item['status'];
+			});
+			if (! empty($failed) && empty($repo['requeued'])) {
+				$this->requeue_failed_packages($failed);
+				return;
+			}
+			$this->log(sprintf('Installed %d plugins/themes from WordPress.org (%s not uploaded).', (int) $repo['installed'], size_format((int) $repo['bytes'])));
+			$this->next_phase('finalize_files');
+			return;
+		}
+		$this->progress(sprintf(
+			'Installing from WordPress.org on the destination: %s… (%d of %d done)',
+			implode(', ', array_column($batch, 'slug')),
+			(int) $repo['installed'],
+			count(array_filter($repo['items'], static function ($item) {
+				return in_array($item['status'], array('verified', 'installed', 'failed'), true);
+			}))
+		), true);
+		$calls = array();
+		foreach ($batch as $k => $item) {
+			$calls[$k] = array('job' => $this->state['id'], 'component' => $item['c'], 'slug' => $item['slug'], 'version' => $item['version']);
+		}
+		$errors = array();
+		$done = $this->call_many('dst', 'install_package', $calls, $errors);
+		foreach ($batch as $k => $item) {
+			if (isset($done[$k])) {
+				$repo['items'][$k]['status'] = 'installed';
+				$repo['installed']++;
+				$repo['bytes'] += (int) ($item['bytes'] ?? 0);
+				$this->log(sprintf('Installed %s %s from WordPress.org (%d files).', $item['slug'], $item['version'], (int) ($done[$k]['files'] ?? 0)));
+			} else {
+				$repo['items'][$k]['status'] = 'failed';
+				$repo['items'][$k]['reason'] = (string) ($errors[$k] ?? 'unknown error');
+				$this->log(sprintf('Could not install %s from WordPress.org (%s); it will be copied from the source.', $item['slug'], $repo['items'][$k]['reason']));
+			}
+		}
+	}
+
+	/**
+	 * Queue the files of packages that failed to install for a normal transfer.
+	 */
+	private function requeue_failed_packages(array $failed): void {
+		$f = &$this->state['files'];
+		foreach ($failed as $item) {
+			$this->progress(sprintf('Copying %s from the source instead…', $item['slug']), true);
+			$offset = 0;
+			do {
+				$page = (array) $this->call('src', 'manifest', array(
+					'job'         => $this->state['id'] . 'r',
+					'component'   => $item['c'],
+					'offset'      => $offset,
+					'excludes'    => $this->state['excludes'],
+					'budget'      => 12,
+					'hash'        => false,
+					'max_entries' => 6000,
+					'only'        => array($item['slug']),
+				));
+				$lines = '';
+				foreach ((array) ($page['entries'] ?? array()) as $entry) {
+					$lines .= wp_json_encode(array('c' => $item['c'], 'p' => $entry['p'], 's' => (int) $entry['s'])) . "\n";
+					$f['changed']++;
+					$f['bytes_total'] += (int) $entry['s'];
+				}
+				if ('' !== $lines) {
+					file_put_contents($this->queue_file(), $lines, FILE_APPEND | LOCK_EX);
+				}
+				$offset = (int) ($page['next'] ?? 0);
+			} while (empty($page['done']));
+		}
+		$this->state['repo']['requeued'] = true;
+		$this->next_phase('transfer');
 	}
 
 	/**
@@ -1165,6 +1433,11 @@ class Migration_Runner {
 			unlink($this->queue_file());
 		}
 
+		if (! empty($this->state['live_media']) && 'pull' === $this->state['direction']) {
+			Live_Media::enable((string) $this->state['live_media']['url'], (string) $this->state['live_media']['mode'], (string) $this->state['site']['label']);
+			$this->log('Media now loads from ' . $this->state['live_media']['url'] . ' (' . ('all' === $this->state['live_media']['mode'] ? 'all media' : 'files missing on this site') . '). Change this under Site Migration → Live media.');
+		}
+
 		$this->state['status'] = 'done';
 		$this->next_phase('done');
 		$this->state['message'] = 'Migration complete!';
@@ -1264,18 +1537,21 @@ class Migration_Runner {
 		}
 		$has_db = ! empty($s['tables']);
 		$has_files = ! empty($s['components']);
+		$repo = self::repo_summary($s);
 		$weights = array(
 			'database' => $has_db ? 45 : 0,
 			'scan'     => $has_files ? 10 : 0,
 			'transfer' => $has_files ? 35 : 0,
+			'packages' => ! empty($repo['enabled']) && (! $repo['checked'] || $repo['eligible'] > 0) ? 10 : 0,
 			'finalize' => 10,
 		);
-		$order = array('database', 'scan', 'transfer', 'finalize_files', 'finalize_db', 'cleanup', 'done');
-		$current = array_search($s['phase'], $order, true);
+		$order = array('database', 'scan', 'transfer', 'packages', 'finalize_files', 'finalize_db', 'cleanup', 'done');
+		$current = (int) array_search($s['phase'], $order, true);
 		$fraction = array(
 			'database' => 0.0,
 			'scan'     => 0.0,
 			'transfer' => 0.0,
+			'packages' => 0.0,
 			'finalize' => 0.0,
 		);
 		if ($current > 0) {
@@ -1293,9 +1569,14 @@ class Migration_Runner {
 		} elseif (2 === $current) {
 			$fraction['transfer'] = min(1.0, $s['files']['done_bytes'] / max(1, $s['files']['bytes_total']));
 		}
-		if ($current >= 5) {
+		if ($current > 3) {
+			$fraction['packages'] = 1.0;
+		} elseif (3 === $current) {
+			$fraction['packages'] = min(1.0, ($repo['installed'] + $repo['failed']) / max(1, $repo['eligible']));
+		}
+		if ($current >= 6) {
 			$fraction['finalize'] = 0.9;
-		} elseif ($current >= 3) {
+		} elseif ($current >= 4) {
 			$fraction['finalize'] = 0.4;
 		}
 		$total = array_sum($weights);
