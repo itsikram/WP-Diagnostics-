@@ -313,11 +313,18 @@ class Database_Manager_Module extends Module_Base {
 		$start = microtime(true);
 		$is_select = (bool) preg_match('/^\s*(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN|CHECK|ANALYZE)\b/i', $query);
 		$wpdb->last_error = '';
+		$col_names = array();
 		if ($is_select) {
 			$data = $wpdb->get_results($query, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			// Read now: the next query (saving the history) replaces the column info.
+			if (empty($wpdb->last_error) && ! is_bool($wpdb->result)) {
+				$col_names = array_values(array_map('strval', (array) $wpdb->get_col_info('name')));
+			}
 		} else {
 			$data = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
+		$affected = $is_select ? 0 : (int) $wpdb->rows_affected;
+		$insert_id = $is_select ? 0 : (int) $wpdb->insert_id;
 		$elapsed = round((microtime(true) - $start) * 1000, 2);
 		$error = (string) $wpdb->last_error;
 		$this->push_query_history($query, $elapsed, '' === $error);
@@ -330,11 +337,11 @@ class Database_Manager_Module extends Module_Base {
 		wp_send_json_success(
 			array(
 				'result'    => $is_select ? array_slice($rows, 0, self::QUERY_ROW_LIMIT) : $data,
-				'columns'   => $is_select ? array_values(array_map('strval', (array) $wpdb->get_col_info('name'))) : array(),
+				'columns'   => $col_names,
 				'count'     => $count,
 				'truncated' => $count > self::QUERY_ROW_LIMIT,
-				'affected'  => $is_select ? 0 : (int) $wpdb->rows_affected,
-				'insert_id' => $is_select ? 0 : (int) $wpdb->insert_id,
+				'affected'  => $affected,
+				'insert_id' => $insert_id,
 				'time_ms'   => $elapsed,
 				'slow'      => $elapsed > 500,
 				'type'      => $is_select ? 'select' : 'write',

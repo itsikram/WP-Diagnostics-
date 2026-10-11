@@ -341,84 +341,6 @@
 	.wudt-fm-sidebar { display: none; }
 }
 
-/* phpMyAdmin-like Database Manager */
-.wudt-db-shell {
-	display: grid;
-	grid-template-columns: 280px minmax(0, 1fr);
-	min-height: 620px;
-	border: 1px solid #cfd6de;
-	border-radius: 8px;
-	overflow: hidden;
-	background: #fff;
-}
-.wudt-db-sidebar {
-	border-right: 1px solid #dfe5ea;
-	background: #f7f9fc;
-	overflow: auto;
-}
-.wudt-db-sidebar-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 10px;
-	border-bottom: 1px solid #dfe5ea;
-	background: #eef3f9;
-}
-.wudt-db-tree { padding: 8px; }
-.wudt-db-tree-item {
-	display: grid;
-	grid-template-columns: 1fr auto;
-	gap: 3px 8px;
-	padding: 8px 10px;
-	border-radius: 5px;
-	cursor: pointer;
-	border: 1px solid transparent;
-}
-.wudt-db-tree-item strong { font-size: 12px; }
-.wudt-db-tree-item span,
-.wudt-db-tree-item em { font-size: 11px; color: #607080; font-style: normal; }
-.wudt-db-tree-item:hover { background: #e9f3ff; }
-.wudt-db-tree-item.is-active { background: #dbeafe; border-color: #9cc4fb; }
-.wudt-db-main { display: grid; grid-template-rows: auto auto 1fr; min-width: 0; }
-.wudt-db-topbar {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 10px 12px;
-	border-bottom: 1px solid #e5ebf0;
-	background: #f9fbfd;
-}
-.wudt-db-tabs {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-	padding: 8px;
-	border-bottom: 1px solid #e5ebf0;
-	background: #fff;
-}
-.wudt-db-tab {
-	border: 1px solid #ccd6e0;
-	background: #f5f8fc;
-	padding: 6px 10px;
-	border-radius: 4px;
-	cursor: pointer;
-	font-size: 12px;
-}
-.wudt-db-tab.is-active { background: #dbeafe; border-color: #93c5fd; }
-.wudt-db-body { padding: 10px; overflow: auto; }
-.wudt-db-form {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 8px;
-}
-.wudt-db-field { display: grid; gap: 4px; font-size: 12px; color: #4b5563; }
-.wudt-db-body .wudt-fm-table th { background: #edf3fb; }
-.wudt-db-body .wudt-fm-table td { vertical-align: top; max-width: 340px; word-break: break-word; }
-@media (max-width: 980px) {
-	.wudt-db-shell { grid-template-columns: 1fr; }
-	.wudt-db-sidebar { max-height: 220px; border-right: none; border-bottom: 1px solid #dfe5ea; }
-	.wudt-db-form { grid-template-columns: 1fr; }
-}
 
 /* Floating desktop-style code editor popup */
 .wudt-ed-window {
@@ -906,37 +828,6 @@
 	margin: 0;
 }
 
-/* Database Manager Loading Overlay */
-.wudt-db-body {
-	position: relative;
-	min-height: 200px;
-}
-.wudt-db-loading-overlay {
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(255, 255, 255, 0.85);
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 12px;
-	z-index: 100;
-}
-.wudt-db-loading-spinner {
-	width: 40px;
-	height: 40px;
-	border: 3px solid #e5e7eb;
-	border-top-color: #2271b1;
-	border-radius: 50%;
-	animation: wudtSpin 0.8s linear infinite;
-}
-.wudt-db-loading-text {
-	font-size: 13px;
-	color: #4b5563;
-}
 
 /* Enhanced Restore UI */
 .wudt-restore-checks {
@@ -1013,23 +904,6 @@
 	background: #7f1d1d !important;
 }
 
-.wudt-db-loading-spinner {
-	width: 40px;
-	height: 40px;
-	border: 3px solid #dcdcde;
-	border-top-color: #2271b1;
-	border-radius: 50%;
-	animation: wudt-db-spin 0.8s linear infinite;
-}
-@keyframes wudt-db-spin {
-	0% { transform: rotate(0deg); }
-	100% { transform: rotate(360deg); }
-}
-.wudt-db-loading-text {
-	color: #1d2327;
-	font-size: 14px;
-	font-weight: 500;
-}
 
 /* Dashboard Styles */
 .wudt-dashboard {

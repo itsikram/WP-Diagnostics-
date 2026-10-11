@@ -677,7 +677,8 @@
 		var st = s.status || {};
 		var data = Number(st.Data_length) || 0;
 		var index = Number(st.Index_length) || 0;
-		var free = Number(st.Data_free) || 0;
+		// Only MyISAM/Aria report real per-table overhead; InnoDB's Data_free is tablespace free space.
+		var free = /^(myisam|aria)$/i.test(String(st.Engine || '')) ? (Number(st.Data_free) || 0) : 0;
 		h += '<div class="pma-info-row"><fieldset class="pma-fieldset"><legend>Space usage</legend><table class="pma-table pma-data pma-kv">'
 			+ '<tr><th>Data</th><td class="pma-num">' + esc(bytes(data)) + '</td></tr><tr><th>Index</th><td class="pma-num">' + esc(bytes(index)) + '</td></tr>'
 			+ (free ? '<tr><th>Overhead</th><td class="pma-num">' + esc(bytes(free)) + '</td></tr>' : '')
@@ -1304,6 +1305,7 @@
 
 		// Grid editing: double-click a cell, like phpMyAdmin.
 		$doc.on('dblclick.wudtpma', root + 'td.pma-grid-edit', function () {
+			clearTimeout(D.markTimer);
 			var b = D.browse;
 			var rowIndex = Number($(this).closest('tr').attr('data-row'));
 			var col = String($(this).attr('data-col'));
@@ -1327,13 +1329,18 @@
 		$doc.on('click.wudtpma', root + '.pma-results tbody td.pma-cell', function (e) {
 			// A single click on a row marks it (phpMyAdmin's row marker).
 			if (e.detail > 1 || D.browse.editing || !D.browse.keys.length) { return; }
-			var i = Number($(this).closest('tr').attr('data-row'));
+			var $tr = $(this).closest('tr');
+			var i = Number($tr.attr('data-row'));
 			if (isNaN(i)) { return; }
-			if (D.browse.selected[i]) { delete D.browse.selected[i]; } else { D.browse.selected[i] = true; }
-			$(this).closest('tr').toggleClass('is-marked', !!D.browse.selected[i]).find('[data-pma-row]').prop('checked', !!D.browse.selected[i]);
-			var count = Object.keys(D.browse.selected).length;
-			$(D.root).find('[data-pma^="sel-"]').prop('disabled', !count);
-			$('#pma-checkall').prop('checked', count === D.browse.rows.length);
+			// Wait: the click may be the first half of a double-click (grid edit).
+			clearTimeout(D.markTimer);
+			D.markTimer = setTimeout(function () {
+				if (D.browse.selected[i]) { delete D.browse.selected[i]; } else { D.browse.selected[i] = true; }
+				$tr.toggleClass('is-marked', !!D.browse.selected[i]).find('[data-pma-row]').prop('checked', !!D.browse.selected[i]);
+				var count = Object.keys(D.browse.selected).length;
+				$(D.root).find('[data-pma^="sel-"]').prop('disabled', !count);
+				$('#pma-checkall').prop('checked', count === D.browse.rows.length);
+			}, 250);
 		});
 		$doc.on('change.wudtpma', root + '#pma-checkall', function () {
 			var b = D.browse;

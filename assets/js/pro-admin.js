@@ -48,26 +48,6 @@
 			downloadUrl: '',
 			downloadedBackup: null
 		},
-		db: {
-			tables: [],
-			selectedTable: '',
-			tab: 'browse',
-			browseRows: [],
-			columns: [],
-			primaryKey: '',
-			page: 1,
-			perPage: 0,
-			total: 0,
-			search: '',
-			sortBy: '',
-			sortDir: 'ASC',
-			structure: [],
-			queryHistory: [],
-			lastQueryResult: null,
-			safeMode: true,
-			loading: false,
-			loadingMessage: ''
-		},
 		editor: {
 			visible: false,
 			minimized: false,
@@ -221,6 +201,9 @@
 			+ '</div>';
 		$('#wudt-pro-admin-app').html(html);
 		bind();
+		if (state.tab === 'database_manager' && !state.tabLoading) {
+			mountDbManager();
+		}
 		if (state.tab === 'site_migration' && !state.tabLoading) {
 			mountSiteMigration();
 		}
@@ -678,188 +661,16 @@
 			+ '</div>';
 	}
 
+	// The database manager is its own module (db-manager.js), mounted after render.
 	function renderDbManager() {
-		var d = tabData('database_manager');
-		if (!state.db.tables.length) {
-			var stats = d.table_stats || [];
-			for (var i = 0; i < stats.length; i++) {
-				state.db.tables.push({
-					name: stats[i].table_name,
-					rows: stats[i].table_rows,
-					size: stats[i].data_length + (stats[i].index_length || 0)
-				});
-			}
-		}
-		if (!state.db.selectedTable && state.db.tables.length) {
-			state.db.selectedTable = state.db.tables[0].name;
-		}
-		var tabs = ['browse', 'structure', 'sql', 'search', 'insert', 'export', 'operations'];
-		var tabsHtml = '';
-		for (var t = 0; t < tabs.length; t++) {
-			var key = tabs[t];
-			tabsHtml += '<button class="wudt-db-tab ' + (state.db.tab === key ? 'is-active' : '') + '" data-db-tab="' + key + '">' + titleCase(key) + '</button>';
-		}
-		var tree = '';
-		for (var j = 0; j < state.db.tables.length; j++) {
-			var table = state.db.tables[j];
-			tree += '<div class="wudt-db-tree-item ' + (state.db.selectedTable === table.name ? 'is-active' : '') + '" data-db-table="' + esc(table.name) + '">'
-				+ '<strong>' + esc(table.name) + '</strong>'
-				+ '<span>' + esc(String(table.rows)) + ' rows</span>'
-				+ '<em>' + esc(formatSize(table.size)) + '</em>'
-				+ '</div>';
-		}
-		
-		// Loading overlay HTML
-		var loadingOverlay = state.db.loading 
-			? '<div class="wudt-db-loading-overlay"><div class="wudt-db-loading-spinner"></div><span class="wudt-db-loading-text">' + esc(state.db.loadingMessage || 'Loading...') + '</span></div>' 
-			: '';
-		
-		return ''
-			+ '<div class="wudt-db-shell">'
-			+ '<aside class="wudt-db-sidebar">'
-			+ '<div class="wudt-db-sidebar-head"><strong>Database Tables</strong><button class="button button-small" id="wudt-db-refresh" ' + (state.db.loading ? 'disabled' : '') + '>Refresh</button></div>'
-			+ '<div class="wudt-db-tree">' + tree + '</div>'
-			+ '</aside>'
-			+ '<section class="wudt-db-main">'
-			+ '<div class="wudt-db-topbar">'
-			+ '<div><strong>' + esc(state.db.selectedTable || 'No table selected') + '</strong></div>'
-			+ '<label class="wudt-badge"><input type="checkbox" id="wudt-db-safe-mode" ' + (state.db.safeMode ? 'checked' : '') + ' ' + (state.db.loading ? 'disabled' : '') + '> Safe Mode</label>'
-			+ '</div>'
-			+ '<div class="wudt-db-tabs">' + tabsHtml + '</div>'
-			+ '<div class="wudt-db-body wudt-db-body-' + state.db.tab + '">'
-			+ renderDbTabBody()
-			+ loadingOverlay
-			+ '</div>'
-			+ '</section>'
-			+ '</div>';
+		return '<div id="wudt-dbm-root"></div>';
 	}
 
-	function renderDbTabBody() {
-		if (!state.db.selectedTable) {
-			return '<div class="wudt-fm-empty">Select a table from left sidebar.</div>';
+	function mountDbManager() {
+		var el = document.getElementById('wudt-dbm-root');
+		if (el && window.WUDTDbManager) {
+			window.WUDTDbManager.mount(el);
 		}
-		if (state.db.tab === 'browse') {
-			return renderDbBrowse();
-		}
-		if (state.db.tab === 'structure') {
-			return renderDbStructure();
-		}
-		if (state.db.tab === 'sql') {
-			return renderDbSql();
-		}
-		if (state.db.tab === 'search') {
-			return renderDbSearch();
-		}
-		if (state.db.tab === 'insert') {
-			return renderDbInsert();
-		}
-		if (state.db.tab === 'export') {
-			return renderDbExport();
-		}
-		return renderDbOperations();
-	}
-
-	function renderDbBrowse() {
-		var rows = state.db.browseRows || [];
-		var cols = state.db.columns || [];
-		var head = '';
-		for (var i = 0; i < cols.length; i++) {
-			var colName = cols[i].Field || cols[i];
-			head += '<th data-db-sort="' + esc(colName) + '">' + esc(colName) + '</th>';
-		}
-		head += '<th>Actions</th>';
-		var body = '';
-		for (var r = 0; r < rows.length; r++) {
-			var row = rows[r];
-			body += '<tr>';
-			for (var c = 0; c < cols.length; c++) {
-				var key = cols[c].Field || cols[c];
-				body += '<td>' + esc(row[key]) + '</td>';
-			}
-			body += '<td>'
-				+ '<button class="button-link wudt-db-row-edit" data-row-index="' + r + '">Edit</button> | '
-				+ '<button class="button-link wudt-db-row-copy" data-row-index="' + r + '">Copy</button> | '
-				+ '<button class="button-link wudt-db-row-delete" data-row-index="' + r + '">Delete</button>'
-				+ '</td>';
-			body += '</tr>';
-		}
-		if (!body) { body = '<tr><td colspan="' + (cols.length + 1) + '" class="wudt-fm-empty">No rows</td></tr>'; }
-		return ''
-			+ '<div class="wudt-toolbar">'
-			+ '<input id="wudt-db-browse-search" class="wudt-input" placeholder="Filter rows..." value="' + esc(state.db.search) + '">'
-			+ '<select id="wudt-db-browse-per-page" class="wudt-select"><option value="0">All</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select>'
-			+ '<button class="button" id="wudt-db-browse-run">Run</button>'
-			+ '<button class="button" id="wudt-db-page-prev">Prev</button>'
-			+ '<span class="wudt-status">Page ' + state.db.page + ' / ' + Math.max(1, Math.ceil((state.db.total || 0) / (state.db.perPage > 0 ? state.db.perPage : (state.db.total || 1)))) + '</span>'
-			+ '<button class="button" id="wudt-db-page-next">Next</button>'
-			+ '</div>'
-			+ '<table class="wudt-fm-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
-	}
-
-	function renderDbStructure() {
-		var s = state.db.structure || [];
-		var rows = '';
-		for (var i = 0; i < s.length; i++) {
-			rows += '<tr>'
-				+ '<td>' + esc(s[i].Field) + '</td>'
-				+ '<td>' + esc(s[i].Type) + '</td>'
-				+ '<td>' + esc(s[i].Null) + '</td>'
-				+ '<td>' + esc(s[i].Key) + '</td>'
-				+ '<td>' + esc(s[i].Default) + '</td>'
-				+ '<td><button class="button-link wudt-db-drop-col" data-col="' + esc(s[i].Field) + '">Drop</button></td>'
-				+ '</tr>';
-		}
-		return '<div class="wudt-toolbar"><button class="button" id="wudt-db-structure-refresh">Refresh Structure</button><button class="button" id="wudt-db-add-col">Add Column</button></div>'
-			+ '<table class="wudt-fm-table"><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Action</th></tr></thead><tbody>' + rows + '</tbody></table>';
-	}
-
-	function renderDbSql() {
-		return '<textarea id="wudt-db-sql-editor" class="wudt-textarea" rows="9" placeholder="SELECT * FROM ' + esc(state.db.selectedTable) + ' LIMIT 50;"></textarea>'
-			+ '<div class="wudt-toolbar"><button class="button button-primary" id="wudt-db-sql-run">Run Query</button></div>'
-			+ '<pre class="wudt-pre" id="wudt-db-sql-result">' + esc(JSON.stringify(state.db.lastQueryResult || {}, null, 2)) + '</pre>'
-			+ '<div class="wudt-card"><h3>Query History</h3><pre class="wudt-pre">' + esc(JSON.stringify(state.db.queryHistory || [], null, 2)) + '</pre></div>';
-	}
-
-	function renderDbSearch() {
-		var cols = state.db.columns || [];
-		var options = '<option value="">All columns</option>';
-		for (var i = 0; i < cols.length; i++) {
-			var name = cols[i].Field || cols[i];
-			options += '<option value="' + esc(name) + '">' + esc(name) + '</option>';
-		}
-		return '<div class="wudt-toolbar">'
-			+ '<select id="wudt-db-search-column" class="wudt-select">' + options + '</select>'
-			+ '<input id="wudt-db-search-text" class="wudt-input" placeholder="LIKE value">'
-			+ '<button class="button" id="wudt-db-search-run">Search</button>'
-			+ '</div>'
-			+ '<pre class="wudt-pre" id="wudt-db-search-result"></pre>';
-	}
-
-	function renderDbInsert() {
-		var cols = state.db.columns || [];
-		var fields = '';
-		for (var i = 0; i < cols.length; i++) {
-			var name = cols[i].Field || cols[i];
-			fields += '<label class="wudt-db-field"><span>' + esc(name) + '</span><input class="wudt-input wudt-db-insert-input" data-col="' + esc(name) + '"></label>';
-		}
-		return '<div class="wudt-db-form">' + fields + '</div><div class="wudt-toolbar"><button class="button button-primary" id="wudt-db-insert-run">Insert Row</button></div>';
-	}
-
-	function renderDbExport() {
-		return '<div class="wudt-toolbar">'
-			+ '<select id="wudt-db-export-format" class="wudt-select"><option value="sql">SQL</option><option value="csv">CSV</option><option value="json">JSON</option></select>'
-			+ '<select id="wudt-db-export-compress" class="wudt-select"><option value="">No Compression</option><option value="zip">ZIP</option></select>'
-			+ '<button class="button" id="wudt-db-export-run">Download Export</button>'
-			+ '</div>';
-	}
-
-	function renderDbOperations() {
-		return '<div class="wudt-toolbar">'
-			+ '<button class="button" data-db-op="optimize">Optimize</button>'
-			+ '<button class="button" data-db-op="repair">Repair</button>'
-			+ '<button class="button" data-db-op="empty">Empty (TRUNCATE)</button>'
-			+ '<button class="button button-link-delete" data-db-op="drop">Drop Table</button>'
-			+ '</div><pre class="wudt-pre" id="wudt-db-op-result"></pre>';
 	}
 
 	function renderBackupSuite() {
@@ -2281,214 +2092,6 @@
 			});
 		});
 
-		$(document).off('click.wudtdb').on('click.wudtdb', '.wudt-db-tab', function () {
-			state.db.tab = String($(this).data('db-tab'));
-			if (state.db.tab === 'browse') { loadDbBrowse(); }
-			if (state.db.tab === 'structure') { loadDbStructure(); }
-			render();
-		});
-		$(document).off('click.wudtdbtree').on('click.wudtdbtree', '.wudt-db-tree-item', function () {
-			state.db.selectedTable = String($(this).data('db-table'));
-			state.db.page = 1;
-			state.db.search = '';
-			state.db.sortBy = '';
-			state.db.sortDir = 'ASC';
-			state.db.perPage = 0;
-			loadDbStructure();
-			loadDbBrowse();
-		});
-		$('#wudt-db-refresh').on('click', function () { loadDbTables(true); });
-		$('#wudt-db-safe-mode').on('change', function () {
-			var enabled = this.checked ? '1' : '0';
-			post('wudt_dbm_toggle_safe_mode', { safe_mode: enabled }).done(function () {
-				state.db.safeMode = enabled === '1';
-			});
-		});
-		$('#wudt-db-browse-run').on('click', function () {
-			state.db.search = $('#wudt-db-browse-search').val();
-			state.db.perPage = parseInt($('#wudt-db-browse-per-page').val(), 10);
-			if (isNaN(state.db.perPage) || state.db.perPage < 0) { state.db.perPage = 0; }
-			state.db.page = 1;
-			loadDbBrowse();
-		});
-		$('#wudt-db-page-prev').on('click', function () {
-			if (state.db.perPage === 0) { return; }
-			state.db.page = Math.max(1, state.db.page - 1);
-			loadDbBrowse();
-		});
-		$('#wudt-db-page-next').on('click', function () {
-			if (state.db.perPage === 0) { return; }
-			var maxPage = Math.max(1, Math.ceil((state.db.total || 0) / (state.db.perPage || 20)));
-			state.db.page = Math.min(maxPage, state.db.page + 1);
-			loadDbBrowse();
-		});
-		$(document).on('click', '[data-db-sort]', function () {
-			var col = String($(this).data('db-sort'));
-			if (state.db.sortBy === col) {
-				state.db.sortDir = state.db.sortDir === 'ASC' ? 'DESC' : 'ASC';
-			} else {
-				state.db.sortBy = col;
-				state.db.sortDir = 'ASC';
-			}
-			loadDbBrowse();
-		});
-		$('#wudt-db-structure-refresh').on('click', function () { loadDbStructure(); });
-		$('#wudt-db-add-col').on('click', function () {
-			var name = prompt('Column name');
-			var type = prompt('Column type (e.g. VARCHAR(255))', 'VARCHAR(255)');
-			if (!name || !type) { return; }
-			post('diagnostics_db_query', { query: 'ALTER TABLE `' + state.db.selectedTable + '` ADD `' + name + '` ' + type }).done(function (r) {
-				$('#wudt-db-op-result').text(JSON.stringify(r, null, 2));
-				loadDbStructure();
-			});
-		});
-		$(document).on('click', '.wudt-db-drop-col', function () {
-			var col = String($(this).data('col'));
-			if (!confirm('Drop column ' + col + '?')) { return; }
-			post('diagnostics_db_query', { query: 'ALTER TABLE `' + state.db.selectedTable + '` DROP COLUMN `' + col + '`' }).done(function (r) {
-				$('#wudt-db-op-result').text(JSON.stringify(r, null, 2));
-				loadDbStructure();
-			});
-		});
-		$('#wudt-db-sql-run').on('click', function () {
-			var query = $('#wudt-db-sql-editor').val();
-			state.db.loading = true;
-			state.db.loadingMessage = 'Running query...';
-			render();
-			post('diagnostics_db_query', { query: query }).done(function (r) {
-				state.db.lastQueryResult = r;
-				if (r && r.success && r.data && r.data.history) { state.db.queryHistory = r.data.history; }
-				state.db.loading = false;
-				render();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$('#wudt-db-search-run').on('click', function () {
-			var text = $('#wudt-db-search-text').val();
-			state.db.search = text;
-			state.db.page = 1;
-			loadDbBrowse(function () {
-				$('#wudt-db-search-result').text(JSON.stringify({ rows: state.db.browseRows, total: state.db.total }, null, 2));
-			});
-		});
-		$('#wudt-db-insert-run').on('click', function () {
-			var payload = {};
-			$('.wudt-db-insert-input').each(function () {
-				payload[String($(this).data('col'))] = $(this).val();
-			});
-			state.db.loading = true;
-			state.db.loadingMessage = 'Inserting row...';
-			render();
-			post('diagnostics_db_insert', { table: state.db.selectedTable, data: JSON.stringify(payload) }).done(function (r) {
-				state.db.lastQueryResult = r;
-				state.db.loading = false;
-				render();
-				alert(r && r.success ? 'Row inserted' : 'Insert failed');
-				loadDbBrowse();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$('#wudt-db-export-run').on('click', function () {
-			state.db.loading = true;
-			state.db.loadingMessage = 'Exporting data...';
-			render();
-			post('diagnostics_db_export', {
-				table: state.db.selectedTable,
-				format: $('#wudt-db-export-format').val(),
-				compression: $('#wudt-db-export-compress').val()
-			}).done(function (r) {
-				state.db.loading = false;
-				render();
-				if (r && r.success) { window.open(r.data.url, '_blank'); }
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$(document).on('click', '[data-db-op]', function () {
-			var op = String($(this).data('db-op'));
-			var confirmRequired = (op === 'empty' || op === 'drop') ? confirm('Confirm ' + op + ' operation?') : true;
-			if (!confirmRequired) { return; }
-			state.db.loading = true;
-			state.db.loadingMessage = 'Running ' + op + '...';
-			render();
-			post('diagnostics_db_operations', { table: state.db.selectedTable, operation: op, confirm: '1' }).done(function (r) {
-				$('#wudt-db-op-result').text(JSON.stringify(r, null, 2));
-				state.db.loading = false;
-				render();
-				loadDbTables();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$(document).on('click', '.wudt-db-row-delete', function () {
-			var idx = parseInt($(this).attr('data-row-index'), 10);
-			var row = state.db.browseRows[idx];
-			if (!row) { alert('Row not found.'); return; }
-			var pk = state.db.primaryKey;
-			if (!pk || typeof row[pk] === 'undefined') { alert('Primary key required to delete row.'); return; }
-			if (!confirm('Delete selected row?')) { return; }
-			var where = {}; where[pk] = row[pk];
-			state.db.loading = true;
-			state.db.loadingMessage = 'Deleting row...';
-			render();
-			post('diagnostics_db_delete', { table: state.db.selectedTable, where: JSON.stringify(where) }).done(function (r) {
-				state.db.lastQueryResult = r;
-				state.db.loading = false;
-				render();
-				loadDbBrowse();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$(document).on('click', '.wudt-db-row-copy', function () {
-			var idx = parseInt($(this).attr('data-row-index'), 10);
-			var row = $.extend({}, state.db.browseRows[idx] || {});
-			if (!row || Object.keys(row).length === 0) { alert('Row not found.'); return; }
-			var pk = state.db.primaryKey;
-			if (pk && typeof row[pk] !== 'undefined') { delete row[pk]; }
-			state.db.loading = true;
-			state.db.loadingMessage = 'Copying row...';
-			render();
-			post('diagnostics_db_insert', { table: state.db.selectedTable, data: JSON.stringify(row) }).done(function () {
-				state.db.loading = false;
-				render();
-				loadDbBrowse();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
-		$(document).on('click', '.wudt-db-row-edit', function () {
-			var idx = parseInt($(this).attr('data-row-index'), 10);
-			var row = state.db.browseRows[idx];
-			if (!row) { alert('Row not found.'); return; }
-			var updated = {};
-			for (var k in row) {
-				if (!Object.prototype.hasOwnProperty.call(row, k)) { continue; }
-				updated[k] = prompt('Edit ' + k, row[k]);
-			}
-			var pk = state.db.primaryKey;
-			if (!pk || typeof row[pk] === 'undefined') { alert('Primary key required to update row.'); return; }
-			var where = {}; where[pk] = row[pk];
-			state.db.loading = true;
-			state.db.loadingMessage = 'Updating row...';
-			render();
-			post('diagnostics_db_update', { table: state.db.selectedTable, data: JSON.stringify(updated), where: JSON.stringify(where) }).done(function () {
-				state.db.loading = false;
-				render();
-				loadDbBrowse();
-			}).fail(function () {
-				state.db.loading = false;
-				render();
-			});
-		});
 		$('#wudt-mw-start-scan').on('click', function () {
 			post('wudt_mw_scan_start').done(function (r) {
 				$('#wudt-malware-result').text(JSON.stringify(r, null, 2));
@@ -2871,76 +2474,6 @@
 	function scrollAIToBottom() {
 		var chat = document.getElementById('wudt-ai-chat-window');
 		if (chat) { chat.scrollTop = chat.scrollHeight; }
-	}
-
-	function loadDbTables(alsoLoadCurrent) {
-		state.db.loading = true;
-		state.db.loadingMessage = 'Loading tables...';
-		render();
-		post('diagnostics_db_tables').done(function (r) {
-			if (!r || !r.success) { return; }
-			state.db.tables = r.data.tables || [];
-			state.db.queryHistory = r.data.query_history || [];
-			state.db.safeMode = !!r.data.safe_mode;
-			if (!state.db.selectedTable && state.db.tables.length) {
-				state.db.selectedTable = state.db.tables[0].name;
-			}
-			state.db.loading = false;
-			render();
-			if (alsoLoadCurrent && state.db.selectedTable) {
-				loadDbStructure();
-				loadDbBrowse();
-			}
-		}).fail(function () {
-			state.db.loading = false;
-			render();
-		});
-	}
-
-	function loadDbBrowse(done) {
-		if (!state.db.selectedTable) { return; }
-		state.db.loading = true;
-		state.db.loadingMessage = 'Loading data...';
-		render();
-		post('diagnostics_db_browse', {
-			table: state.db.selectedTable,
-			page: state.db.page,
-			per_page: state.db.perPage,
-			search: state.db.search,
-			sort_by: state.db.sortBy,
-			sort_dir: state.db.sortDir
-		}).done(function (r) {
-			if (!r || !r.success) { return; }
-			state.db.browseRows = r.data.rows || [];
-			state.db.total = r.data.total || 0;
-			state.db.columns = r.data.columns || [];
-			state.db.primaryKey = r.data.primary_key || '';
-			if (state.db.perPage > 0) {
-				$('#wudt-db-browse-per-page').val(String(state.db.perPage));
-			}
-			state.db.loading = false;
-			render();
-			if (typeof done === 'function') { done(); }
-		}).fail(function () {
-			state.db.loading = false;
-			render();
-		});
-	}
-
-	function loadDbStructure() {
-		if (!state.db.selectedTable) { return; }
-		state.db.loading = true;
-		state.db.loadingMessage = 'Loading structure...';
-		render();
-		post('diagnostics_db_structure', { table: state.db.selectedTable }).done(function (r) {
-			if (!r || !r.success) { return; }
-			state.db.structure = r.data.structure || [];
-			state.db.loading = false;
-			render();
-		}).fail(function () {
-			state.db.loading = false;
-			render();
-		});
 	}
 
 	function editFile(path) {
@@ -3464,10 +2997,6 @@
 				render();
 
 				// Initialize tab-specific data after render
-				if (tabKey === 'database_manager') {
-					state.db._loadedOnce = true;
-					loadDbTables(true);
-				}
 
 				if (tabKey === 'file_manager') {
 					var d = tabData('file_manager');

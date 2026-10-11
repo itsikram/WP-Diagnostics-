@@ -1,0 +1,231 @@
+/* Diagnostics Toolkit — Database manager in the style of phpMyAdmin (pmahomme theme). */
+
+.wudt-pma {
+	--pma-link: #235a81;
+	--pma-border: #aaa;
+	--pma-row-odd: #fff;
+	--pma-row-even: #dfdfdf;
+	--pma-row-hover: #cfc;
+	--pma-row-marked: #fc9;
+	--pma-nav-bg: #f3f3f3;
+	position: relative;
+	display: grid;
+	grid-template-columns: 240px minmax(0, 1fr);
+	min-height: calc(100vh - 170px);
+	background: #fff;
+	border: 1px solid #ccc;
+	font-family: sans-serif;
+	font-size: 13px;
+	line-height: 1.4;
+	color: #444;
+	text-align: left;
+}
+.wudt-pma *, .wudt-pma *::before, .wudt-pma *::after { box-sizing: border-box; }
+.wudt-pma a { color: var(--pma-link); text-decoration: none; }
+.wudt-pma a:hover { color: #f00; text-decoration: underline; }
+.wudt-pma a:focus { box-shadow: none; outline: 1px dotted #555; }
+.wudt-pma h2.pma-h2 { margin: 6px 0 12px; font-size: 1.6em; font-weight: normal; color: #444; text-shadow: 0 1px 0 #fff; }
+.wudt-pma code { background: none; padding: 0; font-size: 1em; }
+
+/* Icons */
+.pma-icon { display: inline-block; width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; flex: none; }
+.pma-icon svg { width: 16px; height: 16px; display: block; }
+.pma-icon-sm, .pma-icon-sm svg { width: 13px; height: 13px; }
+
+/* Navigation panel */
+.pma-nav { background: var(--pma-nav-bg); border-right: 1px solid #ddd; min-width: 0; display: flex; flex-direction: column; max-height: calc(100vh - 140px); position: sticky; top: 32px; }
+.pma-nav-brand { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; font-size: 18px; font-weight: bold; color: #555; text-shadow: 0 1px 0 #fff; }
+.pma-nav-brand .pma-icon, .pma-nav-brand .pma-icon svg { width: 22px; height: 22px; }
+.pma-nav-icons { display: flex; gap: 6px; padding: 2px 10px 6px; border-bottom: 1px solid #ddd; }
+.pma-nav-icons a { display: inline-flex; padding: 2px; border-radius: 3px; }
+.pma-nav-icons a:hover { background: #e2e2e2; }
+.pma-nav-icons .pma-icon { margin: 0; }
+.pma-nav-tree { flex: 1; overflow: auto; padding: 6px 0 12px; }
+.pma-tree-db { display: flex; align-items: center; gap: 4px; padding: 2px 8px; font-weight: bold; }
+.pma-tree-db.is-active a { color: #000; }
+.pma-tree-toggle { display: inline-block; width: 13px; height: 13px; line-height: 11px; text-align: center; font-size: 11px; border: 1px solid #aaa; background: #fff; color: #555; }
+.pma-tree-filter { padding: 4px 8px 4px 26px; }
+.pma-tree-filter input { width: 100%; font-size: 11px; padding: 2px 4px; border: 1px solid #aaa; border-radius: 2px; min-height: 0; line-height: 1.4; }
+.pma-tree-tables { list-style: none; margin: 0; padding: 0 0 0 18px; }
+.pma-tree-tables li { display: flex; align-items: center; margin: 0; padding: 1px 6px; white-space: nowrap; border-left: 1px dotted #bbb; }
+.pma-tree-tables li a:last-child { overflow: hidden; text-overflow: ellipsis; }
+.pma-tree-tables li:hover { background: #ddd; }
+.pma-tree-tables li.is-active { background: #ddd; }
+.pma-tree-tables li.is-active a:last-child { color: #000; font-weight: bold; }
+.pma-tree-tables li .pma-icon { margin-right: 3px; }
+
+/* Main area */
+.pma-main { min-width: 0; display: flex; flex-direction: column; }
+.pma-serverinfo { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; background: #888; padding: 4px 10px; min-height: 28px; color: #fff; text-shadow: 0 1px 0 #000; }
+.pma-serverinfo a { color: #fff; font-weight: bold; }
+.pma-serverinfo a:hover { color: #fff; }
+.pma-serverinfo .pma-icon { margin-right: 3px; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .3)); }
+.pma-serverinfo .pma-sep { margin: 0 6px; color: #ddd; }
+.pma-safe { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: bold; cursor: pointer; }
+.pma-safe input { margin: 0; }
+
+/* Tabs */
+.pma-topmenu { display: flex; flex-wrap: wrap; gap: 0; margin: 0; padding: 6px 6px 0; list-style: none; background: linear-gradient(#fff, #dcdcdc); border-bottom: 1px solid #aaa; }
+.pma-topmenu li { margin: 0 2px -1px 0; }
+.pma-topmenu a { display: flex; align-items: center; padding: 6px 10px; color: #235a81; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0; text-shadow: 0 1px 0 #fff; white-space: nowrap; }
+.pma-topmenu a:hover { background: linear-gradient(#fff, #e5e5e5); border-color: #ccc; color: #235a81; text-decoration: none; }
+.pma-topmenu a.is-active { background: #fff; border-color: #aaa; color: #000; font-weight: bold; border-bottom: 1px solid #fff; }
+
+.pma-content { padding: 10px 14px 24px; min-width: 0; overflow-x: auto; }
+.pma-muted { color: #777; }
+.pma-disabled { color: #aaa; cursor: not-allowed; white-space: nowrap; }
+.pma-disabled .pma-icon { opacity: .4; }
+.pma-danger { color: #c00 !important; }
+
+/* Messages */
+.pma-message { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 8px; padding: 6px 10px; border-radius: 5px; color: #000; box-shadow: 0 1px 1px #fff inset; }
+.pma-message > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.pma-message .pma-icon { margin: 1px 0 0; }
+.pma-success { background: #ebf8a4; border: 1px solid #a2d246; }
+.pma-error { background: #ffebeb; border: 1px solid #c00; color: #000; }
+.pma-notice { background: #fffbd6; border: 1px solid #ffd700; }
+.pma-message .pma-sqlquery { margin: 6px 0 4px; }
+
+/* SQL query box */
+.pma-sqlquery { margin: 0 0 8px; padding: 6px 10px; background: #e5e5e5; border: 1px solid #aaa; border-radius: 4px; }
+.pma-sql { display: block; white-space: pre-wrap; font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12px; color: #444; overflow-wrap: anywhere; }
+.pma-sql-keyword { color: #909; font-weight: bold; }
+.pma-sql-ident { color: #444; }
+.pma-sql-string { color: #008000; }
+.pma-sql-number { color: #a00; }
+.pma-sqlquery-tools { text-align: right; font-size: 11px; margin-top: 4px; }
+
+/* Tables (results, structure…) */
+.pma-table-wrap { overflow-x: auto; margin: 0 0 6px; }
+.pma-table { border-collapse: collapse; margin: 0 0 6px; background: #fff; }
+.pma-table th, .pma-table td { padding: 4px 6px; vertical-align: top; border: 0; }
+.pma-table thead th { background: linear-gradient(#fff, #ccc); color: #000; font-weight: bold; text-align: left; text-shadow: 0 1px 0 #fff; white-space: nowrap; border-right: 1px solid #ccc; border-bottom: 1px solid #aaa; }
+.pma-table thead th a { color: #235a81; }
+.pma-table tfoot th { background: linear-gradient(#ccc, #fff); color: #000; text-align: left; border-top: 1px solid #aaa; }
+.pma-data tbody tr:nth-child(odd) { background: var(--pma-row-odd); }
+.pma-data tbody tr:nth-child(even) { background: var(--pma-row-even); }
+.pma-data tbody tr:hover { background: var(--pma-row-hover); }
+.pma-data tbody tr.is-marked { background: var(--pma-row-marked); color: #000; }
+.pma-data tbody th.pma-row-head { font-weight: bold; text-align: left; background: transparent; white-space: nowrap; }
+.pma-num { text-align: right; white-space: nowrap; }
+.pma-cb { text-align: center; width: 22px; }
+.pma-cb input { margin: 0; }
+.pma-act { white-space: nowrap; font-size: 12px; }
+.pma-act a { display: inline-flex; align-items: center; }
+.pma-null { color: #999; font-style: italic; }
+.pma-blob { color: #555; font-style: italic; }
+.pma-sort { font-size: 9px; color: #555; }
+.pma-th-full { text-align: center !important; }
+.pma-th-full a { font-weight: bold; letter-spacing: -1px; }
+.pma-results td.pma-cell { max-width: 480px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: default; }
+.pma-results td.pma-grid-edit { cursor: cell; }
+.pma-results td.pma-cell.pma-num { white-space: nowrap; }
+.pma-results td.pma-grid-edit:hover { outline: 1px dotted #888; outline-offset: -1px; }
+.pma-results td .pma-cell-editor { min-width: 220px; }
+.pma-cell-editor input, .pma-cell-editor textarea { width: 100%; font-family: Consolas, Menlo, monospace; font-size: 12px; border: 1px solid #235a81; padding: 2px 4px; }
+.pma-cell-editor-tools { display: flex; align-items: center; gap: 8px; margin-top: 3px; white-space: nowrap; }
+
+/* Navigation bar above / below results */
+.pma-navbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 6px 0; padding: 4px 6px; background: #f3f3f3; border: 1px solid #ddd; border-radius: 4px; }
+.pma-navbar label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pma-navbar select, .pma-navbar input[type=search] { min-height: 0; height: 24px; padding: 0 4px; font-size: 12px; border: 1px solid #aaa; border-radius: 2px; line-height: 1; }
+.pma-navbar input[type=search] { width: 170px; }
+.pma-navbar-sep { width: 1px; height: 18px; background: #ccc; margin: 0 2px; }
+
+/* Buttons */
+.wudt-pma .pma-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 0; height: auto; margin: 0; padding: 3px 8px; font-size: 12px; line-height: 1.5; font-weight: bold; color: #333; text-shadow: 0 1px 0 #fff; background: linear-gradient(#fff, #ccc); border: 1px solid #aaa; border-radius: 3px; cursor: pointer; box-shadow: none; }
+.wudt-pma .pma-btn:hover:not([disabled]) { background: linear-gradient(#ccc, #fff); }
+.wudt-pma .pma-btn[disabled] { opacity: .5; cursor: default; }
+.wudt-pma .pma-btn-icon { padding: 2px 4px; }
+.wudt-pma .pma-btn-icon .pma-icon { margin: 0; }
+.wudt-pma .pma-btn-go { min-width: 52px; justify-content: center; }
+
+/* "With selected" row */
+.pma-with-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 2px 0 10px 8px; }
+.pma-with-selected label { display: inline-flex; align-items: center; gap: 4px; }
+.pma-with-selected .pma-icon { margin: 0 -4px 0 0; }
+.pma-with-label { font-style: italic; color: #555; }
+.pma-with-selected select { height: 24px; min-height: 0; font-size: 12px; padding: 0 4px; }
+
+/* Fieldsets */
+.pma-fieldset { margin: 14px 0 0; padding: 14px 12px 10px; background: #eee; border: 1px solid #aaa; border-radius: 4px 4px 0 0; box-shadow: 1px 1px 2px #fff inset; min-width: 0; }
+.pma-fieldset legend { padding: 2px 6px; font-weight: bold; color: #444; background: #fff; border: 1px solid #aaa; border-radius: 2px; box-shadow: 3px 3px 15px #bbb; }
+.pma-fieldset .pma-table { margin: 0; }
+.pma-fieldset .pma-message { margin-top: 0; }
+.pma-tbl-footer { margin-top: 0; padding: 8px 12px; background: #d3dce3; border-top: 0; border-radius: 0 0 4px 4px; }
+.pma-form > .pma-fieldset:first-child { margin-top: 0; }
+.pma-form .pma-fieldset + .pma-tbl-footer { margin-top: -1px; }
+.pma-footer-row { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px 12px; }
+.pma-footer-row label { display: inline-flex; align-items: center; gap: 4px; }
+.pma-fieldset-danger legend { color: #c00; }
+.pma-ops-links { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.pma-ops-links a { display: inline-flex; align-items: center; }
+.pma-ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 14px; align-items: start; }
+.pma-ops-grid .pma-fieldset { margin-top: 0; border-radius: 4px; }
+.pma-ops-list { margin: 0; padding-left: 18px; list-style: disc; }
+.pma-ops-list li { margin: 4px 0; }
+.pma-radio { display: block; margin: 3px 0; }
+
+/* Insert / edit forms */
+.pma-insert-table { border: 1px solid #aaa; }
+.pma-insert-table td { vertical-align: middle; }
+.pma-insert-table tbody tr:nth-child(odd) { background: #fff; }
+.pma-insert-table tbody tr:nth-child(even) { background: #dfdfdf; }
+.pma-field-name { font-weight: bold; white-space: nowrap; }
+.pma-field-name small { font-weight: normal; color: #777; }
+.pma-field-type { color: #555; font-size: 12px; white-space: nowrap; }
+.pma-field-value input[type=text], .pma-field-value textarea, .pma-field-value select { width: 420px; max-width: 60vw; font-family: Consolas, Menlo, monospace; font-size: 12px; border: 1px solid #aaa; border-radius: 2px; padding: 2px 4px; }
+.pma-form-gap { height: 14px; }
+.pma-colform input[type=text] { width: 100%; min-width: 120px; font-size: 12px; border: 1px solid #aaa; padding: 2px 4px; }
+.pma-colform select { font-size: 12px; margin-bottom: 3px; }
+
+/* SQL tab */
+.pma-sql-fieldset { padding-bottom: 8px; }
+.pma-sql-area { display: flex; gap: 10px; align-items: stretch; }
+.pma-sql-area textarea { flex: 1; min-width: 0; min-height: 210px; font-family: Consolas, Menlo, "Courier New", monospace; font-size: 13px; padding: 6px; border: 1px solid #aaa; border-radius: 2px; background: #fff; resize: vertical; }
+.pma-sql-columns { display: flex; flex-direction: column; gap: 4px; width: 190px; }
+.pma-sql-columns label { font-weight: bold; }
+.pma-sql-columns select { flex: 1; width: 100%; font-size: 12px; max-width: none; }
+.pma-sql-columns .pma-btn { align-self: flex-start; }
+.pma-sql-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.pma-history { margin-top: 14px; }
+.pma-history summary { cursor: pointer; font-weight: bold; color: #235a81; }
+.pma-history ul { margin: 6px 0 0; padding: 0; list-style: none; max-height: 260px; overflow: auto; border: 1px solid #ddd; }
+.pma-history li { display: flex; justify-content: space-between; gap: 10px; margin: 0; padding: 4px 8px; border-bottom: 1px solid #eee; }
+.pma-history li:nth-child(even) { background: #f3f3f3; }
+.pma-history code { font-family: Consolas, Menlo, monospace; font-size: 12px; color: #444; overflow-wrap: anywhere; }
+.pma-history small { color: #777; white-space: nowrap; }
+
+/* Search tab */
+.pma-search input[type=text] { width: 260px; max-width: 40vw; font-size: 12px; border: 1px solid #aaa; padding: 2px 4px; }
+.pma-search select { font-size: 12px; }
+
+/* Structure */
+.pma-structure td, .pma-structure th { white-space: nowrap; }
+.pma-structure dfn { font-style: normal; border-bottom: 1px dotted #999; }
+.pma-structure-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px 8px; }
+.pma-structure-add input[type=number] { width: 48px; height: 24px; min-height: 0; font-size: 12px; }
+.pma-structure-add select { height: 24px; min-height: 0; font-size: 12px; }
+.pma-info-row { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.pma-info-row .pma-fieldset { border-radius: 4px; }
+.pma-kv th { font-weight: normal; color: #444; padding-right: 20px; }
+
+/* Database overview */
+.pma-db-tables .pma-act { padding-right: 2px; padding-left: 2px; }
+
+/* "Loading…" notice */
+.pma-ajax { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); z-index: 100050; padding: 5px 14px 5px 30px; background: #ffe57e; border: 1px solid #e2b709; border-radius: 5px; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); color: #000; font-weight: bold; }
+.pma-ajax::before { content: ''; position: absolute; left: 9px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border: 2px solid #b08900; border-top-color: transparent; border-radius: 50%; animation: pma-spin .7s linear infinite; }
+.pma-ajax[hidden] { display: none; }
+@keyframes pma-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+	.wudt-pma { grid-template-columns: 1fr; }
+	.pma-nav { position: static; max-height: 240px; }
+	.pma-sql-area { flex-direction: column; }
+	.pma-sql-columns { width: auto; }
+	.pma-safe { margin-left: 0; }
+}
+@media print {
+	.pma-nav, .pma-topmenu, .pma-serverinfo, .pma-navbar, .pma-with-selected, .pma-fieldset { display: none; }
+}
