@@ -43,6 +43,10 @@ if (true !== $zip->open($zip_path, ZipArchive::CREATE)) {
 }
 $count = 0;
 foreach ($files as $file) {
+	// Built packages sometimes end up in the repository; never nest them.
+	if ('.zip' === strtolower(substr($file, -4))) {
+		continue;
+	}
 	foreach ($exclude as $pattern) {
 		if ($file === $pattern || ('/' === substr($pattern, -1) && 0 === strpos($file, $pattern))) {
 			continue 2;

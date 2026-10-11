@@ -127,6 +127,13 @@ The diagnostics tools work on each site. Site migration does not support multisi
 
 == Changelog ==
 
+= 1.9.0 =
+* New: malware scanner checks the database (injected scripts, spam, malicious snippets and scheduled tasks, hidden administrators, triggers), known vulnerabilities in WordPress, plugins and themes, and security settings, with a security score and one-click fixes.
+* New: the other site shows live progress of a migration it sends or receives.
+* New: a live site connected to a local site opens that site to run the migration from there.
+* Fixed: slow uploads no longer stop migrations; requests get smaller instead of running into the PHP time limit.
+* Fixed: performance sampling no longer writes to the database on every request.
+
 = 1.7.0 =
 * New: site migration can add content as new items instead of replacing the database.
 * New: migrate only active or only deactivated plugins and themes, or the entire WordPress folder.
