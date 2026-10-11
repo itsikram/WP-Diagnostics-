@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace WUDT\Admin;
 
 use WUDT\Includes\AI_Config;
+use WUDT\Modules\Migration\Live_Media;
 
 if (! defined('ABSPATH')) {
 	exit;
@@ -106,10 +107,15 @@ class Settings_Page {
 		$max_execution_time = isset($_POST['max_execution_time']) ? (int) wp_unslash($_POST['max_execution_time']) : 300;
 		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
 
+		$media_error = $this->save_media_source_fields();
+
 		// Redirect with success message
 		$redirect_url = admin_url('admin.php?page=wudt-settings&saved=1');
 		if (is_wp_error($wp_config_result)) {
 			$redirect_url = admin_url('admin.php?page=wudt-settings&saved=1&wp_config_error=' . urlencode($wp_config_result->get_error_message()));
+		}
+		if ('' !== $media_error) {
+			$redirect_url = add_query_arg('media_error', rawurlencode($media_error), $redirect_url);
 		}
 		wp_safe_redirect($redirect_url);
 		exit;
@@ -364,13 +370,19 @@ class Settings_Page {
 		$max_execution_time = isset($_POST['max_execution_time']) ? (int) wp_unslash($_POST['max_execution_time']) : 300;
 		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
 
+		$media_error = $this->save_media_source_fields();
+
 		$response = array(
 			'success' => true,
 			'message' => __('Settings saved successfully.', 'diagnostics-toolkit'),
+			'media'   => Live_Media::settings(),
 		);
 		
 		if (is_wp_error($wp_config_result)) {
 			$response['wp_config_error'] = $wp_config_result->get_error_message();
+		}
+		if ('' !== $media_error) {
+			$response['media_error'] = $media_error;
 		}
 		
 		wp_send_json_success($response);
@@ -445,6 +457,10 @@ class Settings_Page {
 		$max_post_size = get_option(self::OPTION_MAX_POST_SIZE, '64M');
 		$max_execution_time = (int) get_option(self::OPTION_MAX_EXECUTION_TIME, 300);
 
+		$media = Live_Media::settings();
+		$media_local_url = untrailingslashit((string) wp_get_upload_dir()['baseurl']);
+		$media_error = isset($_GET['media_error']) ? sanitize_text_field(rawurldecode((string) wp_unslash($_GET['media_error']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+
 		$saved = isset($_GET['saved']) && '1' === $_GET['saved'];
 		$wp_config_error = isset($_GET['wp_config_error']) ? sanitize_text_field((string) wp_unslash($_GET['wp_config_error'])) : '';
 		?>
@@ -463,6 +479,12 @@ class Settings_Page {
 					<div class="notice notice-error is-dismissible">
 						<p><strong><?php esc_html_e('wp-config.php Error:', 'diagnostics-toolkit'); ?></strong> <?php echo esc_html($wp_config_error); ?></p>
 						<p><?php esc_html_e('Other settings were saved, but WordPress debug constants could not be written to wp-config.php.', 'diagnostics-toolkit'); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<?php if ('' !== $media_error) : ?>
+					<div class="notice notice-error is-dismissible">
+						<p><strong><?php esc_html_e('Media source was not changed:', 'diagnostics-toolkit'); ?></strong> <?php echo esc_html($media_error); ?></p>
 					</div>
 				<?php endif; ?>
 
@@ -679,6 +701,74 @@ class Settings_Page {
 							</tr>
 						</tbody>
 					</table>
+				</div>
+
+				<div class="wudt-card" id="wudt-media-source" style="max-width: 860px; margin-top: 20px;">
+					<h2><?php esc_html_e('Media Source', 'diagnostics-toolkit'); ?></h2>
+					<p class="description">
+						<?php esc_html_e('Load images and other media from the source website instead of keeping a copy of the uploads folder on this site. Attachment URLs, image sizes and media links in page content are rewritten to the source website.', 'diagnostics-toolkit'); ?>
+					</p>
+					<input type="hidden" name="media_source_form" value="1" />
+
+					<table class="form-table">
+						<tbody>
+							<tr>
+								<th scope="row"><?php esc_html_e('Use media from source website', 'diagnostics-toolkit'); ?></th>
+								<td>
+									<label class="wudt-toggle-switch">
+										<input type="checkbox" name="media_source_enabled" id="media_source_enabled" value="1" <?php checked($media['enabled']); ?>>
+										<span class="slider"></span>
+									</label>
+									<span class="wudt-toggle-label">
+										<?php echo $media['enabled'] ? esc_html__('Enabled', 'diagnostics-toolkit') : esc_html__('Disabled', 'diagnostics-toolkit'); ?>
+									</span>
+									<?php if ($media['enabled'] && $media['since'] > 0) : ?>
+										<p class="description">
+											<?php
+											printf(
+												/* translators: 1: source site, 2: date */
+												esc_html__('Active since %2$s%1$s.', 'diagnostics-toolkit'),
+												'' !== $media['site'] ? ' ' . esc_html(sprintf(__('(set up by migration from %s)', 'diagnostics-toolkit'), $media['site'])) : '',
+												esc_html(wp_date((string) get_option('date_format') . ' ' . (string) get_option('time_format'), $media['since']))
+											);
+											?>
+										</p>
+									<?php endif; ?>
+								</td>
+							</tr>
+
+							<tr class="wudt-media-source-field">
+								<th scope="row">
+									<label for="media_source_url"><?php esc_html_e('Source media URL', 'diagnostics-toolkit'); ?></label>
+								</th>
+								<td>
+									<input type="url" name="media_source_url" id="media_source_url" class="regular-text"
+										value="<?php echo esc_attr($media['url']); ?>"
+										placeholder="https://example.com/wp-content/uploads" />
+									<p class="description">
+										<?php esc_html_e('The uploads URL of the source website. If you enter only the site address, /wp-content/uploads is added. This site\'s uploads URL:', 'diagnostics-toolkit'); ?>
+										<code><?php echo esc_html($media_local_url); ?></code>
+									</p>
+								</td>
+							</tr>
+
+							<tr class="wudt-media-source-field">
+								<th scope="row"><?php esc_html_e('Which files', 'diagnostics-toolkit'); ?></th>
+								<td>
+									<fieldset>
+										<label>
+											<input type="radio" name="media_source_mode" value="missing" <?php checked('missing', $media['mode']); ?>>
+											<?php esc_html_e('Only files missing on this site (recommended: new uploads here keep working)', 'diagnostics-toolkit'); ?>
+										</label><br>
+										<label>
+											<input type="radio" name="media_source_mode" value="all" <?php checked('all', $media['mode']); ?>>
+											<?php esc_html_e('All media (fastest; files uploaded to this site will not be shown)', 'diagnostics-toolkit'); ?>
+										</label>
+									</fieldset>
+								</td>
+							</tr>
+						</tbody>
+					</table>
 
 					<p class="submit">
 						<button type="submit" class="button button-primary">
@@ -829,6 +919,56 @@ class Settings_Page {
 		if (isset($_POST['ai_max_tokens'])) {
 			update_option(self::OPTION_AI_MAX_TOKENS, max(1024, min(64000, (int) wp_unslash($_POST['ai_max_tokens']))), false);
 		}
+	}
+
+	/**
+	 * Turn "use media from the source website" on or off, or change its URL or mode.
+	 *
+	 * @return string Error message, or '' when saved (or nothing to change).
+	 */
+	private function save_media_source_fields(): string {
+		if (empty($_POST['media_source_form'])) { // phpcs:ignore WordPress.Security.NonceVerification -- verified by the callers.
+			return '';
+		}
+		$current = Live_Media::settings();
+		if (empty($_POST['media_source_enabled'])) { // phpcs:ignore WordPress.Security.NonceVerification
+			if ($current['enabled']) {
+				Live_Media::disable();
+				\WUDT\Includes\Operation_Logger::log('migration', 'Live media turned off', array('from' => 'settings'));
+			}
+			return '';
+		}
+
+		$mode = sanitize_key((string) wp_unslash($_POST['media_source_mode'] ?? 'missing')); // phpcs:ignore WordPress.Security.NonceVerification
+		$url = trim(esc_url_raw((string) wp_unslash($_POST['media_source_url'] ?? ''), array('http', 'https'))); // phpcs:ignore WordPress.Security.NonceVerification
+		$parts = '' !== $url ? wp_parse_url($url) : false;
+		if (! is_array($parts) || empty($parts['host'])) {
+			return __('Enter the full URL of the source website\'s uploads folder, starting with http:// or https://.', 'diagnostics-toolkit');
+		}
+		$url = untrailingslashit($url);
+		if ('' === trim((string) ($parts['path'] ?? ''), '/')) {
+			$url .= '/wp-content/uploads';
+		}
+
+		$local = untrailingslashit((string) wp_get_upload_dir()['baseurl']);
+		$strip = static function (string $u): string {
+			return strtolower((string) preg_replace('#^https?://#i', '', $u));
+		};
+		if ($strip($url) === $strip($local)) {
+			return __('The source media URL is this site\'s own uploads URL. Enter the uploads URL of the source website.', 'diagnostics-toolkit');
+		}
+
+		if ($current['enabled'] && $current['url'] === $url && $current['mode'] === ('all' === $mode ? 'all' : 'missing')) {
+			return '';
+		}
+		try {
+			// Keep the label of the migration that set it up while the URL stays the same.
+			Live_Media::enable($url, $mode, $current['url'] === $url ? $current['site'] : '');
+		} catch (\Throwable $e) {
+			return $e->getMessage();
+		}
+		\WUDT\Includes\Operation_Logger::log('migration', 'Live media turned on', array('url' => $url, 'mode' => $mode, 'from' => 'settings'));
+		return '';
 	}
 
 	private function authorize_action(string $nonce_action): void {

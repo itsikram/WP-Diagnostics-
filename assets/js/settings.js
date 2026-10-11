@@ -23,6 +23,17 @@
 			showMessage('Settings saved but wp-config.php error: ' + decodeURIComponent(urlParams.get('wp_config_error')), 'warning');
 		}
 
+		// Media source: show the URL and mode only while it is turned on.
+		var $mediaToggle = $('#media_source_enabled');
+		function syncMediaSource() {
+			var on = $mediaToggle.is(':checked');
+			$('.wudt-media-source-field').toggle(on);
+			$('#media_source_url').prop('required', on);
+			$mediaToggle.closest('td').find('.wudt-toggle-label').first().text(on ? 'Enabled' : 'Disabled');
+		}
+		$mediaToggle.on('change', syncMediaSource);
+		syncMediaSource();
+
 		$form.on('submit', function(e) {
 			e.preventDefault();
 			
@@ -45,8 +56,21 @@
 				success: function(response) {
 					if (response.success) {
 						var message = response.data.message || 'Settings saved successfully!';
+						if (response.data.media && $mediaToggle.length) {
+							// Show the URL as saved (e.g. with /wp-content/uploads added).
+							if (response.data.media.url) { $('#media_source_url').val(response.data.media.url); }
+							$mediaToggle.prop('checked', !!response.data.media.enabled);
+							syncMediaSource();
+						}
+						var warnings = [];
 						if (response.data.wp_config_error) {
-							message += '<br><small>Warning: ' + response.data.wp_config_error + '</small>';
+							warnings.push('wp-config.php: ' + escapeHtml(response.data.wp_config_error));
+						}
+						if (response.data.media_error) {
+							warnings.push('Media source was not changed: ' + escapeHtml(response.data.media_error));
+						}
+						if (warnings.length) {
+							message += '<br><small>Warning: ' + warnings.join('<br>') + '</small>';
 							showMessage(message, 'warning');
 						} else {
 							showMessage(message, 'success');
@@ -99,6 +123,10 @@
 			});
 		}
 		
+		function escapeHtml(text) {
+			return $('<div>').text(String(text)).html();
+		}
+
 		function dismissNotice($notice) {
 			$notice.addClass('hiding');
 			setTimeout(function() {
