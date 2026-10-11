@@ -65,6 +65,7 @@ safe_require('includes/class-permission-handler.php');
 
 safe_require('includes/class-module-base.php');
 safe_require('includes/class-operation-logger.php');
+safe_require('includes/class-request-sampler.php');
 safe_require('includes/class-failsafe-manager.php');
 safe_require('includes/class-security-guard.php');
 safe_require('includes/class-ai-config.php');
