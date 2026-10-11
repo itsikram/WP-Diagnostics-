@@ -13,7 +13,7 @@ if ('cli' !== PHP_SAPI) {
 
 $root = dirname(__DIR__);
 $slug = 'diagnostics-toolkit';
-$exclude = array('.gitignore', '.gitattributes', '.distignore', 'bin/', 'dist/', '.claude/', 'cli/README.md');
+$exclude = array('.gitignore', '.gitattributes', '.distignore', 'bin/', 'dist/', '.claude/', 'cli/README.md', 'WP-Diagnostics-/', '.tmp-harness/');
 
 $header = (string) file_get_contents($root . '/' . $slug . '.php', false, null, 0, 2000);
 if (! preg_match('/^\s*\*\s*Version:\s*([0-9.]+)/m', $header, $m)) {

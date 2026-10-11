@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('WUDT_VERSION')) {
-	define('WUDT_VERSION', '1.7.0');
+	define('WUDT_VERSION', '1.9.0');
 }
 if (! defined('WUDT_PLUGIN_FILE')) {
 	define('WUDT_PLUGIN_FILE', __FILE__);
