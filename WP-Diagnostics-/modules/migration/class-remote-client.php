@@ -60,13 +60,14 @@ class Remote_Client {
 	 *
 	 * @throws \RuntimeException On any transport or remote error.
 	 */
-	public function call(string $action, array $params = array(), int $timeout = 90) {
+	public function call(string $action, array $params = array(), int $timeout = 90, int $max_attempts = 3) {
+		$this->assert_reachable();
 		$order = '' !== $this->transport ? array($this->transport) : array('ajax', 'rest');
 		$last_error = '';
 
 		foreach ($order as $transport) {
 			$attempts = 0;
-			while ($attempts < 3) {
+			while ($attempts < $max_attempts) {
 				$attempts++;
 				$result = $this->send($transport, $action, $params, $timeout);
 				if (isset($result['envelope'])) {
@@ -76,18 +77,18 @@ class Remote_Client {
 						return $env['data'] ?? null;
 					}
 					$code = (string) ($env['code'] ?? '');
-					if ('clock_skew' === $code && isset($env['now']) && $attempts < 3) {
+					if ('clock_skew' === $code && isset($env['now']) && $attempts < $max_attempts) {
 						$this->clock_offset = (int) $env['now'] - time();
 						continue;
 					}
-					if ('replay' === $code && $attempts < 3) {
+					if ('replay' === $code && $attempts < $max_attempts) {
 						continue;
 					}
 					$this->transport = $transport;
 					throw new \RuntimeException('Remote site: ' . (string) ($env['error'] ?? 'Unknown error'));
 				}
 				$last_error = (string) ($result['error'] ?? 'Unknown error');
-				if (empty($result['retry'])) {
+				if (empty($result['retry']) || $attempts >= $max_attempts) {
 					break;
 				}
 				sleep($attempts);
@@ -111,6 +112,7 @@ class Remote_Client {
 	 * @throws \RuntimeException When a request fails for good and $errors is not given.
 	 */
 	public function call_multi(string $action, array $list, int $timeout = 120, ?array &$errors = null): array {
+		$this->assert_reachable();
 		$collect = null !== $errors;
 		$out = array();
 		$fail = static function ($k, string $message) use ($collect, &$errors): void {
@@ -301,6 +303,48 @@ class Remote_Client {
 			return array('error' => sprintf('The remote server is rate limiting requests (HTTP 429) during "%s".', $action), 'retry' => true);
 		}
 		return array('error' => sprintf('Unexpected response from %s (HTTP %d): %s', $this->url, $code, self::excerpt($raw)));
+	}
+
+	/* --------------------------- Reachability --------------------------- */
+
+	/**
+	 * Whether a URL points at a computer that is not on the internet: localhost,
+	 * a private IP address or a development domain (.local, .test…).
+	 */
+	public static function is_local_url(string $url): bool {
+		$host = strtolower(trim((string) wp_parse_url($url, PHP_URL_HOST), '[]'));
+		if ('' === $host) {
+			return false;
+		}
+		if (filter_var($host, FILTER_VALIDATE_IP)) {
+			return 0 === strpos($host, '127.') || '::1' === $host
+				|| ! filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+		}
+		return 'localhost' === $host
+			|| false === strpos($host, '.')
+			|| (bool) preg_match('/\.(localhost|local|test|lan|internal|home\.arpa)$/', $host);
+	}
+
+	/**
+	 * A site on the internet cannot open connections to a local address on
+	 * someone's computer (it would reach its own server instead).
+	 */
+	public static function unreachable_from_here(string $url): bool {
+		$blocked = self::is_local_url($url) && ! self::is_local_url((string) home_url());
+		return (bool) apply_filters('wudt_migration_unreachable', $blocked, $url);
+	}
+
+	/**
+	 * @throws \RuntimeException When this server cannot reach the other site.
+	 */
+	private function assert_reachable(): void {
+		if (self::unreachable_from_here($this->url)) {
+			throw new \RuntimeException(sprintf(
+				'%1$s is a local address on your computer, and this site (%2$s) is on the internet, so it cannot connect to it. Start the migration from %1$s instead: open Site Migration there and use Push to send its content here, or Pull to bring this site there.',
+				$this->url,
+				untrailingslashit((string) home_url())
+			));
+		}
 	}
 
 	/* ------------------------------ HTTP -------------------------------- */

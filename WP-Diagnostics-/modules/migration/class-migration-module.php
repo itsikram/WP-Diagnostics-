@@ -44,6 +44,7 @@ class Migration_Module extends Module_Base {
 			'wudt_migration_browse'           => 'ajax_browse',
 			'wudt_migration_locate'           => 'ajax_locate',
 			'wudt_migration_live_media'       => 'ajax_live_media',
+			'wudt_migration_peer_jobs'        => 'ajax_peer_jobs',
 		);
 		foreach ($admin_actions as $action => $method) {
 			add_action('wp_ajax_' . $action, array($this, $method));
@@ -78,6 +79,10 @@ class Migration_Module extends Module_Base {
 				'url'        => $site['url'],
 				'key_hint'   => substr((string) $site['api_key'], 0, 4) . '…' . substr((string) $site['api_key'], -4),
 				'last_check' => $site['last_check'] ?? null,
+				// A site on someone's computer: this site cannot connect to it, so
+				// migrations with it have to be started over there.
+				'local_only' => Remote_Client::unreachable_from_here((string) $site['url']),
+				'admin_url'  => (string) ($site['admin_url'] ?? '') ?: untrailingslashit((string) $site['url']) . '/wp-admin/',
 			);
 		}
 		$active = null;
@@ -97,6 +102,7 @@ class Migration_Module extends Module_Base {
 			'connection_string' => Migration_API::connection_string(),
 			'active_job'        => $active,
 			'history'           => $history,
+			'peer_jobs'         => Peer_Progress::recent(),
 			'rollback'          => $engine->rollback_summary(),
 			'components'        => Migration_Engine::COMPONENTS,
 			'live_media'        => Live_Media::settings(),
@@ -192,9 +198,10 @@ class Migration_Module extends Module_Base {
 			if (in_array('peers', (array) ($info['features'] ?? array()), true)) {
 				try {
 					$client->call('register_peer', array(
-						'url'   => untrailingslashit(home_url()),
-						'key'   => Migration_API::get_local_key(),
-						'label' => get_bloginfo('name'),
+						'url'       => untrailingslashit(home_url()),
+						'key'       => Migration_API::get_local_key(),
+						'label'     => get_bloginfo('name'),
+						'admin_url' => admin_url(),
 					), 30);
 					$peer = 'added';
 				} catch (\Throwable $e) {
@@ -217,7 +224,7 @@ class Migration_Module extends Module_Base {
 	 * Save the site that just connected to this one (called through the signed API,
 	 * so the caller already holds this site's key).
 	 */
-	public static function register_peer(string $url, string $key, string $label): array {
+	public static function register_peer(string $url, string $key, string $label, string $admin_url = ''): array {
 		$url = esc_url_raw(untrailingslashit(trim($url)));
 		if ('' === $url || ! preg_match('#^https?://#i', $url)) {
 			throw new \RuntimeException('Invalid site URL.');
@@ -247,6 +254,10 @@ class Migration_Module extends Module_Base {
 			$sites[$site_id] = array('id' => $site_id, 'label' => $label, 'url' => $url, 'transport' => '', 'created_at' => current_time('mysql'));
 		}
 		$sites[$site_id]['api_key'] = $key;
+		$admin_url = esc_url_raw(trim($admin_url));
+		if ('' !== $admin_url && preg_match('#^https?://#i', $admin_url)) {
+			$sites[$site_id]['admin_url'] = trailingslashit($admin_url);
+		}
 		// This side usually cannot reach the caller (e.g. localhost), so it is not tested here.
 		$sites[$site_id]['last_check'] = array('ok' => true, 'time' => time(), 'name' => $label, 'auto' => true);
 		update_option(self::OPTION_SITES, $sites, false);
@@ -486,6 +497,22 @@ class Migration_Module extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		(new Migration_Engine())->discard_rollback();
 		wp_send_json_success(array('state' => $this->build_state()));
+	}
+
+	/**
+	 * Migrations other sites are running with this one (polled by the page).
+	 */
+	public function ajax_peer_jobs(): void {
+		Security_Guard::assert_ajax_admin();
+		$dismiss = sanitize_text_field(wp_unslash($_POST['dismiss'] ?? ''));
+		if ('' !== $dismiss) {
+			try {
+				Peer_Progress::dismiss($dismiss);
+			} catch (\Throwable $e) {
+				wp_send_json_error(array('message' => $e->getMessage()));
+			}
+		}
+		wp_send_json_success(array('peer_jobs' => Peer_Progress::recent()));
 	}
 
 	/* ------------------------------ Live media -------------------------- */

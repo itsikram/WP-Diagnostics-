@@ -240,8 +240,10 @@ class Migration_API {
 					Operation_Logger::log('migration', 'Incoming content merged', array('job' => (string) ($p['job'] ?? ''), 'stats' => $result['stats']));
 				}
 				return $result;
+			case 'progress':
+				return Peer_Progress::record($p);
 			case 'register_peer':
-				return Migration_Module::register_peer((string) ($p['url'] ?? ''), (string) ($p['key'] ?? ''), (string) ($p['label'] ?? ''));
+				return Migration_Module::register_peer((string) ($p['url'] ?? ''), (string) ($p['key'] ?? ''), (string) ($p['label'] ?? ''), (string) ($p['admin_url'] ?? ''));
 			case 'cleanup':
 				return $engine->cleanup((string) ($p['job'] ?? ''));
 			case 'rollback':

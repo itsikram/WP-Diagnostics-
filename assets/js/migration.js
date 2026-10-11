@@ -1044,14 +1044,15 @@
 			+ (!live ? ' <button type="button" class="button-link" data-mig="peer-dismiss" data-job="' + esc(j.id) + '">Dismiss</button>' : '')
 			+ '</span></div>'
 			+ '<p class="wudt-mig-muted">' + esc(receiving
-				? (peer.label || 'The other site') + ' is migrating to this site'
-				: (peer.label || 'The other site') + ' is copying this site')
-			+ ' (<a href="' + esc(peer.url) + '" target="_blank" rel="noopener">' + esc(peer.url) + '</a>). It runs in that site’s browser tab — keep it open until it finishes.</p>';
+				? (peer.label || 'The other site') + (j.status === 'running' ? ' is migrating to this site' : ' migrated to this site')
+				: (peer.label || 'The other site') + (j.status === 'running' ? ' is copying this site' : ' copied this site'))
+			+ ' (<a href="' + esc(peer.url) + '" target="_blank" rel="noopener">' + esc(peer.url) + '</a>).'
+			+ (j.status === 'running' ? ' It runs in that site’s browser tab — keep it open until it finishes.' : '') + '</p>';
 		h += progressBar({ running: live }, j);
 		h += '<div class="wudt-mig-live">'
 			+ (live ? '<span class="wudt-mig-live-dot"></span><strong>Live</strong>' : '')
 			+ '<span>Elapsed <b' + (live ? ' data-mig-peer-since="' + esc(j.created) + '"' : '') + '>' + esc(duration((live ? serverNow() : j.updated) - j.created)) + '</b></span>'
-			+ '<span>Last update <b data-mig-peer-ago="' + esc(j.updated) + '">' + esc(duration(serverNow() - j.updated)) + '</b> ago</span>'
+			+ (j.status === 'running' ? '<span>Last update <b data-mig-peer-ago="' + esc(j.updated) + '">' + esc(duration(serverNow() - j.updated)) + '</b> ago</span>' : '')
 			+ '</div>';
 		h += '<div class="wudt-mig-stats">'
 			+ (j.tables > 0

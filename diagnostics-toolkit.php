@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Diagnostics Toolkit
  * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, database and file manager, backups, site migration and an AI troubleshooting assistant.
- * Version:           1.8.0
+ * Version:           1.9.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            Programmer Ikram
@@ -98,6 +98,8 @@ safe_require('modules/migration/class-peer-progress.php');
 safe_require('modules/migration/class-live-media.php');
 safe_require('modules/migration/class-migration-module.php');
 safe_require('modules/malware/class-malware-scanner.php');
+safe_require('modules/malware/class-malware-db-scanner.php');
+safe_require('modules/malware/class-security-audit.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
 safe_require('modules/recovery/class-crash-recovery-module.php');
 safe_require('modules/auto-recovery/class-auto-recovery-module.php');
