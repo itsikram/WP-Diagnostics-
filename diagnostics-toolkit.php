@@ -94,6 +94,7 @@ safe_require('modules/migration/class-migration-engine.php');
 safe_require('modules/migration/class-migration-api.php');
 safe_require('modules/migration/class-remote-client.php');
 safe_require('modules/migration/class-migration-runner.php');
+safe_require('modules/migration/class-peer-progress.php');
 safe_require('modules/migration/class-live-media.php');
 safe_require('modules/migration/class-migration-module.php');
 safe_require('modules/malware/class-malware-scanner.php');

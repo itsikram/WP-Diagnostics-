@@ -34,8 +34,11 @@ class File_Manager_Page {
 			return;
 		}
 		wp_enqueue_style('wudt-admin-modern', WUDT_PLUGIN_URL . 'assets/css/admin-modern.css', array(), WUDT_VERSION);
-		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION);
-		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery'), WUDT_VERSION, true);
+		wp_enqueue_style('wudt-admin', WUDT_PLUGIN_URL . 'assets/css/admin.css', array('wudt-admin-modern'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/admin.css'));
+		// Site Migration powers "Push / Pull" of files to a connected site.
+		wp_enqueue_style('wudt-migration', WUDT_PLUGIN_URL . 'assets/css/migration.css', array('wudt-admin'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/css/migration.css'));
+		wp_enqueue_script('wudt-migration', WUDT_PLUGIN_URL . 'assets/js/migration.js', array('jquery'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/migration.js'), true);
+		wp_enqueue_script('wudt-pro-admin', WUDT_PLUGIN_URL . 'assets/js/pro-admin.js', array('jquery', 'wudt-migration'), WUDT_VERSION . '.' . (int) @filemtime(WUDT_PLUGIN_DIR . 'assets/js/pro-admin.js'), true);
 		wp_localize_script('wudt-pro-admin', 'wudtProAdmin', array(
 			'ajaxUrl' => admin_url('admin-ajax.php'),
 			'nonce'   => wp_create_nonce('wudt_admin_nonce'),

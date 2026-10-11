@@ -28,6 +28,7 @@ class File_Manager_Module extends Module_Base {
 		add_action('wp_ajax_wudt_fm_upload', array($this, 'ajax_upload'));
 		add_action('wp_ajax_wudt_fm_chmod', array($this, 'ajax_chmod'));
 		add_action('wp_ajax_wudt_fm_search', array($this, 'ajax_search'));
+		add_action('wp_ajax_wudt_fm_size', array($this, 'ajax_size'));
 		add_action('wp_ajax_wudt_fm_download_zip', array($this, 'ajax_download_zip'));
 		add_action('wp_ajax_wudt_fm_fetch', array($this, 'ajax_fetch_download'));
 		add_action('wp_ajax_wudt_fm_compress', array($this, 'ajax_compress'));
@@ -309,6 +310,67 @@ class File_Manager_Module extends Module_Base {
 			$base = $this->resolve_path(sanitize_text_field(wp_unslash($_POST['path'] ?? '')));
 			return array('results' => $this->search_in_path($base, $query, 200));
 		});
+	}
+
+	/**
+	 * Size of files and folders (folders are measured recursively) for Properties.
+	 */
+	public function ajax_size(): void {
+		$this->handle(function () {
+			$raw = isset($_POST['paths']) && is_array($_POST['paths']) ? wp_unslash($_POST['paths']) : array(wp_unslash($_POST['path'] ?? ''));
+			$started = microtime(true);
+			$total = array('bytes' => 0, 'files' => 0, 'folders' => 0, 'partial' => false);
+			$items = array();
+			foreach (array_slice((array) $raw, 0, 200) as $path) {
+				$path = $this->resolve_path(sanitize_text_field((string) $path));
+				if (! file_exists($path)) {
+					throw new \RuntimeException(__('That file or folder no longer exists.', 'diagnostics-toolkit'));
+				}
+				$size = $this->measure($path, $started);
+				$items[] = array('path' => $path, 'type' => is_dir($path) ? 'dir' : 'file', 'modified' => (int) @filemtime($path), 'created' => (int) @filectime($path)) + $size;
+				foreach (array('bytes', 'files', 'folders') as $k) {
+					$total[$k] += $size[$k];
+				}
+				$total['partial'] = $total['partial'] || $size['partial'];
+			}
+			return array('items' => $items, 'total' => $total);
+		});
+	}
+
+	/**
+	 * Bytes, files and sub-folders below a path. Stops after 20 seconds (partial).
+	 *
+	 * @return array{bytes:int,files:int,folders:int,partial:bool}
+	 */
+	private function measure(string $path, float $started): array {
+		$out = array('bytes' => 0, 'files' => 0, 'folders' => 0, 'partial' => false);
+		if (! is_dir($path) || is_link($path)) {
+			$out['bytes'] = (int) @filesize($path);
+			$out['files'] = 1;
+			return $out;
+		}
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::SELF_FIRST,
+			\RecursiveIteratorIterator::CATCH_GET_CHILD
+		);
+		foreach ($iterator as $file) {
+			/** @var \SplFileInfo $file */
+			if ($file->isLink()) {
+				continue;
+			}
+			if ($file->isDir()) {
+				$out['folders']++;
+			} else {
+				$out['files']++;
+				$out['bytes'] += (int) $file->getSize();
+			}
+			if (0 === ($out['files'] % 500) && (microtime(true) - $started) > 20) {
+				$out['partial'] = true;
+				break;
+			}
+		}
+		return $out;
 	}
 
 	/**

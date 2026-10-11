@@ -413,6 +413,13 @@
 		return out;
 	}
 
+	// Listing dates arrive as Unix timestamps.
+	function formatDate(value) {
+		var n = Number(value);
+		if (!value || isNaN(n)) { return value ? String(value) : ''; }
+		return new Date(n * 1000).toLocaleString();
+	}
+
 	function formatSize(bytes) {
 		var value = parseFloat(bytes || 0);
 		if (value < 0) { value = 0; }
@@ -543,8 +550,8 @@
 				+ 'data-index="' + i + '" data-path="' + esc(e.path) + '" data-type="' + esc(e.type) + '" draggable="true">'
 				+ '<td><span class="wudt-fm-icon">' + iconFor(e) + '</span>' + esc(e.name) + '</td>'
 				+ '<td>' + esc(e.type === 'dir' ? 'File Folder' : (e.extension ? e.extension.toUpperCase() + ' File' : 'File')) + '</td>'
-				+ '<td>' + esc(formatSize(e.size)) + '</td>'
-				+ '<td>' + esc(e.modified || '') + '</td>'
+				+ '<td>' + esc(e.type === 'dir' ? (e.sizeKnown ? formatSize(e.size) : '—') : formatSize(e.size)) + '</td>'
+				+ '<td>' + esc(formatDate(e.modified)) + '</td>'
 				+ '</tr>';
 		}
 		return rows || '<tr><td colspan="4" class="wudt-fm-empty">This folder is empty</td></tr>';
@@ -600,6 +607,7 @@
 			+ '<button class="button" id="wudt-fm-new-folder">New Folder</button>'
 			+ '<button class="button" id="wudt-fm-upload-trigger">Upload File</button>'
 			+ '<button class="button" id="wudt-fm-download">Download</button>'
+			+ '<button class="button wudt-fm-migrate" id="wudt-fm-migrate" title="' + esc(state.selected.length ? 'Push or pull the ' + state.selected.length + ' selected item(s) to or from a connected site' : 'Push or pull this folder to or from a connected site') + '">⇅ Push / Pull' + (state.selected.length ? ' (' + state.selected.length + ')' : '') + '</button>'
 			+ compressBtn
 			+ '<button class="button" id="wudt-fm-toggle-view">' + (state.fileViewMode === 'grid' ? 'Details View' : 'Grid View') + '</button>'
 			+ '<button class="button" id="wudt-fm-dark">' + (state.darkExplorer ? 'Light' : 'Dark') + '</button>'
@@ -1237,7 +1245,7 @@
 		// Listen for hash changes (browser back/forward buttons)
 		$(window).off('hashchange.wudt').on('hashchange.wudt', function () {
 			var newTab = window.location.hash.replace('#', '');
-			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp'];
+			var validTabs = ['dashboard', 'ai_assistant', 'backup_suite', 'restore_suite', 'file_manager', 'database_manager', 'malware_enterprise', 'recovery', 'logs', 'performance', 'security', 'smtp', 'site_migration'];
 			if (newTab && validTabs.indexOf(newTab) !== -1 && newTab !== state.tab) {
 				state.tab = newTab;
 				state.tabLoading = true;
@@ -2593,6 +2601,9 @@
 				window.location.href = r.data.url;
 			});
 		});
+		$('#wudt-fm-migrate').on('click', function () {
+			openFmTransfer(state.selected.length ? state.selected.slice() : [state.currentPath], '');
+		});
 		$(document).off('click.wudtfmcompress').on('click.wudtfmcompress', '#wudt-fm-compress-selected', function () {
 			if (!state.selected.length) { return; }
 			var archiveName = prompt('Enter archive name:', 'archive.zip');
@@ -3141,6 +3152,10 @@
 				html += '<button data-act="extract">Extract Here</button>';
 			}
 			html += '<button data-act="download">Download</button>';
+			html += '<div class="wudt-fm-menu-sep"></div>';
+			html += '<button data-act="mig_push">⬆ Push to another site…</button>';
+			html += '<button data-act="mig_pull">⬇ Pull from another site…</button>';
+			html += '<div class="wudt-fm-menu-sep"></div>';
 			html += '<button data-act="copy_path">Copy Path</button>';
 			html += '<button data-act="properties">Properties</button>';
 		} else {
@@ -3148,6 +3163,7 @@
 			html += '<button data-act="upload">Upload File</button>';
 			html += '<button data-act="refresh">Refresh</button>';
 			html += '<button data-act="paste">Paste</button>';
+			html += '<button data-act="mig_folder">⇅ Push / Pull this folder…</button>';
 			// Show Compress Selected if files are selected
 			if (state.selected.length > 0) {
 				html += '<button data-act="compress_selected">Compress Selected (' + state.selected.length + ')</button>';
@@ -3258,12 +3274,22 @@
 			});
 			return;
 		}
+		if ((action === 'mig_push' || action === 'mig_pull') && item) {
+			var migTargets = (state.selected.length > 1 && state.selected.indexOf(item.path) !== -1) ? state.selected.slice() : [item.path];
+			openFmTransfer(migTargets, action === 'mig_pull' ? 'pull' : 'push');
+			return;
+		}
+		if (action === 'mig_folder') {
+			openFmTransfer([state.currentPath], '');
+			return;
+		}
 		if (action === 'copy_path' && item) {
 			navigator.clipboard.writeText(item.path);
 			return;
 		}
 		if (action === 'properties' && item) {
-			alert('Name: ' + item.name + '\nType: ' + item.type + '\nSize: ' + formatSize(item.size) + '\nPath: ' + item.path + '\nPermissions: ' + item.permissions);
+			var propTargets = (state.selected.length > 1 && state.selected.indexOf(item.path) !== -1) ? state.selected.slice() : [item.path];
+			showProperties(item, propTargets);
 			return;
 		}
 		if (action === 'new_folder') { $('#wudt-fm-new-folder').trigger('click'); return; }
@@ -3277,6 +3303,106 @@
 				loadDirectory(state.currentPath, false);
 			});
 		}
+	}
+
+	/**
+	 * Push or pull files to or from a site connected in Site Migration.
+	 */
+	function openFmTransfer(paths, direction) {
+		if (!window.WUDTMigration || !window.WUDTMigration.openTransfer) {
+			showToast('Site Migration', 'The migration module is not loaded on this page. Reload the page and try again.', 'error', 7000);
+			return;
+		}
+		window.WUDTMigration.openTransfer(paths, {
+			direction: direction,
+			onDone: function () {
+				// Pulled files changed this site: show their new sizes and dates.
+				loadDirectory(state.currentPath, false);
+			}
+		});
+	}
+
+	/**
+	 * Properties dialog. Folder sizes are measured on the server, so they show
+	 * "Calculating…" first.
+	 */
+	function showProperties(item, paths) {
+		var entries = getCurrentEntries();
+		var many = paths.length > 1;
+		var parent = item.path.substring(0, item.path.lastIndexOf('/')) || '/';
+		var sizeText = function (bytes) {
+			return esc(formatSize(bytes)) + ' <small>(' + esc(Number(bytes || 0).toLocaleString()) + ' bytes)</small>';
+		};
+		var rows = [];
+		if (many) {
+			rows.push(['Items', esc(paths.length + ' selected')]);
+		} else {
+			rows.push(['Type', esc(item.type === 'dir' ? 'Folder' : (item.extension ? item.extension.toUpperCase() + ' file' : 'File'))]);
+		}
+		rows.push(['Location', '<code>' + esc(parent) + '</code>']);
+		rows.push(['Size', '<span data-prop="size">' + (!many && item.type !== 'dir' ? sizeText(item.size) : '<span class="wudt-props-wait">Calculating…</span>') + '</span>']);
+		if (many || item.type === 'dir') {
+			rows.push(['Contains', '<span data-prop="contains"><span class="wudt-props-wait">Counting…</span></span>']);
+		}
+		if (!many) {
+			rows.push(['Modified', esc(formatDate(item.modified))]);
+			rows.push(['Permissions', '<code>' + esc(item.permissions || '') + '</code>']);
+		}
+		var icon = many ? '🗂️' : (item.type === 'dir' ? '📁' : '📄');
+		var html = '<div class="wudt-props-backdrop" id="wudt-props"><div class="wudt-props" role="dialog" aria-modal="true" aria-labelledby="wudt-props-title">'
+			+ '<div class="wudt-props-head"><span class="wudt-props-icon">' + icon + '</span><h2 id="wudt-props-title">' + esc(many ? paths.length + ' items' : item.name) + '</h2>'
+			+ '<button type="button" class="wudt-props-close" data-props-close aria-label="Close">×</button></div><table class="wudt-props-table">';
+		rows.forEach(function (r) { html += '<tr><th>' + esc(r[0]) + '</th><td>' + r[1] + '</td></tr>'; });
+		html += '</table><div class="wudt-props-foot"><button type="button" class="button button-primary" data-props-close>Close</button></div></div></div>';
+		$('#wudt-props').remove();
+		$('body').append(html);
+		var close = function () {
+			$('#wudt-props').remove();
+			$(document).off('keydown.wudtprops');
+		};
+		$('#wudt-props').on('click', function (e) {
+			if (e.target === this || $(e.target).closest('[data-props-close]').length) { close(); }
+		});
+		$(document).off('keydown.wudtprops').on('keydown.wudtprops', function (e) {
+			if (e.key === 'Escape') { close(); }
+		});
+		$('#wudt-props .wudt-props-foot [data-props-close]').trigger('focus');
+
+		if (!many && item.type !== 'dir') { return; }
+		post('wudt_fm_size', { paths: paths }).done(function (r) {
+			if (!$('#wudt-props').length) { return; }
+			if (!r || !r.success) {
+				$('#wudt-props [data-prop]').html('<span class="wudt-props-error">' + esc((r && r.data && r.data.message) || 'Could not calculate the size.') + '</span>');
+				return;
+			}
+			var t = r.data.total;
+			var atLeast = t.partial ? 'at least ' : '';
+			$('#wudt-props [data-prop="size"]').html(atLeast + sizeText(t.bytes) + (t.partial ? ' <small>(stopped after 20 s — the folder is very large)</small>' : ''));
+			$('#wudt-props [data-prop="contains"]').text(atLeast + Number(t.files).toLocaleString() + ' file' + (t.files === 1 ? '' : 's') + ', ' + Number(t.folders).toLocaleString() + ' folder' + (t.folders === 1 ? '' : 's'));
+			// Remember measured folder sizes so the list shows them too.
+			var changed = false;
+			(r.data.items || []).forEach(function (it) {
+				for (var i = 0; i < entries.length; i++) {
+					if (it.type === 'dir' && !it.partial && normalizePath(entries[i].path) === normalizePath(it.path)) {
+						entries[i].size = it.bytes;
+						entries[i].sizeKnown = true;
+						changed = true;
+					}
+				}
+			});
+			if (changed) {
+				$('.wudt-fm-row[data-type="dir"]').each(function () {
+					var p = normalizePath(String($(this).data('path')));
+					for (var i = 0; i < entries.length; i++) {
+						if (entries[i].sizeKnown && normalizePath(entries[i].path) === p) {
+							$(this).children('td').eq(2).text(formatSize(entries[i].size));
+						}
+					}
+				});
+			}
+		}).fail(function (xhr) {
+			$('#wudt-props [data-prop]').html('<span class="wudt-props-error">Server error (HTTP ' + esc(xhr ? xhr.status : '?') + ').</span>');
+		});
 	}
 
 	function persistFileManagerState() {

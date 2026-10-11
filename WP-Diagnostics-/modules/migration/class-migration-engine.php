@@ -28,9 +28,11 @@ class Migration_Engine {
 	// 'core' stays last so WordPress core files are moved into place after everything else.
 	public const COMPONENTS = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages', 'content', 'core');
 	// Capabilities newer than API v2; the other side must list one before it is used.
-	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid');
+	// 'paths': browse files and migrate only selected files and folders.
+	// 'repo': check plugins and themes against WordPress.org and install them from there.
+	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo');
 	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
-	// Tables (without prefix) that "add as new content" mode reads.
+	// WordPress content tables used by both "add as new content" and content replacement.
 	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
 	// Files the whole-folder components never overwrite: they hold this server's own settings.
 	private const CORE_KEEP = array('wp-config.php', '.htaccess', 'web.config', '.user.ini', 'php.ini', '.maintenance');
@@ -607,28 +609,182 @@ class Migration_Engine {
 	 * @return array<int,string>
 	 */
 	private static function nested_roots(string $component): array {
+		return array_keys(self::nested_root_map($component));
+	}
+
+	/**
+	 * Nested component folders of a whole-folder component.
+	 *
+	 * @return array<string,string> Relative folder => component that owns it.
+	 */
+	private static function nested_root_map(string $component): array {
 		static $cache = array();
 		if (isset($cache[$component])) {
 			return $cache[$component];
 		}
-		$children = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages');
-		if ('core' === $component) {
-			$children[] = 'content';
-		}
-		$root = self::component_root($component);
 		$out = array();
-		foreach ($children as $child) {
-			try {
-				$path = self::component_root($child);
-			} catch (\Throwable $e) {
-				continue;
+		if (in_array($component, array('core', 'content'), true)) {
+			$children = array('plugins', 'themes', 'uploads', 'mu-plugins', 'languages');
+			if ('core' === $component) {
+				$children[] = 'content';
 			}
-			if (0 === strpos($path, $root . '/')) {
-				$out[] = substr($path, strlen($root) + 1);
+			$root = self::component_root($component);
+			foreach ($children as $child) {
+				try {
+					$path = self::component_root($child);
+				} catch (\Throwable $e) {
+					continue;
+				}
+				if (0 === strpos($path, $root . '/')) {
+					$out[substr($path, strlen($root) + 1)] = $child;
+				}
 			}
 		}
 		$cache[$component] = $out;
 		return $out;
+	}
+
+	/**
+	 * The component and relative path of an absolute path on this site, using
+	 * the most specific component folder that contains it.
+	 *
+	 * @return array{c:string,p:string,excluded:bool}|null Null when the path is outside every component.
+	 */
+	public static function locate(string $abs): ?array {
+		$abs = untrailingslashit(wp_normalize_path($abs));
+		$best = null;
+		$best_len = -1;
+		foreach (self::COMPONENTS as $component) {
+			try {
+				$root = untrailingslashit(self::component_root($component));
+			} catch (\Throwable $e) {
+				continue;
+			}
+			$len = strlen($root);
+			if ($len <= $best_len) {
+				continue;
+			}
+			if (0 === strcasecmp($abs, $root)) {
+				$best = array('c' => $component, 'p' => '');
+				$best_len = $len;
+			} elseif (0 === stripos($abs, $root . '/')) {
+				$best = array('c' => $component, 'p' => substr($abs, $len + 1));
+				$best_len = $len;
+			}
+		}
+		if (null === $best) {
+			return null;
+		}
+		$best['excluded'] = '' !== $best['p'] && self::is_excluded($best['c'], $best['p']);
+		return $best;
+	}
+
+	/**
+	 * Expand a selected path into the component paths it covers: a folder that
+	 * contains other component folders (e.g. the WordPress root) includes them too.
+	 *
+	 * @return array<int,array{c:string,p:string}>
+	 */
+	public static function expand_selection(string $component, string $rel): array {
+		$out = array(array('c' => $component, 'p' => $rel));
+		foreach (self::nested_root_map($component) as $nested => $child) {
+			if ('' === $rel || 0 === strpos($nested . '/', $rel . '/')) {
+				$out = array_merge($out, self::expand_selection($child, ''));
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Component folder roots, relative to the WordPress folder when inside it.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function component_roots(): array {
+		$abspath = untrailingslashit(wp_normalize_path(ABSPATH));
+		$out = array();
+		foreach (self::COMPONENTS as $component) {
+			try {
+				$root = untrailingslashit(self::component_root($component));
+			} catch (\Throwable $e) {
+				continue;
+			}
+			$out[$component] = $root === $abspath ? '' : (0 === strpos($root, $abspath . '/') ? substr($root, strlen($abspath) + 1) : $root);
+		}
+		return $out;
+	}
+
+	/**
+	 * List one folder of a component for the file picker. Sub-folders that belong
+	 * to another component point to it, so the whole site reads as one tree.
+	 */
+	public function browse(string $component, string $rel, int $limit = 3000): array {
+		if (! in_array($component, self::COMPONENTS, true)) {
+			throw new \RuntimeException('Unknown component: ' . $component);
+		}
+		$rel = trim(str_replace('\\', '/', $rel), '/');
+		if ('' !== $rel) {
+			$rel = self::safe_rel($rel);
+			if (self::is_excluded($component, $rel)) {
+				throw new \RuntimeException('This folder is excluded from migration: ' . $rel);
+			}
+		}
+		$root = self::component_root($component);
+		$dir = '' === $rel ? $root : $root . '/' . $rel;
+		if (! is_dir($dir)) {
+			throw new \RuntimeException('Folder not found on this site: ' . ('' === $rel ? $component : $rel));
+		}
+		$names = @scandir($dir);
+		if (false === $names) {
+			throw new \RuntimeException('This folder cannot be read (permissions).');
+		}
+		$nested = self::nested_root_map($component);
+		$entries = array();
+		$truncated = false;
+		foreach ($names as $name) {
+			if ('.' === $name || '..' === $name) {
+				continue;
+			}
+			if (count($entries) >= $limit) {
+				$truncated = true;
+				break;
+			}
+			$child = '' === $rel ? $name : $rel . '/' . $name;
+			$abs = $dir . '/' . $name;
+			if (is_link($abs)) {
+				continue;
+			}
+			$is_dir = is_dir($abs);
+			if ($is_dir && isset($nested[$child])) {
+				$entries[] = array('name' => $name, 'type' => 'dir', 'c' => $nested[$child], 'p' => '', 'm' => (int) @filemtime($abs));
+				continue;
+			}
+			if (self::is_excluded($component, $child)) {
+				continue;
+			}
+			$entries[] = array(
+				'name' => $name,
+				'type' => $is_dir ? 'dir' : 'file',
+				'c'    => $component,
+				'p'    => $child,
+				's'    => $is_dir ? 0 : (int) @filesize($abs),
+				'm'    => (int) @filemtime($abs),
+			);
+		}
+		usort($entries, static function ($a, $b) {
+			if ($a['type'] !== $b['type']) {
+				return 'dir' === $a['type'] ? -1 : 1;
+			}
+			return strnatcasecmp($a['name'], $b['name']);
+		});
+		return array(
+			'component' => $component,
+			'path'      => $rel,
+			'entries'   => $entries,
+			'truncated' => $truncated,
+			'roots'     => self::component_roots(),
+			'site'      => untrailingslashit((string) get_option('home')),
+		);
 	}
 
 	/**
@@ -697,13 +853,14 @@ class Migration_Engine {
 	 * Page through the files of a component. The first call (offset 0)
 	 * walks the directory tree and caches the listing; later pages hash files.
 	 */
-	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000, bool $hash = true, bool $cached_only = false): array {
+	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000, bool $hash = true, bool $cached_only = false, ?array $only = null): array {
 		$job_id = self::sanitize_job_id($job_id);
 		$root = self::component_root($component);
 		$list_file = self::storage_dir('work') . '/' . $job_id . '-list-' . $component . '.txt';
 
+		$skipped = array();
 		if (0 === $offset || ! file_exists($list_file)) {
-			$this->build_file_list($root, $component, $excludes, $list_file);
+			$skipped = $this->build_file_list($root, $component, $excludes, $list_file, $only);
 		}
 
 		$entries = array();
@@ -754,6 +911,7 @@ class Migration_Engine {
 			'next'      => $next,
 			'done'      => $eof,
 			'total'     => $total,
+			'skipped'   => $skipped,
 		);
 	}
 
@@ -879,45 +1037,92 @@ class Migration_Engine {
 		return array('cursor' => $offset, 'done' => false);
 	}
 
-	private function build_file_list(string $root, string $component, array $excludes, string $list_file): void {
+	/**
+	 * Write the files of a component to $list_file, one relative path per line.
+	 *
+	 * @param array<int,string>|null $only Limit the list to these files and folders (relative paths).
+	 * @return array<int,string> Selected paths that were not listed (missing or excluded).
+	 */
+	private function build_file_list(string $root, string $component, array $excludes, string $list_file, ?array $only = null): array {
 		$out = @fopen($list_file, 'wb');
 		if (! $out) {
 			throw new \RuntimeException('Unable to write migration work file. Check that wp-content is writable.');
 		}
 		$count = 0;
-		if (is_dir($root)) {
-			$root_len = strlen(rtrim($root, '/')) + 1;
-			$dir_iter = new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::UNIX_PATHS);
-			$filter = new \RecursiveCallbackFilterIterator(
-				$dir_iter,
-				static function (\SplFileInfo $current) use ($component, $excludes, $root_len) {
-					if ($current->isLink()) {
-						return false;
-					}
-					// Another WordPress install inside this one is not part of this site.
-					if ('core' === $component && $current->isDir() && (is_file($current->getPathname() . '/wp-config.php') || is_file($current->getPathname() . '/wp-load.php'))) {
-						return false;
-					}
-					$rel = substr(wp_normalize_path($current->getPathname()), $root_len);
-					return ! self::is_excluded($component, $rel, $excludes);
-				}
-			);
-			$iter = new \RecursiveIteratorIterator($filter, \RecursiveIteratorIterator::LEAVES_ONLY, \RecursiveIteratorIterator::CATCH_GET_CHILD);
-			foreach ($iter as $file) {
-				/** @var \SplFileInfo $file */
-				if (! $file->isFile()) {
-					continue;
-				}
-				$rel = substr(wp_normalize_path($file->getPathname()), $root_len);
-				if ('' === $rel || str_contains($rel, "\n")) {
-					continue;
-				}
+		$skipped = array();
+		$root_len = strlen(rtrim($root, '/')) + 1;
+		$write = static function (string $rel) use ($out, &$count): void {
+			if ('' !== $rel && ! str_contains($rel, "\n")) {
 				fwrite($out, $rel . "\n");
 				$count++;
+			}
+		};
+		if (null === $only) {
+			$this->walk_files($root, $component, $excludes, $root_len, $write);
+		} elseif (is_dir($root)) {
+			$picked = array();
+			foreach ($only as $rel) {
+				$rel = trim(str_replace('\\', '/', (string) $rel), '/');
+				if ('' !== $rel) {
+					$picked[$rel] = true;
+				}
+			}
+			// A path inside another picked folder is listed with that folder.
+			$picked = array_keys($picked);
+			$picked = array_filter($picked, static function ($rel) use ($picked) {
+				foreach ($picked as $other) {
+					if (0 === strpos($rel, $other . '/')) {
+						return false;
+					}
+				}
+				return true;
+			});
+			foreach ($picked as $rel) {
+				$rel = self::safe_rel($rel);
+				$abs = $root . '/' . $rel;
+				if (is_link($abs) || self::is_excluded($component, $rel, $excludes) || ! file_exists($abs)) {
+					$skipped[] = $rel;
+				} elseif (is_dir($abs)) {
+					$this->walk_files($abs, $component, $excludes, $root_len, $write);
+				} else {
+					$write($rel);
+				}
 			}
 		}
 		fclose($out);
 		set_transient('wudt_mig_count_' . md5($list_file), $count, DAY_IN_SECONDS);
+		return $skipped;
+	}
+
+	/**
+	 * Pass every migratable file below $dir (relative to the component root) to $write.
+	 */
+	private function walk_files(string $dir, string $component, array $excludes, int $root_len, callable $write): void {
+		if (! is_dir($dir)) {
+			return;
+		}
+		$dir_iter = new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::UNIX_PATHS);
+		$filter = new \RecursiveCallbackFilterIterator(
+			$dir_iter,
+			static function (\SplFileInfo $current) use ($component, $excludes, $root_len) {
+				if ($current->isLink()) {
+					return false;
+				}
+				// Another WordPress install inside this one is not part of this site.
+				if ('core' === $component && $current->isDir() && (is_file($current->getPathname() . '/wp-config.php') || is_file($current->getPathname() . '/wp-load.php'))) {
+					return false;
+				}
+				$rel = substr(wp_normalize_path($current->getPathname()), $root_len);
+				return ! self::is_excluded($component, $rel, $excludes);
+			}
+		);
+		$iter = new \RecursiveIteratorIterator($filter, \RecursiveIteratorIterator::LEAVES_ONLY, \RecursiveIteratorIterator::CATCH_GET_CHILD);
+		foreach ($iter as $file) {
+			/** @var \SplFileInfo $file */
+			if ($file->isFile()) {
+				$write(substr(wp_normalize_path($file->getPathname()), $root_len));
+			}
+		}
 	}
 
 	/**
@@ -1115,6 +1320,226 @@ class Migration_Engine {
 		}
 
 		return array('bytes' => $written, 'completed' => $completed, 'failed' => $failed);
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Packages from WordPress.org
+	 * ------------------------------------------------------------------- */
+
+	private static function valid_slug(string $slug): bool {
+		return strlen($slug) <= 200 && (bool) preg_match('/^[a-z0-9][a-z0-9._-]*$/i', $slug);
+	}
+
+	private static function valid_version(string $version): bool {
+		return strlen($version) <= 64 && (bool) preg_match('/^[0-9a-z][0-9a-z._+-]*$/i', $version);
+	}
+
+	/**
+	 * Download URL of a release on WordPress.org. Only built from a checked slug
+	 * and version, so a remote request can never make this site fetch another URL.
+	 */
+	private static function repo_zip_url(string $component, string $slug, string $version): string {
+		if (! in_array($component, array('plugins', 'themes'), true) || ! self::valid_slug($slug) || ! self::valid_version($version)) {
+			throw new \RuntimeException('Invalid plugin or theme: ' . $slug . ' ' . $version);
+		}
+		return 'https://downloads.wordpress.org/' . ('plugins' === $component ? 'plugin' : 'theme') . '/' . rawurlencode($slug) . '.' . rawurlencode($version) . '.zip';
+	}
+
+	/**
+	 * md5 of every file in a WordPress.org release, keyed by path inside the folder.
+	 *
+	 * @return array<string,array<int,string>>|null Null when the release is not on WordPress.org.
+	 */
+	private function repo_checksums(string $component, string $slug, string $version): ?array {
+		if ('plugins' === $component && class_exists('\WUDT\Modules\Malware\Malware_Scanner')) {
+			return \WUDT\Modules\Malware\Malware_Scanner::plugin_checksums($slug, $version);
+		}
+		$cache = self::storage_dir('cache') . '/repo-' . $component . '-' . md5($slug . '|' . $version) . '.json';
+		if (is_file($cache) && filemtime($cache) > time() - WEEK_IN_SECONDS) {
+			$data = json_decode((string) file_get_contents($cache), true);
+			return is_array($data) && ! empty($data) ? $data : null;
+		}
+		$sums = array();
+		if ('plugins' === $component) {
+			$res = wp_remote_get('https://downloads.wordpress.org/plugin-checksums/' . rawurlencode($slug) . '/' . rawurlencode($version) . '.json', array('timeout' => 15));
+			$data = is_wp_error($res) ? null : json_decode((string) wp_remote_retrieve_body($res), true);
+			if (200 === (int) wp_remote_retrieve_response_code($res) && is_array($data)) {
+				foreach ((array) ($data['files'] ?? array()) as $path => $info) {
+					$md5 = $info['md5'] ?? '';
+					$sums[(string) $path] = is_array($md5) ? array_values($md5) : array((string) $md5);
+				}
+			}
+		} else {
+			// Themes have no checksum service: read them from the release zip.
+			$zip_file = $this->download_release($component, $slug, $version);
+			if (null !== $zip_file) {
+				$zip = new \ZipArchive();
+				if (true === $zip->open($zip_file)) {
+					for ($i = 0; $i < $zip->numFiles; $i++) {
+						$name = (string) $zip->getNameIndex($i);
+						if ('/' === substr($name, -1) || 0 !== strpos($name, $slug . '/')) {
+							continue;
+						}
+						$sums[substr($name, strlen($slug) + 1)] = array(md5((string) $zip->getFromIndex($i)));
+					}
+					$zip->close();
+				}
+				@unlink($zip_file);
+			}
+		}
+		@file_put_contents($cache, (string) wp_json_encode($sums));
+		return $sums ?: null;
+	}
+
+	/**
+	 * Download a WordPress.org release zip to a temporary file (null when it does not exist).
+	 */
+	private function download_release(string $component, string $slug, string $version): ?string {
+		if (! function_exists('download_url')) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		$file = download_url(self::repo_zip_url($component, $slug, $version), 120);
+		if (is_wp_error($file)) {
+			if ('http_404' === $file->get_error_code()) {
+				return null;
+			}
+			throw new \RuntimeException('Download from WordPress.org failed for ' . $slug . ': ' . $file->get_error_message());
+		}
+		return (string) $file;
+	}
+
+	/**
+	 * Which plugin and theme folders on this site are unmodified copies of their
+	 * WordPress.org release (same files, same contents).
+	 *
+	 * @param array<int,array{c:string,slug:string,version:string}> $items
+	 * @return array{results:array<int,array>,next:int,done:bool}
+	 */
+	public function repo_check(array $items, int $offset, array $excludes = array(), float $budget = 15.0): array {
+		if (! class_exists('\ZipArchive')) {
+			throw new \RuntimeException('The ZipArchive PHP extension is required to compare themes with WordPress.org.');
+		}
+		$results = array();
+		$next = $offset;
+		$count = count($items);
+		// Always check at least one item, so every call makes progress.
+		while ($next < $count && ($next === $offset || $this->time_left($budget))) {
+			$item = (array) $items[$next];
+			$next++;
+			$c = (string) ($item['c'] ?? '');
+			$slug = (string) ($item['slug'] ?? '');
+			$version = (string) ($item['version'] ?? '');
+			$result = array('c' => $c, 'slug' => $slug, 'version' => $version, 'ok' => false, 'reason' => '', 'files' => 0, 'bytes' => 0);
+			try {
+				if (! in_array($c, array('plugins', 'themes'), true) || ! self::valid_slug($slug) || ! self::valid_version($version)) {
+					$result['reason'] = 'no WordPress.org version';
+				} else {
+					$result = array_merge($result, $this->compare_with_release($c, $slug, $version, $excludes));
+				}
+			} catch (\Throwable $e) {
+				$result['reason'] = $e->getMessage();
+			}
+			$results[] = $result;
+		}
+		$this->save_hash_cache();
+		return array('results' => $results, 'next' => $next, 'done' => $next >= $count);
+	}
+
+	private function compare_with_release(string $component, string $slug, string $version, array $excludes): array {
+		$official = $this->repo_checksums($component, $slug, $version);
+		if (null === $official) {
+			return array('reason' => 'not on WordPress.org');
+		}
+		$root = self::component_root($component);
+		$dir = $root . '/' . $slug;
+		if (! is_dir($dir)) {
+			return array('reason' => 'folder not found');
+		}
+		$local = array();
+		$bytes = 0;
+		$root_len = strlen(rtrim($root, '/')) + 1;
+		$this->walk_files($dir, $component, $excludes, $root_len, static function (string $rel) use (&$local) {
+			$local[] = $rel;
+		});
+		$prefix_len = strlen($slug) + 1;
+		$seen = array();
+		foreach ($local as $rel) {
+			$inner = substr($rel, $prefix_len);
+			if (! isset($official[$inner])) {
+				return array('reason' => 'has files that are not in the WordPress.org version (' . $inner . ')');
+			}
+			$abs = $root . '/' . $rel;
+			if (! in_array($this->file_hash($component, $rel, $abs), (array) $official[$inner], true)) {
+				return array('reason' => 'modified (' . $inner . ')');
+			}
+			$seen[$inner] = true;
+			$bytes += (int) @filesize($abs);
+		}
+		foreach (array_keys($official) as $inner) {
+			if (! isset($seen[$inner]) && ! self::is_excluded($component, $slug . '/' . $inner, $excludes)) {
+				return array('reason' => 'files of the WordPress.org version are missing (' . $inner . ')');
+			}
+		}
+		return array('ok' => true, 'files' => count($local), 'bytes' => $bytes);
+	}
+
+	/**
+	 * Download a plugin or theme release from WordPress.org into the job's staging
+	 * area; it is moved into place (with rollback) together with the other files.
+	 */
+	public function install_package(string $job_id, string $component, string $slug, string $version): array {
+		if (! class_exists('\ZipArchive')) {
+			throw new \RuntimeException('The ZipArchive PHP extension is required to install from WordPress.org.');
+		}
+		$job_id = self::sanitize_job_id($job_id);
+		$zip_file = $this->download_release($component, $slug, $version);
+		if (null === $zip_file) {
+			throw new \RuntimeException($slug . ' ' . $version . ' is not available on WordPress.org.');
+		}
+		$stage = self::storage_dir('stage-' . $job_id);
+		$list = $stage . '/.staged-list';
+		$zip = new \ZipArchive();
+		if (true !== $zip->open($zip_file)) {
+			@unlink($zip_file);
+			throw new \RuntimeException('The download of ' . $slug . ' is not a valid zip file.');
+		}
+		$files = 0;
+		$bytes = 0;
+		$lines = '';
+		try {
+			for ($i = 0; $i < $zip->numFiles; $i++) {
+				$name = (string) $zip->getNameIndex($i);
+				if ('/' === substr($name, -1) || 0 !== strpos($name, $slug . '/')) {
+					continue;
+				}
+				$rel = self::safe_rel($name);
+				if (self::is_excluded($component, $rel)) {
+					continue;
+				}
+				$target = $stage . '/' . $component . '/' . $rel;
+				if (! is_dir(dirname($target)) && ! wp_mkdir_p(dirname($target))) {
+					throw new \RuntimeException('Unable to create staging directory for ' . $rel);
+				}
+				$in = $zip->getStream($name);
+				$out = $in ? fopen($target, 'wb') : false;
+				if (! $in || ! $out) {
+					throw new \RuntimeException('Unable to unpack ' . $rel);
+				}
+				$bytes += (int) stream_copy_to_stream($in, $out);
+				fclose($in);
+				fclose($out);
+				$lines .= $component . '|' . $rel . "\n";
+				$files++;
+			}
+		} finally {
+			$zip->close();
+			@unlink($zip_file);
+		}
+		if (0 === $files) {
+			throw new \RuntimeException('The WordPress.org package of ' . $slug . ' is empty.');
+		}
+		file_put_contents($list, $lines, FILE_APPEND | LOCK_EX);
+		return array('files' => $files, 'bytes' => $bytes);
 	}
 
 	/* ---------------------------------------------------------------------

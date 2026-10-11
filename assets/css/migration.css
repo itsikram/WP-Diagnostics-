@@ -34,6 +34,8 @@
 .wudt-mig-resume, .wudt-mig-rollback { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .wudt-mig-resume { border-color: var(--mig-accent); }
 .wudt-mig-resume p, .wudt-mig-rollback p { margin: 4px 0 0; color: var(--mig-muted); }
+.wudt-mig-peer { border-color: var(--mig-accent); }
+.wudt-mig-peer > p { margin: 0 0 10px; }
 .wudt-mig-flow { display: flex; align-items: stretch; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .wudt-mig-flow-box { flex: 1; min-width: 200px; padding: 12px 14px; border: 1px solid var(--mig-line); border-radius: 6px; background: var(--mig-soft); }
 .wudt-mig-flow-box span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--mig-muted); }

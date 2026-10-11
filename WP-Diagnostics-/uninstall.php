@@ -74,7 +74,7 @@ if (is_multisite()) {
 	wudt_uninstall_site();
 }
 
-foreach (array('wudt-migrations', 'wudt-ai-backups', 'wudt-quarantine', 'wudt-rescue', 'wudt-fm-tmp') as $wudt_dir) {
+foreach (array('wudt-migrations', 'wudt-ai-backups', 'wudt-quarantine', 'wudt-rescue', 'wudt-fm-tmp', 'wudt-progress') as $wudt_dir) {
 	wudt_uninstall_delete_tree(wp_normalize_path(WP_CONTENT_DIR) . '/' . $wudt_dir);
 }
 

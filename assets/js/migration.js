@@ -265,7 +265,7 @@
 
 	function renderHome() {
 		var d = S.data;
-		var h = '';
+		var h = '<div id="wudt-mig-peers">' + renderPeers() + '</div>';
 
 		var active = d.active_job;
 		if (!active) {
@@ -318,16 +318,24 @@
 				var dot = chk ? (chk.ok ? 'ok' : 'bad') : 'unknown';
 				var title = chk ? (chk.ok ? 'Connected' : (chk.error || 'Connection failed')) : 'Not tested yet';
 				h += '<div class="wudt-mig-site">'
-					+ '<div class="wudt-mig-site-info"><span class="wudt-mig-dot is-' + dot + '" title="' + esc(title) + '"></span>'
+					+ '<div class="wudt-mig-site-info"><span class="wudt-mig-dot is-' + (s.local_only ? 'unknown' : dot) + '" title="' + esc(s.local_only ? 'On your computer' : title) + '"></span>'
 					+ '<div><strong>' + esc(s.label) + '</strong><a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.url) + '</a>'
-					+ (chk && !chk.ok ? '<div class="wudt-mig-error-inline">' + esc(chk.error) + '</div>' : '')
-					+ (chk && chk.auto ? '<div class="wudt-mig-muted">Connected automatically when that site added this one.</div>' : '')
+					+ (chk && !chk.ok && !s.local_only ? '<div class="wudt-mig-error-inline">' + esc(chk.error) + '</div>' : '')
+					+ (s.local_only
+						? '<div class="wudt-mig-muted">This site is on your computer, which this server cannot connect to. Pull and Push open it in a new tab and run the migration from there; its progress is also shown here.</div>'
+						: (chk && chk.auto ? '<div class="wudt-mig-muted">Connected automatically when that site added this one.</div>' : ''))
 					+ '</div></div>'
-					+ '<div class="wudt-mig-actions">'
-					+ '<button class="button button-primary" data-mig="pull" data-site="' + esc(s.id) + '">⬇ Pull to this site</button>'
-					+ '<button class="button button-primary" data-mig="push" data-site="' + esc(s.id) + '">⬆ Push to this site</button>'
-					+ '<button class="button" data-mig="test" data-site="' + esc(s.id) + '">Test</button>'
-					+ '<button class="button-link wudt-mig-danger" data-mig="delete-site" data-site="' + esc(s.id) + '">Remove</button>'
+					+ '<div class="wudt-mig-actions">';
+				if (s.local_only) {
+					// Pulling here = that site pushing to this one, and the other way round.
+					h += '<a class="button button-primary" href="' + esc(handoffUrl(s, 'push')) + '" target="_blank" rel="noopener" title="Opens ' + esc(s.label) + ' to push it to this site">⬇ Pull to this site ↗</a>'
+						+ '<a class="button button-primary" href="' + esc(handoffUrl(s, 'pull')) + '" target="_blank" rel="noopener" title="Opens ' + esc(s.label) + ' to pull this site there">⬆ Push to this site ↗</a>';
+				} else {
+					h += '<button class="button button-primary" data-mig="pull" data-site="' + esc(s.id) + '">⬇ Pull to this site</button>'
+						+ '<button class="button button-primary" data-mig="push" data-site="' + esc(s.id) + '">⬆ Push to this site</button>'
+						+ '<button class="button" data-mig="test" data-site="' + esc(s.id) + '">Test</button>';
+				}
+				h += '<button class="button-link wudt-mig-danger" data-mig="delete-site" data-site="' + esc(s.id) + '">Remove</button>'
 					+ '</div></div>';
 			});
 			h += '</div>';
@@ -990,11 +998,191 @@
 		return h + '</ul></details>';
 	}
 
+	/* -----------------------------------------------------------------
+	 * Migrations another site runs with this one. That site drives the
+	 * migration and reports its progress here; running ones are followed
+	 * through their progress file, new ones are found by a slower poll.
+	 * --------------------------------------------------------------- */
+
+	var P = { pollTimer: null, findTimer: null, clockTimer: null, logOpen: {} };
+
+	function peerJobs() {
+		return (S.data && S.data.peer_jobs) || [];
+	}
+
+	// No report for 5 minutes: the tab running it on the other site was probably closed.
+	function peerStale(j) {
+		return j.status === 'running' && serverNow() - Number(j.updated) > 300;
+	}
+
+	function peerLive(j) {
+		return j.status === 'running' && !peerStale(j);
+	}
+
+	function renderPeers() {
+		var h = '';
+		peerJobs().forEach(function (j) {
+			if (j.status !== 'running' && serverNow() - j.updated > 6 * 3600) { return; }
+			h += renderPeerJob(j);
+		});
+		return h;
+	}
+
+	function renderPeerJob(j) {
+		var receiving = j.role === 'receiving';
+		var peer = j.peer || {};
+		var live = peerLive(j);
+		var stale = peerStale(j);
+		var st = j.stats || {};
+		var phase = '';
+		PHASES.forEach(function (p) { if (p.key === j.phase) { phase = p.label; } });
+		if (j.phase === 'finalize_db' || j.phase === 'cleanup') { phase = 'Apply'; }
+		var h = '<div class="wudt-mig-card wudt-mig-peer">'
+			+ '<div class="wudt-mig-progress-head"><h3>' + (receiving ? '⬇ Receiving from ' : '⬆ Sending to ') + esc(peer.label || peer.url) + '</h3>'
+			+ '<span>' + (phase && j.status === 'running' ? '<span class="wudt-mig-muted">' + esc(phase) + '</span> ' : '')
+			+ '<span class="wudt-mig-status is-' + esc(stale ? 'failed' : j.status) + '">' + esc(stale ? 'paused' : j.status) + '</span>'
+			+ (!live ? ' <button type="button" class="button-link" data-mig="peer-dismiss" data-job="' + esc(j.id) + '">Dismiss</button>' : '')
+			+ '</span></div>'
+			+ '<p class="wudt-mig-muted">' + esc(receiving
+				? (peer.label || 'The other site') + ' is migrating to this site'
+				: (peer.label || 'The other site') + ' is copying this site')
+			+ ' (<a href="' + esc(peer.url) + '" target="_blank" rel="noopener">' + esc(peer.url) + '</a>). It runs in that site’s browser tab — keep it open until it finishes.</p>';
+		h += progressBar({ running: live }, j);
+		h += '<div class="wudt-mig-live">'
+			+ (live ? '<span class="wudt-mig-live-dot"></span><strong>Live</strong>' : '')
+			+ '<span>Elapsed <b' + (live ? ' data-mig-peer-since="' + esc(j.created) + '"' : '') + '>' + esc(duration((live ? serverNow() : j.updated) - j.created)) + '</b></span>'
+			+ '<span>Last update <b data-mig-peer-ago="' + esc(j.updated) + '">' + esc(duration(serverNow() - j.updated)) + '</b> ago</span>'
+			+ '</div>';
+		h += '<div class="wudt-mig-stats">'
+			+ (j.tables > 0
+				? '<div><span>Tables copied</span><strong>' + esc(st.tables_done || 0) + ' <small>of ' + esc(j.tables) + '</small></strong></div>'
+					+ '<div><span>Rows</span><strong>' + esc(num(st.rows)) + '</strong></div>'
+				: '<div><span>Database</span><strong>not included</strong></div>')
+			+ ((j.components || []).length
+				? '<div><span>Files changed</span><strong>' + esc(num(st.files_changed)) + ' <small>of ' + esc(num(st.files_scanned)) + '</small></strong></div>'
+					+ '<div><span>Transferred</span><strong>' + esc(bytes(st.bytes_done)) + ' <small>of ' + esc(bytes(st.bytes_total)) + '</small></strong></div>'
+				: '<div><span>Files</span><strong>not included</strong></div>')
+			+ '</div>';
+		if (stale) {
+			h += '<div class="wudt-mig-notice is-warning">No progress for ' + esc(duration(serverNow() - j.updated)) + '. The migration is probably paused because its tab on ' + esc(peer.label || peer.url) + ' was closed — open Site Migration there and click Continue.</div>';
+		} else if (j.status === 'failed') {
+			h += '<div class="wudt-mig-notice is-error"><strong>The migration stopped.</strong> ' + esc(j.error) + '<br>It can be retried or cancelled on ' + esc(peer.label || peer.url) + '.</div>';
+		} else if (j.status === 'done') {
+			h += '<div class="wudt-mig-notice is-success"><strong>Migration complete' + (j.created ? ' in ' + esc(duration(j.updated - j.created)) : '') + '.</strong> '
+				+ (receiving ? 'This site was updated from ' + esc(peer.label || peer.url) + '. If the users table was included, log in again with that site’s username and password.' : 'This site was copied to ' + esc(peer.label || peer.url) + '.')
+				+ '</div>';
+		} else if (j.status === 'cancelled') {
+			h += '<div class="wudt-mig-notice is-warning">' + esc(j.message) + '</div>';
+		}
+		if ((j.log || []).length) {
+			var open = !!P.logOpen[j.id];
+			h += '<details class="wudt-mig-log" data-mig-peer-log="' + esc(j.id) + '"' + (open ? ' open' : '') + '><summary>Activity log <small>(' + esc(j.log.length) + ')</small></summary><ul>';
+			j.log.slice().reverse().forEach(function (l) {
+				h += '<li><time>' + esc(new Date(l.t * 1000).toLocaleTimeString()) + '</time> ' + esc(l.m) + '</li>';
+			});
+			h += '</ul></details>';
+		}
+		return h + '</div>';
+	}
+
+	// Update only the peer panel, so typing elsewhere on the page is not interrupted.
+	function renderPeersOnly() {
+		var el = document.getElementById('wudt-mig-peers');
+		if (el && S.view === 'home') { el.innerHTML = renderPeers(); }
+	}
+
+	function setPeerJobs(list) {
+		if (!S.data) { return; }
+		var had = peerJobs().map(function (j) { return j.id + ':' + j.seq + ':' + (peerStale(j) ? 1 : 0); }).join();
+		S.data.peer_jobs = list || [];
+		if (S.data.peer_jobs[0] && S.data.peer_jobs[0].now) { clockSkew = Number(S.data.peer_jobs[0].now) - Date.now() / 1000; }
+		var now = peerJobs().map(function (j) { return j.id + ':' + j.seq + ':' + (peerStale(j) ? 1 : 0); }).join();
+		if (had !== now) { renderPeersOnly(); }
+	}
+
+	function startPeerPolling() {
+		if (P.findTimer) { return; }
+		// Follow running migrations through their progress files (no WordPress request).
+		var follow = function () {
+			var running = peerJobs().filter(peerLive);
+			if (!running.length || !S.root || !document.body.contains(S.root)) {
+				P.pollTimer = setTimeout(follow, 2000);
+				return;
+			}
+			$.when.apply($, running.map(function (j) {
+				return $.ajax({ url: j.progress_url, dataType: 'json', cache: false, timeout: 5000 }).done(function (p) {
+					if (!p || p.id !== j.id) { return; }
+					setPeerJobs(peerJobs().map(function (x) { return x.id === p.id && Number(p.seq) >= Number(x.seq) ? p : x; }));
+				});
+			})).always(function () { P.pollTimer = setTimeout(follow, 1500); });
+		};
+		// Look for new or finished migrations now and then.
+		var find = function () {
+			var delay = peerJobs().some(peerLive) ? 10000 : 15000;
+			if (!S.root || !document.body.contains(S.root) || document.hidden) {
+				P.findTimer = setTimeout(find, delay);
+				return;
+			}
+			ajax('wudt_migration_peer_jobs', {}, 30000).done(function (r) {
+				if (r && r.success) { setPeerJobs(r.data.peer_jobs); }
+			}).always(function () { P.findTimer = setTimeout(find, delay); });
+		};
+		P.pollTimer = setTimeout(follow, 1000);
+		P.findTimer = setTimeout(find, 15000);
+		P.clockTimer = setInterval(function () {
+			$('[data-mig-peer-since]').each(function () {
+				this.textContent = duration(serverNow() - Number(this.getAttribute('data-mig-peer-since')));
+			});
+			$('[data-mig-peer-ago]').each(function () {
+				this.textContent = duration(serverNow() - Number(this.getAttribute('data-mig-peer-ago')));
+			});
+		}, 1000);
+	}
+
+	/* -----------------------------------------------------------------
+	 * Hand-off: a site on the internet cannot connect to a site on the
+	 * user's computer, so it opens that site's Site Migration page with
+	 * the matching migration (?wudt_mig_site=<its url>&wudt_mig_dir=…).
+	 * --------------------------------------------------------------- */
+
+	function handoffUrl(s, direction) {
+		return String(s.admin_url || '').replace(/\/?$/, '/') + 'admin.php?page=wudt-site-migration'
+			+ '&wudt_mig_site=' + encodeURIComponent(S.data.local_site_url) + '&wudt_mig_dir=' + direction;
+	}
+
+	function sameSite(a, b) {
+		var norm = function (u) { return String(u || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, ''); };
+		return norm(a) !== '' && norm(a) === norm(b);
+	}
+
+	function maybeHandoff() {
+		if (S.handoffDone || !S.data || S.running) { return; }
+		S.handoffDone = true;
+		var params;
+		try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+		var url = params.get('wudt_mig_site');
+		var dir = params.get('wudt_mig_dir') === 'pull' ? 'pull' : 'push';
+		if (!url) { return; }
+		params.delete('wudt_mig_site');
+		params.delete('wudt_mig_dir');
+		try { window.history.replaceState(null, '', window.location.pathname + '?' + params.toString() + window.location.hash); } catch (e) { /* ignore */ }
+		var match = null;
+		(S.data.sites || []).forEach(function (s) { if (!match && sameSite(s.url, url)) { match = s; } });
+		if (!match) {
+			setNotice('warning', url + ' asked to ' + (dir === 'push' ? 'receive this site' : 'be copied here') + ', but it is not connected to this site yet. Paste its connection key under “Add a site” first, then use ' + (dir === 'push' ? 'Push' : 'Pull') + '.');
+			render();
+			return;
+		}
+		openWizard(match.id, dir);
+		setNotice('info', 'Opened from ' + match.url + ': ' + (dir === 'push' ? 'push this site to it' : 'pull it to this site') + '. Its progress is also shown on that site’s Site Migration page.');
+		render();
+	}
+
 	/* ----------------------------------------------------------------- */
 
 	function refresh() {
 		return ajax('wudt_migration_get_state').done(function (r) {
-			if (r && r.success) { S.data = r.data; render(); }
+			if (r && r.success) { S.data = r.data; render(); maybeHandoff(); }
 		});
 	}
 
@@ -1242,6 +1430,10 @@
 			S.showLiveMedia = el.open;
 			return;
 		}
+		if (el && el.hasAttribute && el.hasAttribute('data-mig-peer-log')) {
+			P.logOpen[el.getAttribute('data-mig-peer-log')] = el.open;
+			return;
+		}
 		if (!el || !el.hasAttribute || !el.hasAttribute('data-mig-log')) { return; }
 		if ($(el).closest('#wudt-qt').length) {
 			if (Q) { Q.logOpen = el.open; }
@@ -1398,6 +1590,13 @@
 					break;
 				case 'resume':
 					resumeJob(jobId);
+					break;
+				case 'peer-dismiss':
+					S.data.peer_jobs = peerJobs().filter(function (x) { return x.id !== jobId; });
+					renderPeersOnly();
+					ajax('wudt_migration_peer_jobs', { dismiss: jobId }).done(function (r) {
+						if (r && r.success) { setPeerJobs(r.data.peer_jobs); }
+					});
 					break;
 				case 'continue':
 					run();
@@ -1929,6 +2128,7 @@
 			if (!S.data && data && data.connection_string) { S.data = data; }
 			bindEvents();
 			render();
+			startPeerPolling();
 			if (!S.running) { refresh(); }
 		},
 		/**

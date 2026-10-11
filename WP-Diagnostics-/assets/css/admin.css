@@ -279,6 +279,8 @@
 	font-size: 13px;
 }
 .wudt-fm-menu button:hover { background: #e9f2ff; }
+.wudt-fm-menu-sep { height: 1px; margin: 4px 6px; background: #e5e7eb; }
+.wudt-fm-toolbar .wudt-fm-migrate { border-color: #2271b1; color: #2271b1; }
 .is-drop-target {
 	outline: 2px dashed #60a5fa;
 	outline-offset: -2px;
@@ -303,6 +305,7 @@
 .wudt-fm-shell.is-dark .wudt-fm-menu { background: #1f2328; border-color: #343a40; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button { color: #e6edf3; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button:hover { background: #2b3642; }
+.wudt-fm-shell.is-dark .wudt-fm-menu-sep { background: #343a40; }
 
 /* File Manager Loading State */
 .wudt-fm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; color: #6b7280; }
@@ -1272,3 +1275,22 @@
 .wudt-migration-checkbox strong {
 	color: #0369a1;
 }
+
+/* File manager: Properties dialog */
+.wudt-props-backdrop { position: fixed; inset: 0; z-index: 100100; background: rgba(15, 23, 42, .5); display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; }
+.wudt-props { width: 100%; max-width: 460px; background: #fff; border-radius: 10px; box-shadow: 0 20px 50px rgba(0, 0, 0, .3); color: #1d2327; animation: wudtFadeIn .15s ease; }
+.wudt-props-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #e5e7eb; }
+.wudt-props-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.wudt-props-icon { font-size: 26px; line-height: 1; }
+.wudt-props-close { border: 0; background: none; font-size: 22px; line-height: 1; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; color: #646970; }
+.wudt-props-close:hover { background: #f0f0f1; color: #1d2327; }
+.wudt-props-table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+.wudt-props-table th { width: 110px; text-align: left; vertical-align: top; padding: 7px 8px 7px 16px; color: #646970; font-weight: 500; }
+.wudt-props-table td { padding: 7px 16px 7px 8px; overflow-wrap: anywhere; }
+.wudt-props-table small { color: #646970; }
+.wudt-props-table code { font-size: 12px; background: #f6f7f7; padding: 1px 4px; border-radius: 3px; }
+.wudt-props-wait { color: #646970; font-style: italic; }
+.wudt-props-wait::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 2px solid #c3c4c7; border-top-color: #2271b1; border-radius: 50%; vertical-align: -1px; animation: wudt-props-spin .8s linear infinite; }
+.wudt-props-error { color: #b32d2e; }
+.wudt-props-foot { display: flex; justify-content: flex-end; padding: 10px 16px 14px; border-top: 1px solid #e5e7eb; }
+@keyframes wudt-props-spin { to { transform: rotate(360deg); } }

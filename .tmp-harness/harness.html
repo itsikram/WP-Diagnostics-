@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="migration.css">
+<style>body{font-family:sans-serif;background:#f0f0f1;padding:16px} .button{padding:4px 10px;border:1px solid #2271b1;border-radius:3px;background:#fff;color:#2271b1;text-decoration:none;display:inline-block;font-size:13px}.button-primary{background:#2271b1;color:#fff}</style>
+<script src="jquery.min.js"></script><script>window.$ = window.jQuery;</script></head><body><div id="wudt-migration-root"></div>
+<script>
+var now = Math.floor(Date.now()/1000);
+var MODE = location.hash.slice(1) || 'live';
+var state = {
+  local_site_url: MODE === 'live' ? 'https://yktvclothing.co.uk' : 'http://localhost/yktvclothing-co-uk',
+  connection_string: 'wudt:xxx', local_api_key: 'k', components: ['plugins','themes','uploads'], history: [], rollback: {available:false}, live_media: {}, api_version: 2,
+  sites: MODE === 'live'
+    ? [{id:'site_a', label:'YKTV Local', url:'http://localhost/yktvclothing-co-uk', admin_url:'http://localhost/yktvclothing-co-uk/wp-admin/', local_only:true, last_check:{ok:true,auto:true}}]
+    : [{id:'site_b', label:'YKTV Live', url:'https://yktvclothing.co.uk', admin_url:'https://yktvclothing.co.uk/wp-admin/', local_only:false, last_check:{ok:true}}],
+  peer_jobs: MODE === 'live' ? [
+    {id:'m1', status:'running', phase:'transfer', message:'Sending files… 120 of 400', error:'', percent:42, role:'receiving', peer:{url:'http://localhost/yktvclothing-co-uk', label:'YKTV Local'}, tables:12, components:['plugins','themes'], stats:{rows:5400,tables_done:12,files_changed:400,files_scanned:2300,bytes_done:31000000,bytes_total:74000000}, log:[{t:now-30,m:'Push migration to https://yktvclothing.co.uk'}], created:now-95, updated:now-1, seq:5, progress_url:'mock-progress', now:now},
+    {id:'m0', status:'done', phase:'done', message:'Migration complete!', error:'', percent:100, role:'sending', peer:{url:'http://localhost/yktvclothing-co-uk', label:'YKTV Local'}, tables:40, components:[], stats:{rows:9000,tables_done:40}, log:[], created:now-900, updated:now-700, seq:9, progress_url:'x', now:now}
+  ] : []
+};
+var seq = 5, pct = 42;
+window.wudtProAdmin = {ajaxUrl: 'admin-ajax.php', nonce: 'n'};
+var real = $.ajax;
+$.ajax = function (o) {
+  var d = $.Deferred();
+  setTimeout(function () {
+    if (o.url === 'mock-progress') { seq++; pct = Math.min(99, pct + 3); var j = $.extend(true, {}, state.peer_jobs[0], {seq: seq, percent: pct, updated: Math.floor(Date.now()/1000), message: 'Sending files… ' + (120 + seq*10) + ' of 400'}); state.peer_jobs[0] = j; d.resolve(j); return; }
+    var a = o.data && o.data.action;
+    if (a === 'wudt_migration_get_state') d.resolve({success:true, data: state});
+    else if (a === 'wudt_migration_peer_jobs') d.resolve({success:true, data:{peer_jobs: state.peer_jobs}});
+    else if (a === 'wudt_migration_preflight') { window.lastPreflight = o.data; d.resolve({success:false, data:{message:'(mock) preflight for ' + o.data.site_id + ' ' + o.data.direction}}); }
+    else d.resolve({success:false, data:{message:'mock'}});
+  }, 50);
+  return d.promise();
+};
+</script>
+<script src="migration.js"></script>
+<script>WUDTMigration.mount(document.getElementById('wudt-migration-root'), null);</script>
+</body></html>
