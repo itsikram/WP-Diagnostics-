@@ -18,6 +18,9 @@ class Database_Manager_Module extends Module_Base {
 	private const SAFE_MODE_OPTION = 'wudt_db_safe_mode';
 	private const ALLOW_DROP_OPTION = 'wudt_db_allow_drop_table';
 	private const HISTORY_OPTION = 'wudt_db_query_history';
+	// Most rows sent for "Show all" and for one SQL query result.
+	private const SHOW_ALL_LIMIT = 2000;
+	private const QUERY_ROW_LIMIT = 1000;
 
 	public function register_hooks(): void {
 		add_action('wp_ajax_wudt_dbm_list_tables', array($this, 'ajax_list_tables'));
@@ -191,6 +194,7 @@ class Database_Manager_Module extends Module_Base {
 
 	public function ajax_pm_tables(): void {
 		$this->auth();
+		global $wpdb;
 		$tables = $this->get_table_stats();
 		$rows   = array();
 		foreach ($tables as $table) {
@@ -207,6 +211,11 @@ class Database_Manager_Module extends Module_Base {
 		wp_send_json_success(
 			array(
 				'tables'       => $rows,
+				'database'     => defined('DB_NAME') ? (string) DB_NAME : '',
+				'server'       => defined('DB_HOST') ? (string) DB_HOST : 'localhost',
+				'version'      => (string) $wpdb->get_var('SELECT VERSION()'),
+				'prefix'       => $wpdb->prefix,
+				'allow_drop'   => (bool) get_option(self::ALLOW_DROP_OPTION, false),
 				'safe_mode'    => (bool) get_option(self::SAFE_MODE_OPTION, true),
 				'query_history'=> array_slice((array) get_option(self::HISTORY_OPTION, array()), -50),
 			)
@@ -218,9 +227,10 @@ class Database_Manager_Module extends Module_Base {
 		global $wpdb;
 		$table      = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
 		$page       = max(1, (int) ($_POST['page'] ?? 1));
-		$requested  = (int) ($_POST['per_page'] ?? 20);
-		$per_page   = 0 === $requested ? 0 : min(100, max(20, $requested));
-		$offset     = 0 === $per_page ? 0 : (($page - 1) * $per_page);
+		$requested  = (int) ($_POST['per_page'] ?? 25);
+		// "Show all" (0) is capped so a huge table cannot exhaust memory.
+		$per_page   = 0 === $requested ? self::SHOW_ALL_LIMIT : min(500, max(1, $requested));
+		$offset     = 0 === $requested ? 0 : (($page - 1) * $per_page);
 		$search     = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['search'] ?? '')));
 		$sort_by    = sanitize_text_field(sanitize_text_field(wp_unslash($_POST['sort_by'] ?? '')));
 		$sort_dir   = strtoupper(sanitize_text_field((string) ($_POST['sort_dir'] ?? 'ASC')));
@@ -233,7 +243,19 @@ class Database_Manager_Module extends Module_Base {
 			foreach ($col_names as $col) {
 				$parts[] = '`' . esc_sql($col) . "` LIKE '%" . esc_sql($wpdb->esc_like($search)) . "%'";
 			}
-			$where = ' WHERE ' . implode(' OR ', $parts);
+			$where = ' WHERE (' . implode(' OR ', $parts) . ')';
+		}
+		// Search tab: "query by example" conditions, combined with AND.
+		$filters = isset($_POST['filters']) ? json_decode((string) wp_unslash($_POST['filters']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- values are escaped by build_condition().
+		$conditions = array();
+		foreach (is_array($filters) ? $filters : array() as $filter) {
+			$sql_part = is_array($filter) ? $this->build_condition($filter, $col_names) : '';
+			if ('' !== $sql_part) {
+				$conditions[] = $sql_part;
+			}
+		}
+		if (! empty($conditions)) {
+			$where .= ('' === $where ? ' WHERE ' : ' AND ') . implode(' AND ', $conditions);
 		}
 		$order = '';
 		if (in_array($sort_by, $col_names, true)) {
@@ -242,26 +264,41 @@ class Database_Manager_Module extends Module_Base {
 
 		$total = (int) $wpdb->get_var('SELECT COUNT(*) FROM `' . esc_sql($table) . '`' . $where); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		$sql   = 'SELECT * FROM `' . esc_sql($table) . '`' . $where . $order;
-		if ($per_page > 0) {
-			$sql .= " LIMIT {$offset},{$per_page}";
-		}
+		$sql  .= " LIMIT {$offset}, {$per_page}";
+		$start = microtime(true);
 		$rows  = $wpdb->get_results($sql, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$took  = microtime(true) - $start;
+		if ($wpdb->last_error) {
+			wp_send_json_error(array('message' => $wpdb->last_error, 'sql' => $sql), 400);
+		}
 		wp_send_json_success(
 			array(
 				'rows'        => is_array($rows) ? $rows : array(),
 				'total'       => $total,
 				'page'        => $page,
 				'per_page'    => $per_page,
+				'offset'      => $offset,
+				'show_all'    => 0 === $requested,
 				'columns'     => $columns,
 				'primary_key' => $this->detect_primary_column($columns),
+				'unique_keys' => $this->unique_columns($table),
+				'sql'         => $sql,
+				'time'        => round($took, 4),
 			)
 		);
 	}
 
 	public function ajax_pm_structure(): void {
 		$this->auth();
+		global $wpdb;
 		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
-		wp_send_json_success(array('structure' => $this->get_table_structure($table)));
+		$indexes = $wpdb->get_results('SHOW INDEX FROM `' . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$status = $wpdb->get_row($wpdb->prepare('SHOW TABLE STATUS LIKE %s', $table), ARRAY_A);
+		wp_send_json_success(array(
+			'structure' => $this->get_table_structure($table),
+			'indexes'   => is_array($indexes) ? $indexes : array(),
+			'status'    => is_array($status) ? $status : array(),
+		));
 	}
 
 	public function ajax_pm_query(): void {
@@ -274,22 +311,34 @@ class Database_Manager_Module extends Module_Base {
 			wp_send_json_error(array('message' => $e->getMessage()), 400);
 		}
 		$start = microtime(true);
-		$is_select = (bool) preg_match('/^\s*(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i', $query);
+		$is_select = (bool) preg_match('/^\s*(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN|CHECK|ANALYZE)\b/i', $query);
+		$wpdb->last_error = '';
 		if ($is_select) {
 			$data = $wpdb->get_results($query, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		} else {
 			$data = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
 		$elapsed = round((microtime(true) - $start) * 1000, 2);
-		$this->push_query_history($query, $elapsed, true);
+		$error = (string) $wpdb->last_error;
+		$this->push_query_history($query, $elapsed, '' === $error);
+		if ('' !== $error) {
+			wp_send_json_error(array('message' => $error, 'query' => $query, 'history' => array_slice((array) get_option(self::HISTORY_OPTION, array()), -50)), 400);
+		}
 		Operation_Logger::log('db', 'SQL executed from phpmyadmin UI', array('query' => $query, 'time_ms' => $elapsed));
+		$rows = $is_select && is_array($data) ? $data : array();
+		$count = count($rows);
 		wp_send_json_success(
 			array(
-				'result'  => $data,
-				'time_ms' => $elapsed,
-				'slow'    => $elapsed > 500,
-				'type'    => $is_select ? 'select' : 'write',
-				'history' => array_slice((array) get_option(self::HISTORY_OPTION, array()), -50),
+				'result'    => $is_select ? array_slice($rows, 0, self::QUERY_ROW_LIMIT) : $data,
+				'columns'   => $is_select ? array_values(array_map('strval', (array) $wpdb->get_col_info('name'))) : array(),
+				'count'     => $count,
+				'truncated' => $count > self::QUERY_ROW_LIMIT,
+				'affected'  => $is_select ? 0 : (int) $wpdb->rows_affected,
+				'insert_id' => $is_select ? 0 : (int) $wpdb->insert_id,
+				'time_ms'   => $elapsed,
+				'slow'      => $elapsed > 500,
+				'type'      => $is_select ? 'select' : 'write',
+				'history'   => array_slice((array) get_option(self::HISTORY_OPTION, array()), -50),
 			)
 		);
 	}
@@ -334,16 +383,24 @@ class Database_Manager_Module extends Module_Base {
 			wp_send_json_error(array('message' => 'Safe mode is enabled. Deletion blocked.'), 400);
 		}
 		$table = $this->sanitize_table_name_or_throw(sanitize_text_field(wp_unslash($_POST['table'] ?? '')));
-		$where = isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- row values are stored exactly as entered; written with $wpdb->insert/update placeholders.
-		if (! is_array($where) || empty($where)) {
-			wp_send_json_error(array('message' => 'Delete requires WHERE conditions.'), 400);
+		// One row ("where") or several selected rows ("wheres").
+		$wheres = isset($_POST['wheres']) ? json_decode((string) wp_unslash($_POST['wheres']), true) : null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- values are used through $wpdb->delete placeholders.
+		if (! is_array($wheres)) {
+			$wheres = array(isset($_POST['where']) ? json_decode((string) wp_unslash($_POST['where']), true) : array()); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- values are used through $wpdb->delete placeholders.
 		}
-		$result = $wpdb->delete($table, $this->sanitize_row_payload($where)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		if (false === $result) {
-			wp_send_json_error(array('message' => $wpdb->last_error ?: 'Delete failed'), 400);
+		$affected = 0;
+		foreach (array_slice($wheres, 0, 1000) as $where) {
+			if (! is_array($where) || empty($where)) {
+				wp_send_json_error(array('message' => 'Delete requires WHERE conditions.'), 400);
+			}
+			$result = $wpdb->delete($table, $this->sanitize_row_payload($where)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			if (false === $result) {
+				wp_send_json_error(array('message' => $wpdb->last_error ?: 'Delete failed', 'affected' => $affected), 400);
+			}
+			$affected += (int) $result;
 		}
-		Operation_Logger::log('db', 'Row deleted', array('table' => $table, 'affected' => (int) $result));
-		wp_send_json_success(array('affected' => (int) $result));
+		Operation_Logger::log('db', 'Row deleted', array('table' => $table, 'affected' => $affected));
+		wp_send_json_success(array('affected' => $affected));
 	}
 
 	public function ajax_pm_export(): void {
@@ -389,6 +446,10 @@ class Database_Manager_Module extends Module_Base {
 			$result = $this->run_table_maintenance($table, $operation);
 			wp_send_json_success(array('result' => $result));
 		}
+		if ('check' === $operation || 'analyze' === $operation) {
+			$result = $wpdb->get_results(('check' === $operation ? 'CHECK TABLE `' : 'ANALYZE TABLE `') . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			wp_send_json_success(array('result' => is_array($result) ? $result : array()));
+		}
 		if ('empty' === $operation) {
 			if ((bool) get_option(self::SAFE_MODE_OPTION, true)) {
 				wp_send_json_error(array('message' => 'Safe mode is enabled. TRUNCATE blocked.'), 400);
@@ -422,8 +483,92 @@ class Database_Manager_Module extends Module_Base {
 	 */
 	private function get_table_structure(string $table): array {
 		global $wpdb;
-		$rows = $wpdb->get_results('SHOW COLUMNS FROM `' . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		// FULL adds Collation and Comment (shown on the Structure tab).
+		$rows = $wpdb->get_results('SHOW FULL COLUMNS FROM `' . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		return is_array($rows) ? $rows : array();
+	}
+
+	/**
+	 * Columns of the first unique index, used to identify rows when there is no primary key.
+	 *
+	 * @return array<int,string>
+	 */
+	private function unique_columns(string $table): array {
+		global $wpdb;
+		$indexes = $wpdb->get_results('SHOW INDEX FROM `' . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$by_key = array();
+		foreach ((array) $indexes as $index) {
+			if (0 === (int) ($index['Non_unique'] ?? 1)) {
+				$by_key[(string) $index['Key_name']][(int) $index['Seq_in_index']] = (string) $index['Column_name'];
+			}
+		}
+		if (isset($by_key['PRIMARY'])) {
+			ksort($by_key['PRIMARY']);
+			return array_values($by_key['PRIMARY']);
+		}
+		foreach ($by_key as $cols) {
+			ksort($cols);
+			return array_values($cols);
+		}
+		return array();
+	}
+
+	/**
+	 * One "query by example" condition: {col, op, value}, with a fixed list of operators.
+	 */
+	private function build_condition(array $filter, array $col_names): string {
+		global $wpdb;
+		$col = (string) ($filter['col'] ?? '');
+		$op = (string) ($filter['op'] ?? '');
+		$value = (string) ($filter['value'] ?? '');
+		if (! in_array($col, $col_names, true)) {
+			return '';
+		}
+		$c = '`' . esc_sql($col) . '`';
+		switch ($op) {
+			case 'IS NULL':
+			case 'IS NOT NULL':
+				return $c . ' ' . $op;
+			case "= ''":
+				return $c . " = ''";
+			case "!= ''":
+				return $c . " != ''";
+		}
+		if ('' === $value) {
+			return '';
+		}
+		switch ($op) {
+			case 'LIKE':
+			case 'NOT LIKE':
+				return $wpdb->prepare($c . ' ' . $op . ' %s', $value); // phpcs:ignore WordPress.DB.PreparedSQL
+			case 'LIKE %...%':
+				return $wpdb->prepare($c . ' LIKE %s', '%' . $wpdb->esc_like($value) . '%'); // phpcs:ignore WordPress.DB.PreparedSQL
+			case 'NOT LIKE %...%':
+				return $wpdb->prepare($c . ' NOT LIKE %s', '%' . $wpdb->esc_like($value) . '%'); // phpcs:ignore WordPress.DB.PreparedSQL
+			case '=':
+			case '!=':
+			case '>':
+			case '>=':
+			case '<':
+			case '<=':
+			case 'REGEXP':
+			case 'NOT REGEXP':
+				return $wpdb->prepare($c . ' ' . $op . ' %s', $value); // phpcs:ignore WordPress.DB.PreparedSQL
+			case 'IN (...)':
+			case 'NOT IN (...)':
+				$items = array_values(array_filter(array_map('trim', explode(',', $value)), 'strlen'));
+				if (empty($items)) {
+					return '';
+				}
+				return $wpdb->prepare($c . ('IN (...)' === $op ? ' IN (' : ' NOT IN (') . implode(', ', array_fill(0, count($items), '%s')) . ')', $items); // phpcs:ignore WordPress.DB.PreparedSQL
+			case 'BETWEEN':
+				$range = array_map('trim', explode(',', $value, 2));
+				if (2 !== count($range)) {
+					return '';
+				}
+				return $wpdb->prepare($c . ' BETWEEN %s AND %s', $range[0], $range[1]); // phpcs:ignore WordPress.DB.PreparedSQL
+		}
+		return '';
 	}
 
 	private function auth(): void {
@@ -504,7 +649,11 @@ class Database_Manager_Module extends Module_Base {
 	private function sanitize_row_payload(array $payload): array {
 		$out = array();
 		foreach ($payload as $key => $value) {
-			$out[ sanitize_key((string) $key) ] = is_scalar($value) || null === $value ? $value : wp_json_encode($value);
+			$key = (string) $key;
+			if (! preg_match('/^[A-Za-z0-9_$]+$/', $key)) {
+				continue;
+			}
+			$out[ $key ] = is_scalar($value) || null === $value ? $value : wp_json_encode($value);
 		}
 		return $out;
 	}

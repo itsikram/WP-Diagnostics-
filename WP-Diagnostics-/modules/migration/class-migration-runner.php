@@ -27,12 +27,15 @@ class Migration_Runner {
 	private const DEFAULT_PARALLEL = 4;
 	// Seconds between progress saves inside a step.
 	private const PROGRESS_EVERY = 0.4;
+	// Seconds between progress reports to the other site.
+	private const REPORT_EVERY = 2.5;
 
 	private array $state;
 	private float $started;
 	private float $last_save = 0.0;
 	// Set when a stage starts, so its first message is saved right away.
 	private bool $new_stage = true;
+	private float $last_report = 0.0;
 	private ?Remote_Client $client = null;
 	private ?Migration_API $local = null;
 
@@ -412,6 +415,39 @@ class Migration_Runner {
 		file_put_contents(self::job_file($this->state['id']), wp_json_encode($this->state), LOCK_EX);
 		$this->write_progress();
 		$this->last_save = microtime(true);
+		$this->report_to_peer('running' !== $this->state['status']);
+	}
+
+	/**
+	 * Tell the other site how the migration is going, so its Site Migration page
+	 * can show it too. Best effort: a failed report never stops the migration.
+	 */
+	private function report_to_peer(bool $force): void {
+		if (! $this->remote_has('progress') || (! $force && microtime(true) - $this->last_report < self::REPORT_EVERY)) {
+			return;
+		}
+		$this->last_report = microtime(true);
+		$s = $this->summary();
+		try {
+			$this->client()->call('progress', array(
+				'id'          => $s['id'],
+				'from'        => untrailingslashit(home_url()),
+				'from_label'  => get_bloginfo('name'),
+				'direction'   => $s['direction'],
+				'status'      => $s['status'],
+				'phase'       => $s['phase'],
+				'message'     => $s['message'],
+				'error'       => $s['error'],
+				'percent'     => $s['percent'],
+				'tables'      => $s['tables'],
+				'components'  => $s['components'],
+				'files_count' => $s['files_count'],
+				'stats'       => $s['stats'],
+				'log'         => array_slice($s['log'], -20),
+			), 10, 1);
+		} catch (\Throwable $e) {
+			// Not worth slowing the migration down: try again at the next report.
+		}
 	}
 
 	/**

@@ -30,7 +30,7 @@ class Migration_Engine {
 	// Capabilities newer than API v2; the other side must list one before it is used.
 	// 'paths': browse files and migrate only selected files and folders.
 	// 'repo': check plugins and themes against WordPress.org and install them from there.
-	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo');
+	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo', 'progress');
 	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
 	// WordPress content tables used by both "add as new content" and content replacement.
 	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
