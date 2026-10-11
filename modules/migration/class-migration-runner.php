@@ -28,7 +28,12 @@ class Migration_Runner {
 	// Seconds between progress saves inside a step.
 	private const PROGRESS_EVERY = 0.4;
 	// Seconds between progress reports to the other site.
-	private const REPORT_EVERY = 2.5;
+	private const REPORT_EVERY = 3.0;
+	// Seconds a step may spend in remote calls before stopping, well under the
+	// 300 s time limit raise_limits() sets, so a slow call never kills the request.
+	private const CALL_WINDOW = 200;
+	// Smallest upload per request when the connection is slow.
+	private const MIN_CHUNK = 256 * KB_IN_BYTES;
 
 	private array $state;
 	private float $started;
@@ -426,6 +431,10 @@ class Migration_Runner {
 		if (! $this->remote_has('progress') || (! $force && microtime(true) - $this->last_report < self::REPORT_EVERY)) {
 			return;
 		}
+		// After a failed report, pause reports for a minute instead of adding a slow request every few seconds.
+		if (time() < (int) ($this->state['report_off_until'] ?? 0)) {
+			return;
+		}
 		$this->last_report = microtime(true);
 		$s = $this->summary();
 		try {
@@ -444,9 +453,10 @@ class Migration_Runner {
 				'files_count' => $s['files_count'],
 				'stats'       => $s['stats'],
 				'log'         => array_slice($s['log'], -20),
-			), 10, 1);
+			), 5, 1);
 		} catch (\Throwable $e) {
-			// Not worth slowing the migration down: try again at the next report.
+			// Not worth slowing the migration down.
+			$this->state['report_off_until'] = time() + 60;
 		}
 	}
 
@@ -1108,6 +1118,7 @@ class Migration_Runner {
 		$this->state['message'] = sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed']));
 
 		$errors = array();
+		$round_started = microtime(true);
 		$reads = array();
 		foreach ($batches as $b => $batch) {
 			$reads[$b] = array('requests' => $batch['reqs'], 'raw' => true);
@@ -1185,7 +1196,15 @@ class Migration_Runner {
 		$this->state['message'] = sprintf('Transferring files… %s / %s (%s of %s files)', size_format($f['done_bytes']), size_format(max($f['bytes_total'], $f['done_bytes'])), number_format_i18n($f['done_files']), number_format_i18n($f['changed']));
 
 		if (! empty($errors)) {
+			// Too much data per request for this connection: retry the rest with smaller requests.
+			if (self::is_timeout((string) reset($errors)) && $this->shrink_transfer($limit)) {
+				return;
+			}
 			throw new \RuntimeException((string) reset($errors));
+		}
+		// A fast round after slowing down: allow larger requests again, step by step.
+		if (! empty($f['chunk_cap']) && microtime(true) - $round_started < 20) {
+			$f['chunk_cap'] = (int) ($f['chunk_cap'] * 1.5);
 		}
 	}
 
@@ -1373,7 +1392,32 @@ class Migration_Runner {
 			// This site holds every parallel batch in memory at once.
 			$limit = min($limit, (int) ($local / ($this->parallel() * 5)));
 		}
-		return (int) max(256 * KB_IN_BYTES, $limit);
+		// Lowered after uploads timed out (slow connection).
+		if (! empty($this->state['files']['chunk_cap'])) {
+			$limit = min($limit, (int) $this->state['files']['chunk_cap']);
+		}
+		return (int) max(self::MIN_CHUNK, $limit);
+	}
+
+	/**
+	 * Requests timed out because they carry more data than the connection moves
+	 * in time: send less per request from now on, instead of failing.
+	 *
+	 * @return bool False when already at the smallest size.
+	 */
+	private function shrink_transfer(int $current): bool {
+		$f = &$this->state['files'];
+		if ($current <= self::MIN_CHUNK && $this->parallel() <= 1) {
+			return false;
+		}
+		$f['chunk_cap'] = max(self::MIN_CHUNK, intdiv($current, 2));
+		$this->state['par'] = max(1, intdiv($this->parallel(), 2));
+		$this->log(sprintf('The connection to the other site is slow: sending %s per request, %d at a time.', size_format($f['chunk_cap']), $this->parallel()));
+		return true;
+	}
+
+	private static function is_timeout(string $error): bool {
+		return (bool) preg_match('/timed out|timeout|did not answer in time/i', $error);
 	}
 
 	private function parallel(): int {
@@ -1549,6 +1593,7 @@ class Migration_Runner {
 		if (null === $this->client) {
 			$this->client = new Remote_Client($this->state['site']['url'], $this->state['key'], $this->state['transport']);
 			$this->client->set_wire($this->remote_has('wire'), $this->remote_has('solid'));
+			$this->client->set_deadline($this->started + self::CALL_WINDOW);
 		}
 		return $this->client;
 	}

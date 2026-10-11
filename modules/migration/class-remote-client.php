@@ -23,6 +23,8 @@ class Remote_Client {
 	private string $redirected_url = '';
 	private bool $wire = false;
 	private bool $solid = false;
+	// Unix time by which every call must be finished (0: no limit).
+	private float $deadline = 0.0;
 
 	/** @var resource|\CurlMultiHandle|null Shared multi handle: keeps connections alive between calls. */
 	private static $multi = null;
@@ -49,6 +51,30 @@ class Remote_Client {
 	}
 
 	/**
+	 * Finish every call (including retries) before this Unix time, so the PHP
+	 * request is never killed by max_execution_time in the middle of a step.
+	 */
+	public function set_deadline(float $deadline): void {
+		$this->deadline = $deadline;
+	}
+
+	/**
+	 * Timeout for the next request, shortened to fit the deadline.
+	 *
+	 * @throws \RuntimeException When no time is left.
+	 */
+	private function time_for(int $timeout): int {
+		if ($this->deadline <= 0) {
+			return $timeout;
+		}
+		$left = (int) floor($this->deadline - microtime(true));
+		if ($left < 5) {
+			throw new \RuntimeException('Timed out: the other site did not answer in time for this step.');
+		}
+		return min($timeout, $left);
+	}
+
+	/**
 	 * URL the remote site redirected to (e.g. http → https), if any.
 	 */
 	public function get_redirected_url(): string {
@@ -69,7 +95,7 @@ class Remote_Client {
 			$attempts = 0;
 			while ($attempts < $max_attempts) {
 				$attempts++;
-				$result = $this->send($transport, $action, $params, $timeout);
+				$result = $this->send($transport, $action, $params, $this->time_for($timeout));
 				if (isset($result['envelope'])) {
 					$env = $result['envelope'];
 					if (! empty($env['ok'])) {
@@ -88,7 +114,7 @@ class Remote_Client {
 					throw new \RuntimeException('Remote site: ' . (string) ($env['error'] ?? 'Unknown error'));
 				}
 				$last_error = (string) ($result['error'] ?? 'Unknown error');
-				if (empty($result['retry']) || $attempts >= $max_attempts) {
+				if (empty($result['retry']) || $attempts >= $max_attempts || ($this->deadline > 0 && $this->deadline - microtime(true) < $attempts + 10)) {
 					break;
 				}
 				sleep($attempts);
@@ -133,6 +159,7 @@ class Remote_Client {
 			return $out;
 		}
 
+		$timeout = $this->time_for($timeout);
 		$requests = array();
 		$slot = 0;
 		foreach ($list as $k => $params) {
@@ -150,6 +177,12 @@ class Remote_Client {
 		$retry = array();
 		foreach (array_keys($requests) as $k) {
 			$result = $this->interpret($responses[$k], $action);
+			if (! empty($responses[$k]['timed_out'])) {
+				// Retrying the same large request one by one would only time out again
+				// (and run past PHP's time limit): report it so the caller can send less.
+				$fail($k, (string) $result['error']);
+				continue;
+			}
 			if (isset($result['envelope'])) {
 				$env = $result['envelope'];
 				if (! empty($env['ok'])) {
@@ -412,7 +445,7 @@ class Remote_Client {
 				CURLOPT_HTTPHEADER     => $headers,
 				CURLOPT_RETURNTRANSFER => true,
 				CURLOPT_FOLLOWLOCATION => false,
-				CURLOPT_CONNECTTIMEOUT => 20,
+				CURLOPT_CONNECTTIMEOUT => min(20, (int) $req['timeout']),
 				CURLOPT_TIMEOUT        => (int) $req['timeout'],
 				CURLOPT_SSL_VERIFYPEER => $verify,
 				CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
@@ -453,7 +486,10 @@ class Remote_Client {
 			$errno = $errors[$k] ?? curl_errno($ch);
 			if (0 !== $errno) {
 				$msg = curl_error($ch);
-				$out[$k] = array('error' => '' !== $msg ? $msg : (function_exists('curl_strerror') ? curl_strerror($errno) : 'cURL error ' . $errno));
+				$out[$k] = array(
+					'error'     => '' !== $msg ? $msg : (function_exists('curl_strerror') ? curl_strerror($errno) : 'cURL error ' . $errno),
+					'timed_out' => CURLE_OPERATION_TIMEDOUT === $errno,
+				);
 			} else {
 				$code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 				$out[$k] = in_array($code, array(301, 302, 303, 307, 308), true) && '' !== $locations[$k]

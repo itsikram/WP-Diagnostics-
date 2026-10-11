@@ -44,6 +44,10 @@ class Advanced_Diagnostics_Module extends Module_Base {
 	public function capture_request_sample(): void {
 		global $wpdb;
 
+		if (! \WUDT\Includes\Request_Sampler::should_sample()) {
+			return;
+		}
+
 		// Check if options table exists before writing (during restore it may not exist)
 		if (!isset($wpdb) || !$wpdb->ready) {
 			return;
