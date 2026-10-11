@@ -51,9 +51,9 @@ class Cron_Module extends Module_Base {
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
-		$action    = isset($_POST['cron_action']) ? sanitize_text_field((string) wp_unslash($_POST['cron_action'])) : '';
-		$hook      = isset($_POST['hook']) ? sanitize_text_field((string) wp_unslash($_POST['hook'])) : '';
-		$timestamp = isset($_POST['timestamp']) ? (int) wp_unslash($_POST['timestamp']) : 0;
+		$action    = isset($_POST['cron_action']) ? sanitize_text_field(wp_unslash($_POST['cron_action'])) : '';
+		$hook      = isset($_POST['hook']) ? sanitize_text_field(wp_unslash($_POST['hook'])) : '';
+		$timestamp = isset($_POST['timestamp']) ? absint(wp_unslash($_POST['timestamp'])) : 0;
 		$args      = isset($_POST['args']) ? json_decode((string) wp_unslash($_POST['args']), true) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- event arguments must match the scheduled event exactly to unschedule it.
 		if (! is_array($args)) {
 			$args = array();

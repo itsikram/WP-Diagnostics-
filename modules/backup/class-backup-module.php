@@ -16,6 +16,10 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- backup archives are uploaded and downloaded in chunks; WP_Filesystem only reads or writes whole files.
+
 class Backup_Module extends Module_Base {
 	private const OPTION_SCHEDULE = 'wudt_backup_schedule';
 	private const CRON_HOOK = 'wudt_scheduled_backup_event';
@@ -93,12 +97,14 @@ class Backup_Module extends Module_Base {
 	/* ------------------------------ AJAX ------------------------------- */
 
 	public function ajax_state(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success($this->state());
 	}
 
 	public function ajax_start(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
 			if (Backup_Runner::active_job()) {
 				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'diagnostics-toolkit'));
@@ -127,7 +133,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_inspect(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
 			$info = Backup_Runner::inspect(Backup_Store::path(sanitize_text_field(wp_unslash($_POST['name'] ?? ''))));
 			wp_send_json_success(array(
@@ -145,7 +152,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_restore_start(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
 			if (Backup_Runner::active_job()) {
 				throw new \RuntimeException(__('Another backup or restore is running. Wait for it to finish.', 'diagnostics-toolkit'));
@@ -160,7 +168,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_delete(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
 			Backup_Store::delete(sanitize_text_field(wp_unslash($_POST['name'] ?? '')));
 			Operation_Logger::log('backup', 'Backup deleted', array('name' => sanitize_text_field(wp_unslash($_POST['name'] ?? ''))));
@@ -174,7 +183,7 @@ class Backup_Module extends Module_Base {
 	 * Stream a backup to an administrator (backups are never publicly reachable).
 	 */
 	public function ajax_download(): void {
-		if (! current_user_can('manage_options') || ! wp_verify_nonce((string) wp_unslash($_GET['nonce'] ?? ''), 'wudt_admin_nonce')) {
+		if (! current_user_can('manage_options') || ! wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['nonce'] ?? '')), 'wudt_admin_nonce')) {
 			wp_die(esc_html__('Your session expired. Reload the page and try again.', 'diagnostics-toolkit'), 403);
 		}
 		try {
@@ -205,11 +214,12 @@ class Backup_Module extends Module_Base {
 	 * Receive a backup file from the browser in chunks (works past upload limits).
 	 */
 	public function ajax_upload_chunk(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
-			$upload_id = preg_replace('/[^a-zA-Z0-9]/', '', (string) wp_unslash($_POST['upload_id'] ?? ''));
-			$offset = (int) ($_POST['offset'] ?? 0);
-			$total = (int) ($_POST['total'] ?? 0);
+			$upload_id = preg_replace('/[^a-zA-Z0-9]/', '', sanitize_text_field(wp_unslash($_POST['upload_id'] ?? '')));
+			$offset = absint(wp_unslash($_POST['offset'] ?? 0));
+			$total = absint(wp_unslash($_POST['total'] ?? 0));
 			$name = sanitize_file_name((string) wp_unslash($_POST['name'] ?? 'backup.zip'));
 			if (strlen((string) $upload_id) < 12 || ! preg_match('/\.zip$/i', $name)) {
 				throw new \RuntimeException(__('Only .zip backup files can be uploaded.', 'diagnostics-toolkit'));
@@ -236,11 +246,11 @@ class Backup_Module extends Module_Base {
 				if (file_exists($final)) {
 					$final = $dir . '/' . preg_replace('/\.zip$/i', '', $name) . '-' . strtolower(wp_generate_password(4, false, false)) . '.zip';
 				}
-				rename($partial, $final);
+				rename($partial, $final); // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- moves the finished upload into the plugin's backup folder.
 				try {
 					Backup_Runner::inspect($final);
 				} catch (\Throwable $e) {
-					@unlink($final);
+					wp_delete_file($final);
 					throw $e;
 				}
 				Backup_Store::save_meta(basename($final), array('note' => __('Uploaded', 'diagnostics-toolkit'), 'components' => Backup_Runner::inspect($final)['components'], 'trigger' => 'uploaded', 'created' => time()));
@@ -254,13 +264,14 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_schedule(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
 		$config = array(
 			'enabled'    => ! empty($_POST['enabled']),
 			'frequency'  => sanitize_key((string) wp_unslash($_POST['frequency'] ?? 'daily')),
 			'components' => is_array($components) ? array_values(array_intersect(array_merge(array('database'), Migration_Engine::COMPONENTS), $components)) : array(),
-			'keep'       => max(1, min(30, (int) ($_POST['keep'] ?? 5))),
+			'keep'       => max(1, min(30, absint(wp_unslash($_POST['keep'] ?? 5)))),
 		);
 		update_option(self::OPTION_SCHEDULE, $config, false);
 		$config = $this->schedule();
@@ -273,7 +284,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_rollback(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		Migration_Engine::raise_limits();
 		try {
 			$result = (new Migration_Engine())->rollback();
@@ -287,7 +299,8 @@ class Backup_Module extends Module_Base {
 	}
 
 	public function ajax_discard_rollback(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		(new Migration_Engine())->discard_rollback();
 		wp_send_json_success($this->state());
 	}

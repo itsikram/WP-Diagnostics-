@@ -52,9 +52,10 @@ class Progress_Monitor_Module extends Module_Base {
 	 * Get progress for a specific operation
 	 */
 	public function ajax_get_progress(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		
-		$operation_id = sanitize_text_field((string) wp_unslash($_POST['operation_id'] ?? ''));
+		$operation_id = sanitize_text_field(wp_unslash($_POST['operation_id'] ?? ''));
 		
 		if (empty($operation_id)) {
 			wp_send_json_error(array('message' => 'Operation ID required'));
@@ -74,11 +75,12 @@ class Progress_Monitor_Module extends Module_Base {
 	 * Get all operations
 	 */
 	public function ajax_get_all_operations(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		
 		$type = sanitize_key((string) wp_unslash($_POST['type'] ?? ''));
 		$status = sanitize_key((string) wp_unslash($_POST['status'] ?? ''));
-		$limit = min(100, (int) ($_POST['limit'] ?? 50));
+		$limit = min(100, absint(wp_unslash($_POST['limit'] ?? 50)));
 		
 		$operations = Progress_Tracker::get_all_operations($limit);
 		
@@ -107,9 +109,10 @@ class Progress_Monitor_Module extends Module_Base {
 	 * Cancel an operation
 	 */
 	public function ajax_cancel_operation(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		
-		$operation_id = sanitize_text_field((string) wp_unslash($_POST['operation_id'] ?? ''));
+		$operation_id = sanitize_text_field(wp_unslash($_POST['operation_id'] ?? ''));
 		
 		if (empty($operation_id)) {
 			wp_send_json_error(array('message' => 'Operation ID required'));
@@ -133,9 +136,10 @@ class Progress_Monitor_Module extends Module_Base {
 	 * Cleanup old operations
 	 */
 	public function ajax_cleanup_operations(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		
-		$older_than = (int) ($_POST['older_than_hours'] ?? 24);
+		$older_than = absint(wp_unslash($_POST['older_than_hours'] ?? 24));
 		$deleted = Progress_Tracker::cleanup_old($older_than * HOUR_IN_SECONDS);
 		
 		wp_send_json_success(array(
@@ -152,7 +156,8 @@ class Progress_Monitor_Module extends Module_Base {
 	 * Get progress for all modules
 	 */
 	public function ajax_get_module_progress(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		
 		$modules = $this->get_all_module_status();
 		$active = Progress_Tracker::get_all_active();
@@ -267,24 +272,6 @@ class Progress_Monitor_Module extends Module_Base {
 				'can_run' => true,
 				'estimated_time' => '5-10 seconds',
 			),
-			'file_manager' => array(
-				'label' => __('File Manager', 'diagnostics-toolkit'),
-				'icon' => 'dash dash-open-folder',
-				'status' => 'ready',
-				'last_run' => null,
-				'can_run' => true,
-				'estimated_time' => 'On demand',
-				'is_pro' => true,
-			),
-			'database_manager' => array(
-				'label' => __('Database Manager', 'diagnostics-toolkit'),
-				'icon' => 'dash dash-database',
-				'status' => 'ready',
-				'last_run' => null,
-				'can_run' => true,
-				'estimated_time' => 'On demand',
-				'is_pro' => true,
-			),
 			'malware_scanner' => array(
 				'label' => __('Malware Scanner', 'diagnostics-toolkit'),
 				'icon' => 'dash dash-shield',
@@ -293,7 +280,6 @@ class Progress_Monitor_Module extends Module_Base {
 				'can_run' => true,
 				'estimated_time' => '1-5 minutes',
 				'is_long_running' => true,
-				'is_pro' => true,
 			),
 			'backup' => array(
 				'label' => __('Backup', 'diagnostics-toolkit'),
@@ -304,7 +290,6 @@ class Progress_Monitor_Module extends Module_Base {
 				'can_run' => true,
 				'estimated_time' => '1-10 minutes',
 				'is_long_running' => true,
-				'is_pro' => true,
 			),
 			'restore' => array(
 				'label' => __('Restore', 'diagnostics-toolkit'),
@@ -314,16 +299,6 @@ class Progress_Monitor_Module extends Module_Base {
 				'can_run' => true,
 				'estimated_time' => '1-10 minutes',
 				'is_long_running' => true,
-				'is_pro' => true,
-			),
-			'ai_assistant' => array(
-				'label' => __('AI Assistant', 'diagnostics-toolkit'),
-				'icon' => 'dash dash-art',
-				'status' => 'ready',
-				'last_run' => null,
-				'can_run' => true,
-				'estimated_time' => '2-10 seconds',
-				'is_pro' => true,
 			),
 		);
 

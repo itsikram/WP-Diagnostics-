@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name:       Diagnostics Toolkit
- * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, database and file manager, backups, site migration and an AI troubleshooting assistant.
+ * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, backups and site migration.
  * Version:           1.11.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            Programmer Ikram
  * Author URI:        https://profiles.wordpress.org/itsikram/
- * License:           GPL-2.0-or-later
+ * License:           GPLv2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       diagnostics-toolkit
  */
@@ -58,17 +58,11 @@ function safe_require(string $relative_path): void {
 	}
 }
 
-/**
- * Load permission handler first to catch permission errors early
- */
-safe_require('includes/class-permission-handler.php');
-
 safe_require('includes/class-module-base.php');
 safe_require('includes/class-operation-logger.php');
 safe_require('includes/class-request-sampler.php');
 safe_require('includes/class-failsafe-manager.php');
 safe_require('includes/class-security-guard.php');
-safe_require('includes/class-ai-config.php');
 safe_require('includes/class-rescue-manager.php');
 safe_require('modules/system-info.php');
 safe_require('modules/error-logger.php');
@@ -82,13 +76,9 @@ safe_require('modules/file-integrity.php');
 safe_require('modules/external-requests.php');
 safe_require('modules/advanced-diagnostics.php');
 safe_require('modules/pro-logs.php');
-safe_require('modules/file-manager/class-file-manager-module.php');
-safe_require('modules/database-manager/class-database-manager-module.php');
 safe_require('modules/malware-scanner/class-malware-scanner-module.php');
 safe_require('modules/backup/class-backup-runner.php');
 safe_require('modules/backup/class-backup-module.php');
-safe_require('modules/restore/class-media-url-handler.php');
-safe_require('modules/restore/class-restore-module.php');
 safe_require('modules/migration/class-migration-replacer.php');
 safe_require('modules/migration/class-migration-wire.php');
 safe_require('modules/migration/class-migration-engine.php');
@@ -105,16 +95,7 @@ safe_require('modules/malware/class-security-audit.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
 safe_require('modules/recovery/class-crash-recovery-module.php');
 safe_require('modules/auto-recovery/class-auto-recovery-module.php');
-safe_require('modules/state/class-state-module.php');
 safe_require('admin/class-settings-page.php');
-safe_require('modules/ai-assistant/class-context-builder.php');
-safe_require('modules/ai-assistant/class-response-parser.php');
-safe_require('modules/ai-assistant/class-ai-client.php');
-safe_require('modules/ai-assistant/class-ai-changes.php');
-safe_require('modules/ai-assistant/class-ai-tools.php');
-safe_require('modules/ai-assistant/class-ai-agent.php');
-safe_require('modules/ai-assistant/class-ai-service.php');
-safe_require('modules/ai-assistant/class-ai-controller.php');
 safe_require('modules/progress-monitor/class-progress-tracker.php');
 safe_require('modules/progress-monitor/class-progress-monitor-module.php');
 safe_require('modules/search-tool/class-search-matcher.php');
@@ -128,8 +109,6 @@ safe_require('admin/class-admin-page.php');
 safe_require('admin/class-pro-admin-page.php');
 safe_require('admin/class-debug-page.php');
 safe_require('admin/class-backup-page.php');
-safe_require('admin/class-ai-assistant-page.php');
-safe_require('admin/class-file-manager-page.php');
 safe_require('admin/class-progress-page.php');
 safe_require('admin/class-modern-admin-page.php');
 safe_require('admin/class-search-page.php');

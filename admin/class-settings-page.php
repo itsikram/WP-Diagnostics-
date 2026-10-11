@@ -1,13 +1,12 @@
 <?php
 /**
- * Plugin settings page for AI model configuration and other options.
+ * Plugin settings page: debug mode, PHP limits and media source.
  */
 
 declare(strict_types=1);
 
 namespace WUDT\Admin;
 
-use WUDT\Includes\AI_Config;
 use WUDT\Modules\Migration\Live_Media;
 
 if (! defined('ABSPATH')) {
@@ -15,12 +14,6 @@ if (! defined('ABSPATH')) {
 }
 
 class Settings_Page {
-	private const OPTION_AI_PROVIDER = 'wudt_ai_provider';
-	private const OPTION_AI_MODEL = 'wudt_ai_model';
-	private const OPTION_AI_API_KEY = 'wudt_ai_api_key';
-	private const OPTION_AI_TEMPERATURE = 'wudt_ai_temperature';
-	private const OPTION_AI_MAX_TOKENS = 'wudt_ai_max_tokens';
-	private const OPTION_AI_ALLOW_FILE_OPS = 'wudt_ai_allow_file_ops';
 
 	// WordPress Debug Settings
 	private const OPTION_WP_DEBUG = 'wudt_wp_debug_enabled';
@@ -37,7 +30,6 @@ class Settings_Page {
 	public function register_hooks(): void {
 		add_action('admin_menu', array($this, 'register_menu'));
 		add_action('admin_post_wudt_save_settings', array($this, 'handle_save_settings'));
-		add_action('admin_post_wudt_create_admin_user', array($this, 'handle_create_admin_user'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
 		add_action('init', array($this, 'apply_runtime_settings'), 1);
 		add_action('wp_ajax_wudt_save_settings_async', array($this, 'ajax_save_settings'));
@@ -55,7 +47,8 @@ class Settings_Page {
 	}
 
 	public function enqueue_assets(string $hook): void {
-		if ('wp-diagnostics_page_wudt-settings' !== $hook) {
+		// The hook name starts with the menu title, so match the page slug at the end.
+		if ('_page_wudt-settings' !== substr($hook, -strlen('_page_wudt-settings'))) {
 			return;
 		}
 
@@ -69,21 +62,21 @@ class Settings_Page {
 	}
 
 	public function handle_save_settings(): void {
-		$this->authorize_action('wudt_save_settings');
+		check_admin_referer('wudt_save_settings');
+		$this->authorize_action();
 
-		$this->save_ai_fields();
 
 		// WordPress Debug Settings - Also update wp-config.php for 100% functionality
-		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
+		$wp_debug = isset($_POST['wp_debug']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug']));
 		update_option(self::OPTION_WP_DEBUG, $wp_debug, false);
 
-		$wp_debug_log = isset($_POST['wp_debug_log']) && '1' === (string) wp_unslash($_POST['wp_debug_log']);
+		$wp_debug_log = isset($_POST['wp_debug_log']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug_log']));
 		update_option(self::OPTION_WP_DEBUG_LOG, $wp_debug_log, false);
 
-		$wp_debug_display = isset($_POST['wp_debug_display']) && '1' === (string) wp_unslash($_POST['wp_debug_display']);
+		$wp_debug_display = isset($_POST['wp_debug_display']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug_display']));
 		update_option(self::OPTION_WP_DEBUG_DISPLAY, $wp_debug_display, false);
 
-		$wp_cache = isset($_POST['wp_cache']) && '1' === (string) wp_unslash($_POST['wp_cache']);
+		$wp_cache = isset($_POST['wp_cache']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_cache']));
 		update_option(self::OPTION_WP_CACHE, $wp_cache, false);
 
 		// Update wp-config.php with WordPress debug constants
@@ -95,16 +88,16 @@ class Settings_Page {
 		);
 
 		// PHP Settings
-		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field((string) wp_unslash($_POST['memory_limit'])) : '256M';
+		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field(wp_unslash($_POST['memory_limit'])) : '256M';
 		update_option(self::OPTION_MEMORY_LIMIT, $memory_limit, false);
 
-		$max_upload_size = isset($_POST['max_upload_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_upload_size'])) : '64M';
+		$max_upload_size = isset($_POST['max_upload_size']) ? sanitize_text_field(wp_unslash($_POST['max_upload_size'])) : '64M';
 		update_option(self::OPTION_MAX_UPLOAD_SIZE, $max_upload_size, false);
 
-		$max_post_size = isset($_POST['max_post_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_post_size'])) : '64M';
+		$max_post_size = isset($_POST['max_post_size']) ? sanitize_text_field(wp_unslash($_POST['max_post_size'])) : '64M';
 		update_option(self::OPTION_MAX_POST_SIZE, $max_post_size, false);
 
-		$max_execution_time = isset($_POST['max_execution_time']) ? (int) wp_unslash($_POST['max_execution_time']) : 300;
+		$max_execution_time = isset($_POST['max_execution_time']) ? absint(wp_unslash($_POST['max_execution_time'])) : 300;
 		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
 
 		$media_error = $this->save_media_source_fields();
@@ -142,7 +135,7 @@ class Settings_Page {
 			return new \WP_Error('config_not_readable', __('wp-config.php is not readable.', 'diagnostics-toolkit'));
 		}
 		
-		if (! is_writable($config_file)) {
+		if (! wp_is_writable($config_file)) {
 			return new \WP_Error('config_not_writable', __('wp-config.php is not writable. Please check file permissions.', 'diagnostics-toolkit'));
 		}
 		
@@ -153,7 +146,7 @@ class Settings_Page {
 		}
 		
 		// Create backup
-		$backup_file = $config_file . '.backup-' . date('Y-m-d-H-i-s');
+		$backup_file = $config_file . '.backup-' . gmdate('Y-m-d-H-i-s');
 		if (false === file_put_contents($backup_file, $config_content)) {
 			return new \WP_Error('backup_failed', __('Failed to create wp-config.php backup.', 'diagnostics-toolkit'));
 		}
@@ -197,7 +190,7 @@ class Settings_Page {
 		$expected_value = $wp_debug ? 'true' : 'false';
 		if (strtolower($matches[1]) !== $expected_value) {
 			return new \WP_Error('config_value_mismatch', sprintf(
-				__('WP_DEBUG value mismatch: expected %s but found %s.', 'diagnostics-toolkit'),
+				/* translators: 1: expected value, 2: value found in wp-config.php. */ __('WP_DEBUG value mismatch: expected %1$s but found %2$s.', 'diagnostics-toolkit'),
 				$expected_value,
 				$matches[1]
 			));
@@ -268,64 +261,6 @@ class Settings_Page {
 	/**
 	 * Handle admin user creation with example credentials
 	 */
-	public function handle_create_admin_user(): void {
-		$this->authorize_action('wudt_create_admin_user');
-
-		$username = isset($_POST['admin_username']) ? sanitize_user((string) wp_unslash($_POST['admin_username'])) : '';
-		$email = isset($_POST['admin_email']) ? sanitize_email((string) wp_unslash($_POST['admin_email'])) : '';
-		$password = isset($_POST['admin_password']) ? (string) wp_unslash($_POST['admin_password']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- passwords must not be altered; passed to wp_insert_user().
-		$role = isset($_POST['admin_role']) ? sanitize_text_field((string) wp_unslash($_POST['admin_role'])) : 'administrator';
-
-		// Validation
-		if (empty($username) || empty($email) || empty($password)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('All fields are required.', 'diagnostics-toolkit'))));
-			exit;
-		}
-
-		if (! is_email($email)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Invalid email address.', 'diagnostics-toolkit'))));
-			exit;
-		}
-
-		if (username_exists($username)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Username already exists.', 'diagnostics-toolkit'))));
-			exit;
-		}
-
-		if (email_exists($email)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode(__('Email already exists.', 'diagnostics-toolkit'))));
-			exit;
-		}
-
-		// Validate role
-		$valid_roles = array('administrator', 'editor', 'author', 'contributor', 'subscriber');
-		if (! in_array($role, $valid_roles, true)) {
-			$role = 'administrator';
-		}
-
-		// Create user
-		$user_id = wp_create_user($username, $password, $email);
-
-		if (is_wp_error($user_id)) {
-			wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_error=1&message=' . urlencode($user_id->get_error_message())));
-			exit;
-		}
-
-		// Set role
-		$user = new \WP_User($user_id);
-		$user->set_role($role);
-
-		// Send notification
-		wp_new_user_notification($user_id, null, 'user');
-
-		// Redirect with success
-		wp_safe_redirect(admin_url('admin.php?page=wudt-settings&user_created=1&username=' . urlencode($username) . '&email=' . urlencode($email)));
-		exit;
-	}
-
-	/**
-	 * AJAX handler for async settings save
-	 */
 	public function ajax_save_settings(): void {
 		check_ajax_referer('wudt_save_settings_async', 'nonce');
 		
@@ -334,19 +269,17 @@ class Settings_Page {
 			return;
 		}
 
-		$this->save_ai_fields();
-
 		// WordPress Debug Settings
-		$wp_debug = isset($_POST['wp_debug']) && '1' === (string) wp_unslash($_POST['wp_debug']);
+		$wp_debug = isset($_POST['wp_debug']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug']));
 		update_option(self::OPTION_WP_DEBUG, $wp_debug, false);
 
-		$wp_debug_log = isset($_POST['wp_debug_log']) && '1' === (string) wp_unslash($_POST['wp_debug_log']);
+		$wp_debug_log = isset($_POST['wp_debug_log']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug_log']));
 		update_option(self::OPTION_WP_DEBUG_LOG, $wp_debug_log, false);
 
-		$wp_debug_display = isset($_POST['wp_debug_display']) && '1' === (string) wp_unslash($_POST['wp_debug_display']);
+		$wp_debug_display = isset($_POST['wp_debug_display']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_debug_display']));
 		update_option(self::OPTION_WP_DEBUG_DISPLAY, $wp_debug_display, false);
 
-		$wp_cache = isset($_POST['wp_cache']) && '1' === (string) wp_unslash($_POST['wp_cache']);
+		$wp_cache = isset($_POST['wp_cache']) && '1' === sanitize_text_field(wp_unslash($_POST['wp_cache']));
 		update_option(self::OPTION_WP_CACHE, $wp_cache, false);
 
 		// Update wp-config.php with WordPress debug constants
@@ -358,16 +291,16 @@ class Settings_Page {
 		);
 
 		// PHP Settings
-		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field((string) wp_unslash($_POST['memory_limit'])) : '256M';
+		$memory_limit = isset($_POST['memory_limit']) ? sanitize_text_field(wp_unslash($_POST['memory_limit'])) : '256M';
 		update_option(self::OPTION_MEMORY_LIMIT, $memory_limit, false);
 
-		$max_upload_size = isset($_POST['max_upload_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_upload_size'])) : '64M';
+		$max_upload_size = isset($_POST['max_upload_size']) ? sanitize_text_field(wp_unslash($_POST['max_upload_size'])) : '64M';
 		update_option(self::OPTION_MAX_UPLOAD_SIZE, $max_upload_size, false);
 
-		$max_post_size = isset($_POST['max_post_size']) ? sanitize_text_field((string) wp_unslash($_POST['max_post_size'])) : '64M';
+		$max_post_size = isset($_POST['max_post_size']) ? sanitize_text_field(wp_unslash($_POST['max_post_size'])) : '64M';
 		update_option(self::OPTION_MAX_POST_SIZE, $max_post_size, false);
 
-		$max_execution_time = isset($_POST['max_execution_time']) ? (int) wp_unslash($_POST['max_execution_time']) : 300;
+		$max_execution_time = isset($_POST['max_execution_time']) ? absint(wp_unslash($_POST['max_execution_time'])) : 300;
 		update_option(self::OPTION_MAX_EXECUTION_TIME, max(30, min(600, $max_execution_time)), false);
 
 		$media_error = $this->save_media_source_fields();
@@ -401,7 +334,7 @@ class Settings_Page {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {
@@ -437,13 +370,6 @@ class Settings_Page {
 			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
 
-		$ai_provider = get_option(self::OPTION_AI_PROVIDER, 'gemini');
-		$ai_model = get_option(self::OPTION_AI_MODEL, 'gemini-2.5-flash');
-		$ai_api_key = get_option(self::OPTION_AI_API_KEY, '');
-		$ai_temperature = (float) get_option(self::OPTION_AI_TEMPERATURE, 0.7);
-		$ai_max_tokens = (int) get_option(self::OPTION_AI_MAX_TOKENS, 2000);
-		$ai_allow_file_ops = (bool) get_option(self::OPTION_AI_ALLOW_FILE_OPS, false);
-
 		// WordPress Debug Settings - Read from wp-config.php for 100% accuracy
 		$wp_config_constants = $this->get_wp_config_constants();
 		$wp_debug = $wp_config_constants['WP_DEBUG'] ?? (bool) get_option(self::OPTION_WP_DEBUG, false);
@@ -459,15 +385,18 @@ class Settings_Page {
 
 		$media = Live_Media::settings();
 		$media_local_url = untrailingslashit((string) wp_get_upload_dir()['baseurl']);
-		$media_error = isset($_GET['media_error']) ? sanitize_text_field(rawurldecode((string) wp_unslash($_GET['media_error']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+		$media_error = isset($_GET['media_error']) ? sanitize_text_field(wp_unslash($_GET['media_error'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification
 
-		$saved = isset($_GET['saved']) && '1' === $_GET['saved'];
-		$wp_config_error = isset($_GET['wp_config_error']) ? sanitize_text_field((string) wp_unslash($_GET['wp_config_error'])) : '';
+		// Notice flags added by this page's own redirect after saving; they only choose which notice to show.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		$saved = isset($_GET['saved']) && '1' === sanitize_text_field(wp_unslash($_GET['saved']));
+		$wp_config_error = isset($_GET['wp_config_error']) ? sanitize_text_field(wp_unslash($_GET['wp_config_error'])) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 		?>
 		<div class="wudt-fullscreen-page">
 			<div style="padding: 20px; overflow-y: auto;">
 				<h1><?php esc_html_e('Diagnostics Toolkit Settings', 'diagnostics-toolkit'); ?></h1>
-				<p><?php esc_html_e('Configure AI models, API keys, and other plugin settings.', 'diagnostics-toolkit'); ?></p>
+				<p><?php esc_html_e('Configure debug mode, PHP limits and media settings.', 'diagnostics-toolkit'); ?></p>
 
 				<?php if ($saved) : ?>
 					<div class="notice notice-success is-dismissible">
@@ -488,69 +417,11 @@ class Settings_Page {
 					</div>
 				<?php endif; ?>
 
-				<div class="wudt-card" style="max-width: 860px;">
-					<h2><?php esc_html_e('AI Assistant Configuration', 'diagnostics-toolkit'); ?></h2>
-					<p class="description">
-						<?php esc_html_e('Choose your preferred AI model and configure API access.', 'diagnostics-toolkit'); ?>
-					</p>
-
 				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="wudt-settings-form">
 					<input type="hidden" name="action" value="wudt_save_settings" />
 					<?php wp_nonce_field('wudt_save_settings'); ?>
 
-					<p class="description"><?php esc_html_e('Add a key for Google Gemini and/or Anthropic Claude (both can be saved; switch any time in the AI Assistant). Keys are stored encrypted.', 'diagnostics-toolkit'); ?></p>
-					<table class="form-table">
-						<tbody>
-							<tr>
-								<th scope="row"><label for="ai_provider"><?php esc_html_e('Default provider', 'diagnostics-toolkit'); ?></label></th>
-								<td>
-									<select name="ai_provider" id="ai_provider">
-										<?php foreach (AI_Config::providers() as $pid => $pinfo) : ?>
-											<option value="<?php echo esc_attr($pid); ?>" <?php selected(AI_Config::active_provider(), $pid); ?>><?php echo esc_html($pinfo['label']); ?></option>
-										<?php endforeach; ?>
-									</select>
-								</td>
-							</tr>
-							<?php foreach (AI_Config::providers() as $pid => $pinfo) : $preview = AI_Config::key_preview($pid); ?>
-							<tr>
-								<th scope="row"><label for="ai_key_<?php echo esc_attr($pid); ?>"><?php echo esc_html($pinfo['label']); ?></label></th>
-								<td>
-									<input type="password" autocomplete="new-password" name="ai_key[<?php echo esc_attr($pid); ?>]" id="ai_key_<?php echo esc_attr($pid); ?>" class="regular-text"
-										placeholder="<?php echo esc_attr($preview ? sprintf(__('Saved (%s) — leave blank to keep', 'diagnostics-toolkit'), $preview) : sprintf(__('API key (%s)', 'diagnostics-toolkit'), $pinfo['key_hint'])); ?>" />
-									<input type="text" name="ai_model[<?php echo esc_attr($pid); ?>]" value="<?php echo esc_attr(AI_Config::get_model($pid)); ?>" class="regular-text" list="wudt-models-<?php echo esc_attr($pid); ?>" style="max-width:240px" aria-label="<?php esc_attr_e('Model', 'diagnostics-toolkit'); ?>" />
-									<datalist id="wudt-models-<?php echo esc_attr($pid); ?>">
-										<?php foreach ($pinfo['models'] as $m) : ?><option value="<?php echo esc_attr($m); ?>"></option><?php endforeach; ?>
-									</datalist>
-									<?php if ($preview) : ?>
-										<label style="margin-left:8px"><input type="checkbox" name="ai_key_remove[<?php echo esc_attr($pid); ?>]" value="1"> <?php esc_html_e('Remove key', 'diagnostics-toolkit'); ?></label>
-									<?php endif; ?>
-									<p class="description"><a href="<?php echo esc_url($pinfo['key_url']); ?>" target="_blank" rel="noopener"><?php esc_html_e('Get an API key', 'diagnostics-toolkit'); ?></a></p>
-								</td>
-							</tr>
-							<?php endforeach; ?>
-							<tr>
-								<th scope="row"><?php esc_html_e('Agent changes', 'diagnostics-toolkit'); ?></th>
-								<td>
-									<label><input type="checkbox" name="ai_auto_approve" value="1" <?php checked(AI_Config::auto_approve()); ?>> <?php esc_html_e('Let the agent make changes without asking for approval each time', 'diagnostics-toolkit'); ?></label>
-									<p class="description"><?php esc_html_e('Every change is backed up and can be undone from the AI Assistant either way.', 'diagnostics-toolkit'); ?></p>
-								</td>
-							</tr>
-							<tr>
-								<th scope="row"><label for="ai_temperature"><?php esc_html_e('Temperature', 'diagnostics-toolkit'); ?></label></th>
-								<td><input type="number" name="ai_temperature" id="ai_temperature" value="<?php echo esc_attr((string) AI_Config::temperature()); ?>" step="0.1" min="0" max="1" class="small-text" /></td>
-							</tr>
-							<tr>
-								<th scope="row"><label for="ai_max_tokens"><?php esc_html_e('Max output tokens', 'diagnostics-toolkit'); ?></label></th>
-								<td>
-									<input type="number" name="ai_max_tokens" id="ai_max_tokens" value="<?php echo esc_attr((string) AI_Config::max_tokens()); ?>" step="1000" min="1024" max="64000" class="small-text" />
-									<p class="description"><?php esc_html_e('Large Elementor pages need a high limit (16000 or more).', 'diagnostics-toolkit'); ?></p>
-								</td>
-							</tr>
-						</tbody>
-					</table>
-				</div>
-
-				<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
+				<div class="wudt-card" style="max-width: 860px;">
 					<h2><?php esc_html_e('WordPress Debug Settings', 'diagnostics-toolkit'); ?></h2>
 					<p class="description">
 						<?php esc_html_e('Control WordPress debug mode by directly editing wp-config.php. These settings are 100% functional and persistent.', 'diagnostics-toolkit'); ?>
@@ -728,7 +599,7 @@ class Settings_Page {
 											printf(
 												/* translators: 1: source site, 2: date */
 												esc_html__('Active since %2$s%1$s.', 'diagnostics-toolkit'),
-												'' !== $media['site'] ? ' ' . esc_html(sprintf(__('(set up by migration from %s)', 'diagnostics-toolkit'), $media['site'])) : '',
+												'' !== $media['site'] ? ' ' . esc_html(sprintf(/* translators: %s: name of the connected site. */ __('(set up by migration from %s)', 'diagnostics-toolkit'), $media['site'])) : '',
 												esc_html(wp_date((string) get_option('date_format') . ' ' . (string) get_option('time_format'), $media['since']))
 											);
 											?>
@@ -775,150 +646,11 @@ class Settings_Page {
 							<?php esc_html_e('Save All Settings', 'diagnostics-toolkit'); ?>
 						</button>
 					</p>
+				</div>
 				</form>
 			</div>
-
-			<!-- Admin User Creation Section -->
-			<div class="wudt-card" style="max-width: 860px; margin-top: 20px;">
-				<h2><?php esc_html_e('Create Admin User', 'diagnostics-toolkit'); ?></h2>
-				<p class="description">
-					<?php esc_html_e('Create a new WordPress admin user with example credentials. All fields are required.', 'diagnostics-toolkit'); ?>
-				</p>
-
-				<?php if (isset($_GET['user_created']) && '1' === $_GET['user_created']) : ?>
-					<div class="notice notice-success is-dismissible">
-						<p>
-							<?php
-							echo esc_html(
-								sprintf(
-									/* translators: 1: Username, 2: Email */
-									__('User created successfully! Username: %1$s, Email: %2$s', 'diagnostics-toolkit'),
-									sanitize_text_field((string) wp_unslash($_GET['username'] ?? '')),
-									sanitize_email((string) wp_unslash($_GET['email'] ?? ''))
-								)
-							);
-							?>
-						</p>
-					</div>
-				<?php endif; ?>
-
-				<?php if (isset($_GET['user_error']) && '1' === $_GET['user_error']) : ?>
-					<div class="notice notice-error is-dismissible">
-						<p><?php echo esc_html(sanitize_text_field((string) wp_unslash($_GET['message'] ?? __('An error occurred.', 'diagnostics-toolkit')))); ?></p>
-					</div>
-				<?php endif; ?>
-
-				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-					<input type="hidden" name="action" value="wudt_create_admin_user" />
-					<?php wp_nonce_field('wudt_create_admin_user'); ?>
-
-					<table class="form-table">
-						<tbody>
-							<tr>
-								<th scope="row">
-									<label for="admin_username"><?php esc_html_e('Username', 'diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="text" name="admin_username" id="admin_username" class="regular-text" 
-										placeholder="<?php esc_attr_e('e.g., admin2024', 'diagnostics-toolkit'); ?>" required />
-									<p class="description">
-										<?php esc_html_e('Unique username for the new admin user.', 'diagnostics-toolkit'); ?>
-									</p>
-								</td>
-							</tr>
-
-							<tr>
-								<th scope="row">
-									<label for="admin_email"><?php esc_html_e('Email', 'diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="email" name="admin_email" id="admin_email" class="regular-text" 
-										placeholder="<?php esc_attr_e('e.g., admin@example.com', 'diagnostics-toolkit'); ?>" required />
-									<p class="description">
-										<?php esc_html_e('Valid email address for the user.', 'diagnostics-toolkit'); ?>
-									</p>
-								</td>
-							</tr>
-
-							<tr>
-								<th scope="row">
-									<label for="admin_password"><?php esc_html_e('Password', 'diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<input type="text" name="admin_password" id="admin_password" class="regular-text" 
-										value="AdminPass123!" required />
-									<button type="button" class="button" onclick="document.getElementById('admin_password').value = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2).toUpperCase() + '!@';">
-										<?php esc_html_e('Generate Random', 'diagnostics-toolkit'); ?>
-									</button>
-									<p class="description">
-										<?php esc_html_e('Strong password for the user. Click generate for a random password.', 'diagnostics-toolkit'); ?>
-									</p>
-								</td>
-							</tr>
-
-							<tr>
-								<th scope="row">
-									<label for="admin_role"><?php esc_html_e('Role', 'diagnostics-toolkit'); ?></label>
-								</th>
-								<td>
-									<select name="admin_role" id="admin_role" class="regular-text">
-										<option value="administrator"><?php esc_html_e('Administrator', 'diagnostics-toolkit'); ?></option>
-										<option value="editor"><?php esc_html_e('Editor', 'diagnostics-toolkit'); ?></option>
-										<option value="author"><?php esc_html_e('Author', 'diagnostics-toolkit'); ?></option>
-										<option value="contributor"><?php esc_html_e('Contributor', 'diagnostics-toolkit'); ?></option>
-										<option value="subscriber"><?php esc_html_e('Subscriber', 'diagnostics-toolkit'); ?></option>
-									</select>
-									<p class="description">
-										<?php esc_html_e('User role. Administrator has full access.', 'diagnostics-toolkit'); ?>
-									</p>
-								</td>
-							</tr>
-						</tbody>
-					</table>
-
-					<p class="submit">
-						<button type="submit" class="button button-primary">
-							<?php esc_html_e('Create User', 'diagnostics-toolkit'); ?>
-						</button>
-					</p>
-				</form>
-			</div>
-
 		</div>
 		<?php
-	}
-
-	/**
-	 * Save AI provider settings (per-provider keys and models).
-	 */
-	private function save_ai_fields(): void {
-		$keys = isset($_POST['ai_key']) && is_array($_POST['ai_key']) ? wp_unslash($_POST['ai_key']) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-		foreach ($keys as $provider => $key) {
-			$key = trim((string) $key);
-			if ('' !== $key && AI_Config::is_provider((string) $provider)) {
-				AI_Config::set_key((string) $provider, $key);
-			}
-		}
-		$remove = isset($_POST['ai_key_remove']) && is_array($_POST['ai_key_remove']) ? array_keys(wp_unslash($_POST['ai_key_remove'])) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-		foreach ($remove as $provider) {
-			AI_Config::set_key((string) $provider, '');
-		}
-		$models = isset($_POST['ai_model']) && is_array($_POST['ai_model']) ? wp_unslash($_POST['ai_model']) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-		foreach ($models as $provider => $model) {
-			if (AI_Config::is_provider((string) $provider) && '' !== trim((string) $model)) {
-				AI_Config::set_model((string) $provider, sanitize_text_field((string) $model));
-			}
-		}
-		if (isset($_POST['ai_provider'])) {
-			AI_Config::set_active_provider(sanitize_key((string) wp_unslash($_POST['ai_provider'])));
-		}
-		update_option(AI_Config::OPTION_AUTO_APPROVE, ! empty($_POST['ai_auto_approve']), false);
-		if (isset($_POST['ai_temperature'])) {
-			update_option(self::OPTION_AI_TEMPERATURE, max(0, min(1, (float) wp_unslash($_POST['ai_temperature']))), false);
-		}
-		if (isset($_POST['ai_max_tokens'])) {
-			update_option(self::OPTION_AI_MAX_TOKENS, max(1024, min(64000, (int) wp_unslash($_POST['ai_max_tokens']))), false);
-		}
 	}
 
 	/**
@@ -971,50 +703,10 @@ class Settings_Page {
 		return '';
 	}
 
-	private function authorize_action(string $nonce_action): void {
+	private function authorize_action(): void {
 		if (! current_user_can('manage_options')) {
 			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
-		check_admin_referer($nonce_action);
-	}
-
-	/**
-	 * Get the configured AI provider.
-	 */
-	public static function get_ai_provider(): string {
-		return AI_Config::active_provider();
-	}
-
-	/**
-	 * Get the configured AI model.
-	 */
-	public static function get_ai_model(): string {
-		return AI_Config::get_model(AI_Config::active_provider());
-	}
-
-	public static function is_ai_file_ops_allowed(): bool {
-		return (bool) get_option(self::OPTION_AI_ALLOW_FILE_OPS, false);
-	}
-
-	/**
-	 * Get the configured API key.
-	 */
-	public static function get_api_key(): string {
-		return AI_Config::get_key(AI_Config::active_provider());
-	}
-
-	/**
-	 * Get the configured temperature.
-	 */
-	public static function get_temperature(): float {
-		return (float) get_option(self::OPTION_AI_TEMPERATURE, 0.7);
-	}
-
-	/**
-	 * Get the configured max tokens.
-	 */
-	public static function get_max_tokens(): int {
-		return (int) get_option(self::OPTION_AI_MAX_TOKENS, 2000);
 	}
 
 	/**

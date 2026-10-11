@@ -20,6 +20,8 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
 class Migration_API {
 	public const KEY_OPTION = 'wudt_local_api_key';
 	private const MAX_SKEW = 900;

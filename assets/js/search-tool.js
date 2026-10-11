@@ -218,8 +218,10 @@
 
 	function updateReplaceButton() {
 		const $btn = $('#wudt-preview-replace-btn');
-		const ok = hasResults() && !isStale() && !state.busy;
-		$btn.prop('disabled', !ok).attr('title', ok ? '' : (hasResults() ? 'Search again with the current options first' : 'Run a search first'));
+		// Replacing works on database matches only; file matches are read-only.
+		const hasDb = !!(state.db && state.db.results && state.db.results.length);
+		const ok = hasDb && !isStale() && !state.busy;
+		$btn.prop('disabled', !ok).attr('title', ok ? '' : (!hasResults() ? 'Run a search first' : (!hasDb ? 'Replace works on database matches; file matches are read-only' : 'Search again with the current options first')));
 		$('#wudt-sr-stale').toggle(isStale() && hasResults());
 	}
 
@@ -720,7 +722,7 @@
 	// Replace
 	// ============================================
 	function previewReplace() {
-		if (!hasResults() || isStale() || state.busy) {
+		if (!(state.db && state.db.results && state.db.results.length) || isStale() || state.busy) {
 			return;
 		}
 
@@ -733,10 +735,6 @@
 		state.busy = true;
 
 		const result = { replace: replace, files: null, db: null, errors: [] };
-		if (state.files && state.files.files.length) {
-			jobs.push(request('wudt_preview_replace_files', $.extend(fileParams(p), { replace: replace }))
-				.then(function (d) { result.files = d; }, function (e) { result.errors.push(e); }));
-		}
 		if (state.db && state.db.results.length) {
 			jobs.push(request('wudt_preview_replace_db', $.extend(dbParams(p), { replace: replace }))
 				.then(function (d) { result.db = d; }, function (e) { result.errors.push(e); }));
@@ -882,10 +880,6 @@
 			return data;
 		};
 
-		if (filesSel.run) {
-			jobs.push(request('wudt_execute_replace_files', withSelection($.extend(fileParams(p), common), filesSel))
-				.then(function (d) { outcome.files = d; }, function (e) { outcome.errors.push(e); }));
-		}
 		if (dbSel.run) {
 			jobs.push(request('wudt_execute_replace_db', withSelection($.extend(dbParams(p), common), dbSel))
 				.then(function (d) { outcome.db = d; }, function (e) { outcome.errors.push(e); }));

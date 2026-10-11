@@ -7,9 +7,8 @@ declare(strict_types=1);
 
 use WUDT\Includes\Operation_Logger;
 use WUDT\Modules\Advanced_Diagnostics_Module;
-use WUDT\Modules\DatabaseManager\Database_Manager_Module;
+use WUDT\Modules\DB_Tools_Module;
 use WUDT\Modules\File_Integrity_Module;
-use WUDT\Modules\FileManager\File_Manager_Module;
 use WUDT\Modules\MalwareScanner\Malware_Scanner_Module;
 use WUDT\Modules\Performance_Module;
 use WUDT\Modules\Security_Module;
@@ -265,38 +264,6 @@ class WUDT_Diagnostics_CLI {
 	}
 
 	/**
-	 * Search files by name/content.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [--path=<path>]
-	 * : Base path to scan. Default ABSPATH.
-	 *
-	 * [--query=<query>]
-	 * : Query text for name/content search.
-	 *
-	 * [--limit=<limit>]
-	 * : Max results. Default 200.
-	 *
-	 * @param array<int,string> $args Positional args.
-	 * @param array<string,mixed> $assoc_args Assoc args.
-	 */
-	public function file_scan(array $args, array $assoc_args): void {
-		$path   = isset($assoc_args['path']) ? (string) $assoc_args['path'] : ABSPATH;
-		$query  = isset($assoc_args['query']) ? (string) $assoc_args['query'] : '';
-		$limit  = isset($assoc_args['limit']) ? max(1, (int) $assoc_args['limit']) : 200;
-		$module = new File_Manager_Module();
-		$rows   = '' !== $query ? $module->search_in_path($path, $query, $limit) : $module->get_directory_listing($path);
-		if (empty($rows)) {
-			WP_CLI::warning('No file scan results found.');
-		} else {
-			$fields = isset($rows[0]['kind']) ? array('path', 'kind') : array('name', 'path', 'type', 'size');
-			Utils\format_items('table', $rows, $fields);
-		}
-		$this->log_action('file_scan', true, array('path' => $path, 'query' => $query, 'count' => count($rows)));
-	}
-
-	/**
 	 * Run WordPress core file integrity check.
 	 *
 	 * @param array<int,string> $args Positional args.
@@ -323,18 +290,10 @@ class WUDT_Diagnostics_CLI {
 	 */
 	private function run_db_maintenance(string $action, array $assoc_args): void {
 		$table  = isset($assoc_args['table']) ? sanitize_text_field((string) $assoc_args['table']) : '';
-		$module = new Database_Manager_Module();
-		$stats  = $module->get_table_stats_report();
-		$tables = array();
-
-		if ('' !== $table) {
-			$tables[] = $table;
-		} else {
-			foreach ($stats as $status) {
-				if (! empty($status['Name'])) {
-					$tables[] = (string) $status['Name'];
-				}
-			}
+		$all    = DB_Tools_Module::table_names();
+		$tables = '' !== $table ? array_values(array_intersect(array($table), $all)) : $all;
+		if ('' !== $table && empty($tables)) {
+			WP_CLI::error('Unknown table: ' . $table);
 		}
 
 		if (empty($tables)) {
@@ -348,7 +307,7 @@ class WUDT_Diagnostics_CLI {
 		$results = array();
 		foreach ($tables as $current) {
 			WP_CLI::log(strtoupper($action) . ': ' . $current);
-			$result    = $module->run_table_maintenance($current, $action);
+			$result    = DB_Tools_Module::maintain($current, $action);
 			$results[] = array(
 				'table'  => $current,
 				'action' => $action,
@@ -444,16 +403,6 @@ class WUDT_Diagnostics_CLI_DB {
  * File group subcommands.
  */
 class WUDT_Diagnostics_CLI_File {
-	/**
-	 * Run file scan.
-	 *
-	 * @param array<int,string> $args Positional args.
-	 * @param array<string,mixed> $assoc_args Assoc args.
-	 */
-	public function scan(array $args, array $assoc_args): void {
-		(new WUDT_Diagnostics_CLI())->file_scan($args, $assoc_args);
-	}
-
 	/**
 	 * Run file integrity check.
 	 *

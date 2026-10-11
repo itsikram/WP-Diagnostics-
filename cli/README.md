@@ -33,7 +33,6 @@ wp diagnostics db repair --table=wp_posts --yes
 ## File Commands
 
 ```bash
-wp diagnostics file scan --path="/var/www/html" --query="eval(" --limit=100
 wp diagnostics file integrity
 ```
 

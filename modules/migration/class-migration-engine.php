@@ -23,6 +23,10 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- migration files and SQL chunks are streamed in parts; WP_Filesystem only reads or writes whole files.
+
 class Migration_Engine {
 	public const API_VERSION = 2;
 	// 'core' stays last so WordPress core files are moved into place after everything else.
@@ -73,7 +77,9 @@ class Migration_Engine {
 	 * Storage helpers
 	 * ------------------------------------------------------------------- */
 
+	// Lives in wp-content (not the plugin folder), so it survives plugin updates; denied to web access below.
 	public static function storage_dir(string $sub = ''): string {
+		// phpcs:disable PluginCheck.CodeAnalysis.WriteFile.PluginDirectoryWrite -- wp-content/wudt-migrations, not the plugin folder.
 		$base = wp_normalize_path(WP_CONTENT_DIR) . '/wudt-migrations';
 		if (! is_dir($base)) {
 			wp_mkdir_p($base);
@@ -91,6 +97,7 @@ class Migration_Engine {
 			wp_mkdir_p($dir);
 		}
 		return $dir;
+		// phpcs:enable PluginCheck.CodeAnalysis.WriteFile.PluginDirectoryWrite
 	}
 
 	public static function sanitize_job_id(string $job_id): string {
@@ -437,11 +444,8 @@ class Migration_Engine {
 			return '0x' . bin2hex($raw);
 		}
 		$value = (string) $value;
-		$dbh = $wpdb->dbh;
-		if ($dbh instanceof \mysqli) {
-			return "'" . mysqli_real_escape_string($dbh, $value) . "'";
-		}
-		return "'" . addslashes($value) . "'";
+		// _real_escape() uses the connection's charset; it also hides "%" behind a placeholder, undone here.
+		return "'" . $wpdb->remove_placeholder_escape($wpdb->_real_escape($value)) . "'";
 	}
 
 	private function prepare_session(): void {
@@ -902,7 +906,7 @@ class Migration_Engine {
 		$total = (int) get_transient('wudt_mig_count_' . md5($list_file));
 
 		if ($eof) {
-			@unlink($list_file);
+			wp_delete_file($list_file);
 		}
 
 		return array(
@@ -1315,7 +1319,7 @@ class Migration_Engine {
 				$actual = 0 === $offset ? md5($data) : (string) md5_file($target);
 				if (! empty($seg['h']) && $actual !== (string) $seg['h']) {
 					// The source file changed while it was being copied; let the driver retry it.
-					@unlink($target);
+					wp_delete_file($target);
 					$failed[] = array('c' => $component, 'p' => $rel);
 					continue;
 				}
@@ -1393,7 +1397,7 @@ class Migration_Engine {
 					}
 					$zip->close();
 				}
-				@unlink($zip_file);
+				wp_delete_file($zip_file);
 			}
 		}
 		@file_put_contents($cache, (string) wp_json_encode($sums));
@@ -1509,7 +1513,7 @@ class Migration_Engine {
 		$list = $stage . '/.staged-list';
 		$zip = new \ZipArchive();
 		if (true !== $zip->open($zip_file)) {
-			@unlink($zip_file);
+			wp_delete_file($zip_file);
 			throw new \RuntimeException('The download of ' . $slug . ' is not a valid zip file.');
 		}
 		$files = 0;
@@ -1542,7 +1546,7 @@ class Migration_Engine {
 			}
 		} finally {
 			$zip->close();
-			@unlink($zip_file);
+			wp_delete_file($zip_file);
 		}
 		if (0 === $files) {
 			throw new \RuntimeException('The WordPress.org package of ' . $slug . ' is empty.');
@@ -1643,11 +1647,11 @@ class Migration_Engine {
 	}
 
 	private static function move_file(string $from, string $to): bool {
-		if (@rename($from, $to)) {
+		if (@rename($from, $to)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename, WordPress.PHP.NoSilencedErrors.Discouraged -- atomic move of a staged migration file into place.
 			return true;
 		}
 		if (@copy($from, $to)) {
-			@unlink($from);
+			wp_delete_file($from);
 			return true;
 		}
 		return false;
@@ -1818,7 +1822,7 @@ class Migration_Engine {
 			return;
 		}
 		foreach ((array) glob($css_dir . '/*.css') as $file) {
-			@unlink((string) $file);
+			wp_delete_file((string) $file);
 		}
 	}
 
@@ -2410,9 +2414,9 @@ class Migration_Engine {
 				$target = (string) $entry['t'];
 				$backup = (string) ($entry['b'] ?? '');
 				if ('' === $backup) {
-					@unlink($target);
+					wp_delete_file($target);
 				} elseif (is_file($backup)) {
-					@unlink($target);
+					wp_delete_file($target);
 					self::move_file($backup, $target);
 				}
 				$restored++;
@@ -2464,14 +2468,14 @@ class Migration_Engine {
 		}
 		self::delete_tree(self::storage_dir() . '/stage-' . $job_id);
 		foreach ((array) glob(self::storage_dir('work') . '/' . $job_id . '-*') as $f) {
-			@unlink((string) $f);
+			wp_delete_file((string) $f);
 		}
 		return array('dropped' => $dropped);
 	}
 
 	public static function delete_tree(string $path): void {
 		if (is_link($path) || is_file($path)) {
-			@unlink($path);
+			wp_delete_file($path);
 			return;
 		}
 		if (! is_dir($path)) {
@@ -2483,12 +2487,12 @@ class Migration_Engine {
 		);
 		foreach ($iter as $item) {
 			if ($item->isDir() && ! $item->isLink()) {
-				@rmdir($item->getPathname());
+				@rmdir($item->getPathname()); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir, WordPress.PHP.NoSilencedErrors.Discouraged -- removes the plugin's own emptied staging folders.
 			} else {
-				@unlink($item->getPathname());
+				wp_delete_file($item->getPathname());
 			}
 		}
-		@rmdir($path);
+		@rmdir($path); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir, WordPress.PHP.NoSilencedErrors.Discouraged -- removes the plugin's own emptied staging folder.
 	}
 
 	/* ---------------------------------------------------------------------

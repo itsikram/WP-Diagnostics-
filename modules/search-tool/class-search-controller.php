@@ -42,9 +42,7 @@ class Search_Controller extends Module_Base {
 		add_action('wp_ajax_wudt_search_db_value', array($this, 'ajax_search_db_value'));
 
 		// Replace endpoints
-		add_action('wp_ajax_wudt_preview_replace_files', array($this, 'ajax_preview_replace_files'));
 		add_action('wp_ajax_wudt_preview_replace_db', array($this, 'ajax_preview_replace_db'));
-		add_action('wp_ajax_wudt_execute_replace_files', array($this, 'ajax_execute_replace_files'));
 		add_action('wp_ajax_wudt_execute_replace_db', array($this, 'ajax_execute_replace_db'));
 
 		// Undo backups
@@ -115,8 +113,10 @@ class Search_Controller extends Module_Base {
 	public function ajax_search_db_value(): void {
 		$search = $this->require_search();
 		$table  = $this->table_param('table');
-		$column = isset($_POST['column']) ? preg_replace('/[^A-Za-z0-9_$-]/', '', (string) wp_unslash($_POST['column'])) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- reduced to identifier characters.
-		$row_id = isset($_POST['row_id']) ? sanitize_text_field((string) wp_unslash($_POST['row_id'])) : '';
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- require_search() above ran check_ajax_referer().
+		$column = isset($_POST['column']) ? preg_replace('/[^A-Za-z0-9_$-]/', '', sanitize_text_field(wp_unslash($_POST['column']))) : '';
+		$row_id = isset($_POST['row_id']) ? sanitize_text_field(wp_unslash($_POST['row_id'])) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		$value = $this->db_search->fetch_value($table, (string) $column, $row_id);
 		if (null === $value) {
@@ -145,15 +145,6 @@ class Search_Controller extends Module_Base {
 	 * Replace
 	 * ------------------------------------------------------------------ */
 
-	public function ajax_preview_replace_files(): void {
-		$search  = $this->require_search();
-		$replace = $this->raw_param('replace');
-		$this->extend_time_limit();
-
-		$preview = $this->search_replace->preview_file_replacements($search, $replace, $this->build_file_search_options());
-		$this->respond($preview);
-	}
-
 	public function ajax_preview_replace_db(): void {
 		$search  = $this->require_search();
 		$replace = $this->raw_param('replace');
@@ -161,26 +152,6 @@ class Search_Controller extends Module_Base {
 
 		$preview = $this->search_replace->preview_db_replacements($search, $replace, $this->build_db_search_options());
 		$this->respond($preview);
-	}
-
-	public function ajax_execute_replace_files(): void {
-		$search  = $this->require_search();
-		$replace = $this->raw_param('replace');
-		$this->require_confirmation();
-		$this->extend_time_limit();
-
-		$result = $this->search_replace->execute_file_replacements(
-			$search,
-			$replace,
-			$this->build_file_search_options(),
-			$this->flag('backup'),
-			$this->selection_param()
-		);
-
-		if ($result['success']) {
-			$this->log('replace', 'File replace: ' . $search, array('files' => $result['files_modified'], 'backup' => $result['backup_id']));
-		}
-		$this->respond($result);
 	}
 
 	public function ajax_execute_replace_db(): void {
@@ -208,13 +179,15 @@ class Search_Controller extends Module_Base {
 	 * ------------------------------------------------------------------ */
 
 	public function ajax_list_backups(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success(array('backups' => Search_Backup::list_backups()));
 	}
 
 	public function ajax_restore_backup(): void {
-		Security_Guard::assert_ajax_admin();
-		$id     = isset($_POST['id']) ? sanitize_text_field((string) wp_unslash($_POST['id'])) : '';
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
+		$id     = isset($_POST['id']) ? sanitize_text_field(wp_unslash($_POST['id'])) : '';
 		$result = Search_Backup::restore($id, $this->flag('force'));
 
 		if ($result['success']) {
@@ -224,8 +197,9 @@ class Search_Controller extends Module_Base {
 	}
 
 	public function ajax_delete_backup(): void {
-		Security_Guard::assert_ajax_admin();
-		$id = isset($_POST['id']) ? sanitize_text_field((string) wp_unslash($_POST['id'])) : '';
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
+		$id = isset($_POST['id']) ? sanitize_text_field(wp_unslash($_POST['id'])) : '';
 		if (! Search_Backup::delete($id)) {
 			wp_send_json_error(array('message' => __('Backup not found.', 'diagnostics-toolkit')));
 		}
@@ -237,12 +211,14 @@ class Search_Controller extends Module_Base {
 	 * ------------------------------------------------------------------ */
 
 	public function ajax_get_tables(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success(array('tables' => $this->db_search->get_tables_info()));
 	}
 
 	public function ajax_get_table_columns(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$table = $this->table_param('table');
 		if ('' === $table) {
 			wp_send_json_error(array('message' => __('Table name is required.', 'diagnostics-toolkit')));
@@ -251,7 +227,8 @@ class Search_Controller extends Module_Base {
 	}
 
 	public function ajax_get_malware_patterns(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success(array('patterns' => File_Search::get_malware_patterns()));
 	}
 
@@ -259,7 +236,8 @@ class Search_Controller extends Module_Base {
 	 * Remember a search with its options so it can be re-run in one click.
 	 */
 	public function ajax_save_search_history(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 
 		$search = $this->raw_param('search');
 		if ('' === $search) {
@@ -289,12 +267,14 @@ class Search_Controller extends Module_Base {
 	}
 
 	public function ajax_get_search_history(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success(array('history' => self::get_history()));
 	}
 
 	public function ajax_clear_search_history(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		delete_option(self::HISTORY_OPTION);
 		wp_send_json_success(array('history' => array()));
 	}
@@ -323,7 +303,8 @@ class Search_Controller extends Module_Base {
 	 * Check the nonce + capability and return the search text.
 	 */
 	private function require_search(): string {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 
 		$search = $this->raw_param('search');
 		if ('' === $search) {
@@ -351,7 +332,7 @@ class Search_Controller extends Module_Base {
 
 	private function flag(string $key): bool {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked by caller.
-		return isset($_POST[ $key ]) && '1' === (string) wp_unslash($_POST[ $key ]);
+		return isset($_POST[ $key ]) && '1' === sanitize_text_field(wp_unslash($_POST[ $key ]));
 	}
 
 	/**
@@ -365,7 +346,7 @@ class Search_Controller extends Module_Base {
 
 	private function table_param(string $key): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked by caller.
-		$table = isset($_POST[ $key ]) ? preg_replace('/[^A-Za-z0-9_$]/', '', (string) wp_unslash($_POST[ $key ])) : '';
+		$table = isset($_POST[ $key ]) ? preg_replace('/[^A-Za-z0-9_$]/', '', sanitize_text_field(wp_unslash($_POST[ $key ]))) : '';
 		return $this->db_search->is_valid_table((string) $table) ? (string) $table : '';
 	}
 
@@ -392,7 +373,7 @@ class Search_Controller extends Module_Base {
 	 */
 	private function build_file_search_options(): array {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked by caller.
-		$key       = isset($_POST['directory']) ? sanitize_text_field((string) wp_unslash($_POST['directory'])) : 'wp-content';
+		$key       = isset($_POST['directory']) ? sanitize_text_field(wp_unslash($_POST['directory'])) : 'wp-content';
 		$directory = File_Search::resolve_directory($key);
 		if (null === $directory) {
 			wp_send_json_error(array('message' => __('Unknown folder selected.', 'diagnostics-toolkit')));

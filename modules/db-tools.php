@@ -13,6 +13,8 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
 class DB_Tools_Module extends Module_Base {
 	public function register_hooks(): void {
 		add_action('wp_ajax_wudt_db_action', array($this, 'ajax_db_action'));
@@ -48,44 +50,42 @@ class DB_Tools_Module extends Module_Base {
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
-		global $wpdb;
-		$action = isset($_POST['db_action']) ? sanitize_text_field((string) wp_unslash($_POST['db_action'])) : '';
-		$table  = isset($_POST['table']) ? sanitize_text_field((string) wp_unslash($_POST['table'])) : '';
-		if ('' === $table) {
-			wp_send_json_error(array('message' => __('Missing table parameter.', 'diagnostics-toolkit')), 400);
-		}
-		$this->backup_table($table);
-
-		$table_sql = '`' . esc_sql($table) . '`';
-		if ('repair' === $action) {
-			$result = $wpdb->get_results("REPAIR TABLE {$table_sql}", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		} else {
-			$result = $wpdb->get_results("OPTIMIZE TABLE {$table_sql}", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$action = isset($_POST['db_action']) ? sanitize_key(wp_unslash($_POST['db_action'])) : '';
+		$table  = isset($_POST['table']) ? sanitize_text_field(wp_unslash($_POST['table'])) : '';
+		try {
+			$result = self::maintain($table, $action);
+		} catch (\RuntimeException $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 400);
 		}
 		wp_send_json_success(array('result' => $result));
 	}
 
-	private function backup_table(string $table): void {
+	/**
+	 * Names of this site's database tables.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function table_names(): array {
 		global $wpdb;
-		$upload_dir = wp_get_upload_dir();
-		$dir        = trailingslashit($upload_dir['basedir']) . 'wudt-db-backups/';
-		if (! wp_mkdir_p($dir)) {
-			return;
+		$tables = $wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->base_prefix) . '%')); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return array_map('strval', is_array($tables) ? $tables : array());
+	}
+
+	/**
+	 * Optimize or repair one of this site's tables.
+	 *
+	 * @throws \RuntimeException When the table is not one of this site's tables.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function maintain(string $table, string $action): array {
+		global $wpdb;
+		if (! in_array($table, self::table_names(), true)) {
+			throw new \RuntimeException(__('Unknown table.', 'diagnostics-toolkit'));
 		}
-		$file = $dir . sanitize_file_name($table) . '-' . gmdate('Ymd-His') . '.sql';
-		$sql  = "-- Backup {$table}\n";
-		$row  = $wpdb->get_row('SHOW CREATE TABLE `' . esc_sql($table) . '`', ARRAY_N); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		if (is_array($row) && isset($row[1])) {
-			$sql .= $row[1] . ";\n\n";
-		}
-		$rows = $wpdb->get_results('SELECT * FROM `' . esc_sql($table) . '`', ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		if (is_array($rows)) {
-			foreach ($rows as $data) {
-				$columns = array_map(static fn( $col ): string => '`' . esc_sql((string) $col) . '`', array_keys($data));
-				$values  = array_map(static fn( $val ): string => "'" . esc_sql((string) $val) . "'", array_values($data));
-				$sql    .= 'INSERT INTO `' . esc_sql($table) . '` (' . implode(',', $columns) . ') VALUES (' . implode(',', $values) . ");\n";
-			}
-		}
-		file_put_contents($file, $sql); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		// The table name was checked against SHOW TABLES above; identifiers cannot be placeholders.
+		$sql    = ('repair' === $action ? 'REPAIR TABLE `' : 'OPTIMIZE TABLE `') . esc_sql($table) . '`';
+		$result = $wpdb->get_results($sql, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery
+		\WUDT\Includes\Operation_Logger::log('db', 'Table maintenance', array('table' => $table, 'action' => 'repair' === $action ? 'repair' : 'optimize'));
+		return is_array($result) ? $result : array();
 	}
 }

@@ -16,8 +16,6 @@ use WUDT\Admin\Debug_Page;
 use WUDT\Admin\Settings_Page;
 use WUDT\Admin\Pro_Admin_Page;
 use WUDT\Admin\Backup_Page;
-use WUDT\Admin\AI_Assistant_Page;
-use WUDT\Admin\File_Manager_Page;
 use WUDT\Admin\Modern_Admin_Page;
 use WUDT\Admin\Search_Page;
 use WUDT\Includes\Failsafe_Manager;
@@ -34,17 +32,12 @@ use WUDT\Modules\REST_API_Module;
 use WUDT\Modules\Security_Module;
 use WUDT\Modules\System_Info_Module;
 use WUDT\Modules\Advanced_Diagnostics_Module;
-use WUDT\Modules\DatabaseManager\Database_Manager_Module;
-use WUDT\Modules\FileManager\File_Manager_Module;
 use WUDT\Modules\MalwareScanner\Malware_Scanner_Module;
 use WUDT\Modules\Backup\Backup_Module;
-use WUDT\Modules\Restore\Restore_Module;
 use WUDT\Modules\Migration\Migration_Module;
 use WUDT\Modules\Malware\Enterprise_Malware_Module;
 use WUDT\Modules\Recovery\Crash_Recovery_Module;
 use WUDT\Modules\AutoRecovery\Auto_Recovery_Module;
-use WUDT\Modules\State\State_Module;
-use WUDT\Modules\AIAssistant\AI_Controller;
 use WUDT\Modules\ProgressMonitor\Progress_Monitor_Module;
 use WUDT\Modules\SearchTool\Search_Controller;
 use WUDT\Modules\SMTP\SMTP_Module;
@@ -92,17 +85,12 @@ class Plugin {
 		$this->pro_modules = $this->build_module_set(
 			array(
 				System_Info_Module::class,
-				File_Manager_Module::class,
-				Database_Manager_Module::class,
 				Malware_Scanner_Module::class,
 				Enterprise_Malware_Module::class,
 				Backup_Module::class,
-				Restore_Module::class,
 				Migration_Module::class,
 				Crash_Recovery_Module::class,
 				Auto_Recovery_Module::class,
-				State_Module::class,
-				AI_Controller::class,
 				Pro_Logs_Module::class,
 				Performance_Module::class,
 				Security_Module::class,
@@ -129,10 +117,6 @@ class Plugin {
 		$settings_page->register_hooks();
 		$backup_page = new Backup_Page();
 		$backup_page->register_hooks();
-		$ai_page = new AI_Assistant_Page();
-		$ai_page->register_hooks();
-		$file_manager_page = new File_Manager_Page();
-		$file_manager_page->register_hooks();
 		// Combine both module sets for Modern_Admin_Page to show all tabs
 		$all_modules = array_merge($this->modules, $this->pro_modules);
 		$modern_admin = new Modern_Admin_Page($all_modules);

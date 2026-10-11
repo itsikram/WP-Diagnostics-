@@ -57,7 +57,7 @@ class Conflict_Detector_Module extends Module_Base {
 			return $active_plugins;
 		}
 
-		$requested = isset($_GET['wudt_plugins']) ? sanitize_text_field((string) wp_unslash($_GET['wudt_plugins'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$requested = isset($_GET['wudt_plugins']) ? sanitize_text_field(wp_unslash($_GET['wudt_plugins'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if ('' === $requested) {
 			return array();
 		}
@@ -70,7 +70,7 @@ class Conflict_Detector_Module extends Module_Base {
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}
-		$enabled = isset($_POST['enabled']) && '1' === (string) wp_unslash($_POST['enabled']);
+		$enabled = isset($_POST['enabled']) && '1' === sanitize_text_field(wp_unslash($_POST['enabled']));
 		update_option(self::TEST_MODE_OPTION, $enabled);
 		wp_send_json_success(array('enabled' => $enabled));
 	}

@@ -56,7 +56,7 @@ class Advanced_Diagnostics_Module extends Module_Base {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {

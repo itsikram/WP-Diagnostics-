@@ -1,23 +1,24 @@
 <?php
 /**
  * Search & Replace undo backups
- * Stores the original content of every file and database cell a replace run changes.
+ * Stores the original content of every database cell a replace run changes.
  */
 
 declare(strict_types=1);
 
 namespace WUDT\Modules\SearchTool;
 
-use WUDT\Includes\Security_Guard;
 
 if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
 /**
  * Class Search_Backup
  *
- * Layout: uploads/wudt-search-backups/<id>/manifest.json, rows.json, files/<n>.bak
+ * Layout: uploads/wudt-search-backups/<id>/manifest.json, rows.json
  */
 class Search_Backup {
 	private const KEEP = 20;
@@ -58,23 +59,6 @@ class Search_Backup {
 		return $this->id;
 	}
 
-	/**
-	 * @throws \RuntimeException When the backup folder can't be written.
-	 */
-	public function add_file(string $relative_path, string $content, string $new_content): void {
-		$this->ensure_dir();
-		$index = count($this->manifest['files']);
-		$name  = $index . '.bak';
-		if (false === file_put_contents($this->dir . '/files/' . $name, $content)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			throw new \RuntimeException(__('Could not write the undo backup.', 'diagnostics-toolkit'));
-		}
-		$this->manifest['files'][] = array(
-			'path' => $relative_path,
-			'blob' => $name,
-			'hash' => md5($new_content),
-		);
-	}
-
 	public function add_row(string $table, string $column, string $primary_key, string $row_id, string $old_value, string $new_value): void {
 		$this->rows[] = array(
 			'table'  => $table,
@@ -92,7 +76,7 @@ class Search_Backup {
 	 * @throws \RuntimeException
 	 */
 	public function save(): bool {
-		if (empty($this->manifest['files']) && empty($this->rows)) {
+		if (empty($this->rows)) {
 			return false;
 		}
 		$this->ensure_dir();
@@ -106,11 +90,11 @@ class Search_Backup {
 	}
 
 	private function ensure_dir(): void {
-		if (is_dir($this->dir . '/files')) {
+		if (is_dir($this->dir)) {
 			return;
 		}
 		self::protect_base();
-		if (! wp_mkdir_p($this->dir . '/files')) {
+		if (! wp_mkdir_p($this->dir)) {
 			throw new \RuntimeException(__('Could not create the undo backup folder.', 'diagnostics-toolkit'));
 		}
 	}
@@ -191,7 +175,7 @@ class Search_Backup {
 	}
 
 	/**
-	 * Put every backed-up file and cell back. Items changed again since the
+	 * Put every backed-up cell back. Items changed again since the
 	 * replace are skipped unless $force is set.
 	 *
 	 * @return array<string,mixed>
@@ -207,28 +191,6 @@ class Search_Backup {
 		$dir      = self::base_dir() . '/' . $id;
 		$restored = array('files' => 0, 'rows' => 0);
 		$skipped  = array();
-
-		foreach ((array) $manifest['files'] as $entry) {
-			$relative = (string) $entry['path'];
-			try {
-				$target = Security_Guard::normalize_inside_wp(ABSPATH . $relative);
-			} catch (\RuntimeException $e) {
-				$skipped[] = $relative;
-				continue;
-			}
-			$blob = $dir . '/files/' . basename((string) $entry['blob']);
-			$data = is_readable($blob) ? file_get_contents($blob) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			$changed = ! $force && is_file($target) && md5_file($target) !== $entry['hash'];
-			if (false === $data || $changed || ! wp_is_writable($target)) {
-				$skipped[] = $relative;
-				continue;
-			}
-			if (false !== file_put_contents($target, $data)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-				$restored['files']++;
-			} else {
-				$skipped[] = $relative;
-			}
-		}
 
 		$rows_file = $dir . '/rows.json';
 		$rows      = is_readable($rows_file) ? json_decode((string) file_get_contents($rows_file), true) : array(); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents

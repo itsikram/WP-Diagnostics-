@@ -104,10 +104,6 @@ class Modern_Admin_Page {
 							<span class="dashicons dashicons-visibility"></span>
 							<?php esc_html_e('Toggle Dark Mode', 'diagnostics-toolkit'); ?>
 						</button>
-						<a href="<?php echo esc_url(admin_url('admin.php?page=wudt-ai-assistant')); ?>" class="wudt-btn wudt-btn--primary">
-							<span class="dashicons dashicons-art"></span>
-							<?php esc_html_e('AI Assistant', 'diagnostics-toolkit'); ?>
-						</a>
 					</div>
 				</div>
 

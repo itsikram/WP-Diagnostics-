@@ -80,7 +80,7 @@ class Search_Page {
 				'nothingToReplace' => __('Nothing would change with this replacement.', 'diagnostics-toolkit'),
 				'nothingSelected'  => __('Select at least one item to replace.', 'diagnostics-toolkit'),
 				'confirmDelete'    => __('The replacement is empty, so every match will be deleted. Continue?', 'diagnostics-toolkit'),
-				'confirmRestore'   => __('Put back the original content of every file and row changed by this replace?', 'diagnostics-toolkit'),
+				'confirmRestore'   => __('Put back the original content of every row changed by this replace?', 'diagnostics-toolkit'),
 				'confirmDeleteBak' => __('Delete this undo backup? You will no longer be able to undo that replace.', 'diagnostics-toolkit'),
 				'restored'         => __('Undo complete', 'diagnostics-toolkit'),
 				'copied'           => __('Copied to clipboard', 'diagnostics-toolkit'),
@@ -160,7 +160,7 @@ class Search_Page {
 							<span class="dashicons dashicons-randomize wudt-sr-field__icon" aria-hidden="true"></span>
 							<label class="screen-reader-text" for="wudt-replace-input"><?php esc_html_e('Replace with', 'diagnostics-toolkit'); ?></label>
 							<input type="text" id="wudt-replace-input" class="wudt-sr-input" spellcheck="false"
-								placeholder="<?php esc_attr_e('Replace with… (optional — leave empty to delete matches)', 'diagnostics-toolkit'); ?>" />
+								placeholder="<?php esc_attr_e('Replace in the database with… (optional — leave empty to delete matches)', 'diagnostics-toolkit'); ?>" />
 						</div>
 						<button type="button" id="wudt-preview-replace-btn" class="wudt-btn wudt-btn--secondary wudt-btn--lg wudt-sr-action" disabled
 							title="<?php esc_attr_e('Run a search first', 'diagnostics-toolkit'); ?>">

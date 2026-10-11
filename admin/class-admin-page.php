@@ -53,8 +53,6 @@ class Admin_Page {
 		$tools = array(
 			'admin-tools' => array(__('Admin Tools', 'diagnostics-toolkit'), 'admin.php?page=wudt-diagnostics-pro'),
 			'site-migration' => array(__('Site Migration', 'diagnostics-toolkit'), 'admin.php?page=wudt-site-migration'),
-			'ai-assistant' => array(__('AI Assistant', 'diagnostics-toolkit'), 'admin.php?page=wudt-ai-assistant'),
-			'file-manager' => array(__('File Manager', 'diagnostics-toolkit'), 'admin.php?page=wudt-file-manager'),
 			'backups'     => array(__('Backups', 'diagnostics-toolkit'), 'tools.php?page=wudt-diagnostics-backups'),
 			'search'      => array(__('Search & Replace', 'diagnostics-toolkit'), 'admin.php?page=wudt-search'),
 			'debug-logs'  => array(__('Debug & Logs', 'diagnostics-toolkit'), 'admin.php?page=wudt-debug-logs'),
@@ -125,11 +123,13 @@ class Admin_Page {
 	}
 
 	public function ajax_refresh_dashboard(): void {
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		$this->check_permissions();
 		wp_send_json_success($this->get_full_report());
 	}
 
 	public function ajax_export_report(): void {
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		$this->check_permissions();
 		$data = $this->get_full_report();
 		$json = wp_json_encode($data, JSON_PRETTY_PRINT);
@@ -146,6 +146,7 @@ class Admin_Page {
 	}
 
 	public function ajax_email_report(): void {
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		$this->check_permissions();
 		$email = isset($_POST['email']) ? sanitize_email((string) wp_unslash($_POST['email'])) : '';
 		if (! is_email($email)) {
@@ -189,7 +190,6 @@ class Admin_Page {
 	}
 
 	private function check_permissions(): void {
-		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(new WP_Error('forbidden', __('Insufficient permissions.', 'diagnostics-toolkit')), 403);
 		}

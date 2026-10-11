@@ -108,9 +108,9 @@ class Peer_Progress {
 		$file = self::file($id);
 		$job = self::read($file);
 		if (! empty($job['token'])) {
-			@unlink(self::public_location((string) $job['token'])['file']);
+			wp_delete_file(self::public_location((string) $job['token'])['file']);
 		}
-		@unlink($file);
+		wp_delete_file($file);
 	}
 
 	private static function summary(array $job): array {
@@ -145,9 +145,9 @@ class Peer_Progress {
 		}
 		$tmp = $loc['file'] . '.' . getmypid() . '.tmp';
 		$json = (string) wp_json_encode(self::summary($job));
-		if (false !== @file_put_contents($tmp, $json) && ! @rename($tmp, $loc['file'])) {
+		if (false !== @file_put_contents($tmp, $json) && ! @rename($tmp, $loc['file'])) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename, WordPress.PHP.NoSilencedErrors.Discouraged -- atomic replace of the plugin's own progress file.
 			@file_put_contents($loc['file'], $json);
-			@unlink($tmp);
+			wp_delete_file($tmp);
 		}
 	}
 
@@ -165,7 +165,11 @@ class Peer_Progress {
 		});
 		foreach ($jobs as $i => $job) {
 			if ($i >= self::MAX_JOBS || time() - $job['updated'] > self::KEEP_FOR) {
-				'' !== $job['id'] ? self::dismiss($job['id']) : @unlink($job['file']);
+				if ('' !== $job['id']) {
+					self::dismiss($job['id']);
+				} else {
+					wp_delete_file($job['file']);
+				}
 			}
 		}
 	}

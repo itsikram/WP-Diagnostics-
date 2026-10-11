@@ -354,11 +354,9 @@ class Progress_Page {
 			array('icon' => 'dashicons-media-document', 'label' => 'File Integrity', 'status' => 'ready'),
 			array('icon' => 'dashicons-lock', 'label' => 'Security', 'status' => 'ready'),
 			array('icon' => 'dashicons-external', 'label' => 'External Requests', 'status' => 'ready'),
-			array('icon' => 'dashicons-open-folder', 'label' => 'File Manager', 'status' => 'ready'),
 			array('icon' => 'dashicons-shield', 'label' => 'Malware Scanner', 'status' => 'ready'),
 			array('icon' => 'dashicons-backup', 'label' => 'Backup', 'status' => 'ready'),
 			array('icon' => 'dashicons-migrate', 'label' => 'Restore', 'status' => 'ready'),
-			array('icon' => 'dashicons-art', 'label' => 'AI Assistant', 'status' => 'ready'),
 		);
 
 		foreach ($modules as $module) {

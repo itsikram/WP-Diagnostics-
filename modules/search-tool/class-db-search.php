@@ -148,9 +148,8 @@ class DB_Search {
 	 */
 	public function get_table_names(): array {
 		if (null === $this->table_list) {
-			$tables = $this->wpdb->get_col(
-				$this->wpdb->prepare('SHOW TABLES LIKE %s', $this->wpdb->esc_like($this->wpdb->prefix) . '%')
-			);
+			$wpdb   = $this->wpdb;
+			$tables = $wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($wpdb->prefix) . '%'));
 			$this->table_list = array_values(array_filter(array_map('strval', (array) $tables)));
 		}
 		return $this->table_list;
@@ -197,7 +196,8 @@ class DB_Search {
 
 		$columns = array();
 		if ($this->is_valid_table($table)) {
-			$info = (array) $this->wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table validated against SHOW TABLES.
+			$wpdb = $this->wpdb;
+			$info = (array) $wpdb->get_results($wpdb->prepare('SHOW COLUMNS FROM %i', $table), ARRAY_A);
 			foreach ($info as $col) {
 				if (preg_match('/char|text|enum|set|json/i', (string) $col['Type'])) {
 					$columns[] = (string) $col['Field'];
@@ -219,7 +219,8 @@ class DB_Search {
 
 		$key = null;
 		if ($this->is_valid_table($table)) {
-			$keys = (array) $this->wpdb->get_results("SHOW KEYS FROM `{$table}` WHERE Key_name = 'PRIMARY'", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table validated against SHOW TABLES.
+			$wpdb = $this->wpdb;
+			$keys = (array) $wpdb->get_results($wpdb->prepare("SHOW KEYS FROM %i WHERE Key_name = 'PRIMARY'", $table), ARRAY_A);
 			if (1 === count($keys)) {
 				$key = (string) $keys[0]['Column_name'];
 			}
@@ -355,8 +356,10 @@ class DB_Search {
 		if (! $primary_key || ! in_array($column, $this->get_text_columns($table), true)) {
 			return null;
 		}
-		$value = $this->wpdb->get_var(
-			$this->wpdb->prepare("SELECT `{$column}` FROM `{$table}` WHERE `{$primary_key}` = %s LIMIT 1", $row_id) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers validated.
+		$wpdb  = $this->wpdb;
+		// Table and column names come from SHOW TABLES / SHOW COLUMNS (checked above), not from the request.
+		$value = $wpdb->get_var(
+			$wpdb->prepare('SELECT %i FROM %i WHERE %i = %s LIMIT 1', $column, $table, $primary_key, $row_id)
 		);
 		return null === $value ? null : (string) $value;
 	}
@@ -367,13 +370,14 @@ class DB_Search {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function get_tables_info(): array {
-		$tables = $this->wpdb->get_results(
-			$this->wpdb->prepare(
+		$wpdb   = $this->wpdb;
+		$tables = $wpdb->get_results(
+			$wpdb->prepare(
 				'SELECT TABLE_NAME AS name, TABLE_ROWS AS rows_count, (DATA_LENGTH + INDEX_LENGTH) AS size
 				FROM INFORMATION_SCHEMA.TABLES
 				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE %s
 				ORDER BY TABLE_NAME',
-				$this->wpdb->esc_like($this->wpdb->prefix) . '%'
+				$wpdb->esc_like($wpdb->prefix) . '%'
 			),
 			ARRAY_A
 		);
@@ -390,7 +394,8 @@ class DB_Search {
 		if (! $this->is_valid_table($table)) {
 			return array();
 		}
-		$columns = $this->wpdb->get_results("SHOW COLUMNS FROM `{$table}`", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table validated.
+		$wpdb    = $this->wpdb;
+		$columns = $wpdb->get_results($wpdb->prepare('SHOW COLUMNS FROM %i', $table), ARRAY_A);
 		return $columns ?: array();
 	}
 }

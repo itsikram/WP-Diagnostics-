@@ -20,7 +20,6 @@ class Error_Logger_Module extends Module_Base {
 		add_action('init', array($this, 'setup_error_capture'));
 		add_action('wp_ajax_wudt_get_error_logs', array($this, 'ajax_get_logs'));
 		add_action('wp_ajax_wudt_clear_error_logs', array($this, 'ajax_clear_logs'));
-		add_action('wp_ajax_wudt_toggle_debug', array($this, 'ajax_toggle_debug'));
 	}
 
 	public function get_key(): string {
@@ -112,9 +111,10 @@ class Error_Logger_Module extends Module_Base {
 	}
 
 	public function ajax_get_logs(): void {
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		$this->verify_ajax();
-		$type = isset($_POST['type']) ? sanitize_text_field((string) wp_unslash($_POST['type'])) : '';
-		$date = isset($_POST['date']) ? sanitize_text_field((string) wp_unslash($_POST['date'])) : '';
+		$type = isset($_POST['type']) ? sanitize_text_field(wp_unslash($_POST['type'])) : '';
+		$date = isset($_POST['date']) ? sanitize_text_field(wp_unslash($_POST['date'])) : '';
 
 		$entries = (array) get_option(self::OPTION_KEY, array());
 		$entries = array_values(
@@ -135,24 +135,10 @@ class Error_Logger_Module extends Module_Base {
 	}
 
 	public function ajax_clear_logs(): void {
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		$this->verify_ajax();
 		update_option(self::OPTION_KEY, array(), false);
 		wp_send_json_success(array('message' => __('Logs cleared.', 'diagnostics-toolkit')));
-	}
-
-	public function ajax_toggle_debug(): void {
-		$this->verify_ajax();
-		$enabled = isset($_POST['enabled']) && '1' === (string) wp_unslash($_POST['enabled']);
-		update_option('wudt_force_debug', $enabled);
-		if ($enabled) {
-			if (! defined('WP_DEBUG')) {
-				define('WP_DEBUG', true);
-			}
-			if (! defined('WP_DEBUG_LOG')) {
-				define('WP_DEBUG_LOG', true);
-			}
-		}
-		wp_send_json_success(array('enabled' => $enabled));
 	}
 
 	/**
@@ -183,7 +169,6 @@ class Error_Logger_Module extends Module_Base {
 	}
 
 	private function verify_ajax(): void {
-		check_ajax_referer('wudt_admin_nonce', 'nonce');
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}

@@ -23,6 +23,10 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- the schedule file is guarded with flock(), which WP_Filesystem does not support.
+
 class Migration_Scheduler {
 	public const CRON_HOOK = 'wudt_migration_scheduler_tick';
 	private const CRON_INTERVAL = 'wudt_every_minute';
@@ -353,7 +357,7 @@ class Migration_Scheduler {
 		wp_remote_post(admin_url('admin-ajax.php'), array(
 			'timeout'   => 1,
 			'blocking'  => false,
-			'sslverify' => (bool) apply_filters('https_local_ssl_verify', false),
+			'sslverify' => (bool) apply_filters('https_local_ssl_verify', false), // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core filter.
 			'body'      => array(
 				'action' => 'wudt_migration_bg_step',
 				'job_id' => $job_id,
@@ -411,7 +415,8 @@ class Migration_Scheduler {
 	/* ------------------------------ Admin AJAX -------------------------- */
 
 	public function ajax_save_schedule(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$id = sanitize_key((string) wp_unslash($_POST['schedule_id'] ?? ''));
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
 		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
@@ -481,7 +486,8 @@ class Migration_Scheduler {
 	}
 
 	public function ajax_schedule_action(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$id = sanitize_key((string) wp_unslash($_POST['schedule_id'] ?? ''));
 		$op = sanitize_key((string) wp_unslash($_POST['op'] ?? ''));
 		$kick = null;
@@ -563,6 +569,7 @@ class Migration_Scheduler {
 	 * @return array{frequency:string,time:string,weekday:int,monthday:int,once_at:int}
 	 */
 	private static function timing_from_request(): array {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- only called by ajax_save_schedule() after check_ajax_referer().
 		$frequency = sanitize_key((string) wp_unslash($_POST['frequency'] ?? 'daily'));
 		if (! in_array($frequency, self::FREQUENCIES, true)) {
 			throw new \RuntimeException(__('Choose how often the migration runs.', 'diagnostics-toolkit'));
@@ -571,8 +578,8 @@ class Migration_Scheduler {
 		if (! preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $time)) {
 			throw new \RuntimeException(__('Enter the time as HH:MM, e.g. 03:00.', 'diagnostics-toolkit'));
 		}
-		$weekday = max(0, min(6, (int) ($_POST['weekday'] ?? 1)));
-		$monthday = max(1, min(31, (int) ($_POST['monthday'] ?? 1)));
+		$weekday = max(0, min(6, absint(wp_unslash($_POST['weekday'] ?? 1))));
+		$monthday = max(1, min(31, absint(wp_unslash($_POST['monthday'] ?? 1))));
 		$once_at = 0;
 		if ('once' === $frequency) {
 			$raw = sanitize_text_field(wp_unslash($_POST['once_at'] ?? ''));
@@ -593,6 +600,7 @@ class Migration_Scheduler {
 			'monthday'  => $monthday,
 			'once_at'   => $once_at,
 		);
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 	}
 
 	/**
@@ -824,8 +832,8 @@ class Migration_Scheduler {
 		$file = self::file();
 		$tmp = $file . '.' . getmypid() . '.tmp';
 		// Write then rename, so a reader never sees a half-written file.
-		if (false === @file_put_contents($tmp, wp_json_encode($data)) || ! @rename($tmp, $file)) {
-			@unlink($tmp);
+		if (false === @file_put_contents($tmp, wp_json_encode($data)) || ! @rename($tmp, $file)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename, WordPress.PHP.NoSilencedErrors.Discouraged -- atomic replace of the plugin's own schedule file.
+			wp_delete_file($tmp);
 			file_put_contents($file, wp_json_encode($data), LOCK_EX);
 		}
 	}

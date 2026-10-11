@@ -25,6 +25,10 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- backup archives and SQL dumps are written and read in chunks; WP_Filesystem only reads or writes whole files.
+
 class Backup_Runner {
 	public const FORMAT = 2;
 	private const MAX_LOG = 100;
@@ -107,7 +111,7 @@ class Backup_Runner {
 	private static function prune_jobs(): void {
 		foreach ((array) glob(self::jobs_dir() . '/*.json') as $file) {
 			if (filemtime((string) $file) < time() - 7 * DAY_IN_SECONDS) {
-				@unlink((string) $file);
+				wp_delete_file((string) $file);
 			}
 		}
 	}
@@ -331,7 +335,7 @@ class Backup_Runner {
 			throw new \RuntimeException(__('This job already finished.', 'diagnostics-toolkit'));
 		}
 		if ('backup' === $this->state['type']) {
-			@unlink($this->state['file']);
+			wp_delete_file($this->state['file']);
 			$this->state['message'] = __('Backup cancelled.', 'diagnostics-toolkit');
 		} else {
 			if (! empty($this->state['db']['finalized']) || $this->state['fin']['moved'] > 0) {
@@ -383,7 +387,7 @@ class Backup_Runner {
 		$flags = is_file($this->state['file']) ? 0 : \ZipArchive::CREATE;
 		$res = $zip->open($this->state['file'], $flags);
 		if (true !== $res) {
-			throw new \RuntimeException(sprintf(__('Could not write the backup file (error %d). Check free disk space and permissions of wp-content/uploads.', 'diagnostics-toolkit'), (int) $res));
+			throw new \RuntimeException(sprintf(/* translators: %d: PHP zip error code. */ __('Could not write the backup file (error %d). Check free disk space and permissions of wp-content/uploads.', 'diagnostics-toolkit'), (int) $res));
 		}
 		return $zip;
 	}
@@ -416,7 +420,7 @@ class Backup_Runner {
 		$bytes_in_step = 0;
 		while ($db['i'] < count($tables) && $this->time_left($budget - 4) && $bytes_in_step < 64 * MB_IN_BYTES) {
 			$table = $tables[$db['i']];
-			$this->state['message'] = sprintf(__('Backing up table %1$s (%2$d/%3$d)…', 'diagnostics-toolkit'), $table, $db['i'] + 1, count($tables));
+			$this->state['message'] = sprintf(/* translators: 1: table name, 2: table number, 3: total tables. */ __('Backing up table %1$s (%2$d/%3$d)…', 'diagnostics-toolkit'), $table, $db['i'] + 1, count($tables));
 			$chunk = $this->engine->export_table_chunk($table, $db['cursor'], array(), 4 * MB_IN_BYTES, 8);
 			$json = (string) wp_json_encode($chunk, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 			$db['part']++;
@@ -447,7 +451,7 @@ class Backup_Runner {
 		}
 		$component = $components[$f['ci']];
 		if ('' === $f['list']) {
-			$this->state['message'] = sprintf(__('Listing %s…', 'diagnostics-toolkit'), $component);
+			$this->state['message'] = sprintf(/* translators: %s: component name (plugins, themes, uploads…). */ __('Listing %s…', 'diagnostics-toolkit'), $component);
 			$list = $this->engine->prepare_file_list($this->state['id'], $component, array());
 			$f['list'] = $list['file'];
 			$f['root'] = $list['root'];
@@ -490,7 +494,7 @@ class Backup_Runner {
 		}
 		$eof = feof($fh) || false === fgets($fh);
 		fclose($fh);
-		$this->state['message'] = sprintf(__('Backing up %1$s… %2$s files (%3$s)', 'diagnostics-toolkit'), $component, number_format_i18n($f['count']), size_format($f['bytes']));
+		$this->state['message'] = sprintf(/* translators: 1: component name, 2: number of files, 3: size. */ __('Backing up %1$s… %2$s files (%3$s)', 'diagnostics-toolkit'), $component, number_format_i18n($f['count']), size_format($f['bytes']));
 		$close_started = microtime(true);
 		$this->close_zip($zip);
 		$took = max(0.05, microtime(true) - $close_started);
@@ -502,7 +506,7 @@ class Backup_Runner {
 
 		if ($eof) {
 			$this->log(sprintf('Saved %s.', $component));
-			@unlink($f['list']);
+			wp_delete_file($f['list']);
 			$f['list'] = '';
 			$f['ci']++;
 		}
@@ -617,9 +621,9 @@ class Backup_Runner {
 			$chunk = json_decode((string) $zip->getFromName($entries[$db['i']]), true);
 			if (! is_array($chunk) || empty($chunk['table'])) {
 				$zip->close();
-				throw new \RuntimeException(sprintf(__('Database data in the backup is damaged (%s).', 'diagnostics-toolkit'), $entries[$db['i']]));
+				throw new \RuntimeException(sprintf(/* translators: %s: name of the damaged part of the backup. */ __('Database data in the backup is damaged (%s).', 'diagnostics-toolkit'), $entries[$db['i']]));
 			}
-			$this->state['message'] = sprintf(__('Restoring table %1$s (%2$d%%)…', 'diagnostics-toolkit'), $chunk['table'], (int) (100 * $db['i'] / max(1, count($entries))));
+			$this->state['message'] = sprintf(/* translators: 1: table name, 2: percentage. */ __('Restoring table %1$s (%2$d%%)…', 'diagnostics-toolkit'), $chunk['table'], (int) (100 * $db['i'] / max(1, count($entries))));
 			$this->engine->import_table_chunk($this->state['id'], $chunk, $this->state['prefix'], $this->state['url_change'] ? $this->state['pairs'] : array());
 			if (! in_array($chunk['table'], $db['tables'], true)) {
 				$db['tables'][] = $chunk['table'];
@@ -687,9 +691,9 @@ class Backup_Runner {
 		}
 		$eof = feof($fh);
 		fclose($fh);
-		$this->state['message'] = sprintf(__('Restoring database… %d%%', 'diagnostics-toolkit'), (int) (100 * $db['offset'] / max(1, (int) ($db['size'] ?? 1))));
+		$this->state['message'] = sprintf(/* translators: %d: percentage. */ __('Restoring database… %d%%', 'diagnostics-toolkit'), (int) (100 * $db['offset'] / max(1, (int) ($db['size'] ?? 1))));
 		if ($eof) {
-			@unlink($sql_file);
+			wp_delete_file($sql_file);
 			$this->log(sprintf('Database imported (%d tables), not yet active.', count($db['tables'])));
 			$this->after_database_phase();
 		}
@@ -703,7 +707,7 @@ class Backup_Runner {
 			return;
 		}
 		$table = $db['tables'][$db['replace_i']];
-		$this->state['message'] = sprintf(__('Updating links in %s…', 'diagnostics-toolkit'), $table);
+		$this->state['message'] = sprintf(/* translators: %s: table name. */ __('Updating links in %s…', 'diagnostics-toolkit'), $table);
 		$res = $this->engine->replace_in_tmp_table($this->state['id'], $table, $this->state['prefix'], $this->state['pairs'], (int) $db['replace_cursor'], max(4, $budget - (microtime(true) - $this->started) - 2));
 		$db['replace_cursor'] = $res['cursor'];
 		if ($res['done']) {
@@ -749,7 +753,7 @@ class Backup_Runner {
 			$in = $zip->getStream($name);
 			$out = @fopen($target, 'wb');
 			if (! $in || ! $out) {
-				throw new \RuntimeException(sprintf(__('Could not extract %s from the backup.', 'diagnostics-toolkit'), $rel));
+				throw new \RuntimeException(sprintf(/* translators: %s: file path inside the backup. */ __('Could not extract %s from the backup.', 'diagnostics-toolkit'), $rel));
 			}
 			$f['bytes'] += (int) stream_copy_to_stream($in, $out);
 			fclose($in);
@@ -761,7 +765,7 @@ class Backup_Runner {
 		if ('' !== $lines) {
 			file_put_contents($list, $lines, FILE_APPEND | LOCK_EX);
 		}
-		$this->state['message'] = sprintf(__('Extracting files… %1$s (%2$s)', 'diagnostics-toolkit'), number_format_i18n($f['count']), size_format($f['bytes']));
+		$this->state['message'] = sprintf(/* translators: 1: number of files, 2: size. */ __('Extracting files… %1$s (%2$s)', 'diagnostics-toolkit'), number_format_i18n($f['count']), size_format($f['bytes']));
 		if ($f['i'] >= $this->num_entries()) {
 			$this->log(sprintf('Extracted %s files.', number_format_i18n($f['count'])));
 			$this->state['phase'] = 'finalize_files';
@@ -784,7 +788,7 @@ class Backup_Runner {
 
 	private function cleanup_work_files(): void {
 		foreach ((array) glob(Migration_Engine::storage_dir('work') . '/' . $this->state['id'] . '-*') as $file) {
-			@unlink((string) $file);
+			wp_delete_file((string) $file);
 		}
 	}
 
@@ -882,12 +886,13 @@ class Backup_Store {
 
 	public static function delete(string $name): void {
 		$path = self::path($name);
-		if (! @unlink($path)) {
+		wp_delete_file($path);
+		if (file_exists($path)) {
 			throw new \RuntimeException(__('Could not delete the backup file (permissions).', 'diagnostics-toolkit'));
 		}
 		$parent = dirname($path);
 		if (wp_normalize_path($parent) !== wp_normalize_path(Backup_Runner::backup_dir()) && 0 === strpos(basename($parent), 'backup-') && 2 >= count((array) scandir($parent))) {
-			@rmdir($parent);
+			@rmdir($parent); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir, WordPress.PHP.NoSilencedErrors.Discouraged -- removes the plugin's own empty backup folder.
 		}
 		$meta = get_option(self::META_OPTION, array());
 		if (is_array($meta)) {

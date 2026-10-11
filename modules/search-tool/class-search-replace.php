@@ -1,14 +1,12 @@
 <?php
 /**
  * Search & Replace Engine
- * Preview, selective apply and undo backups for file and database replacements
+ * Preview, selective apply and undo backups for database replacements
  */
 
 declare(strict_types=1);
 
 namespace WUDT\Modules\SearchTool;
-
-use WUDT\Includes\Security_Guard;
 
 if (! defined('ABSPATH')) {
 	exit;
@@ -17,196 +15,17 @@ if (! defined('ABSPATH')) {
 /**
  * Class Search_Replace
  *
- * Files are replaced line by line, exactly like they are searched, so the
- * preview always matches the result. Database values are replaced with
- * serialized data unpacked first, so string lengths stay valid.
+ * Database values are replaced with serialized data unpacked first, so
+ * string lengths stay valid.
  */
 class Search_Replace {
 	private const PREVIEW_ITEMS   = 300;
 	private const PREVIEW_SAMPLES = 5;
 
-	private File_Search $file_search;
 	private DB_Search $db_search;
 
 	public function __construct() {
-		$this->file_search = new File_Search();
-		$this->db_search   = new DB_Search();
-	}
-
-	/* ------------------------------------------------------------------
-	 * Files
-	 * ------------------------------------------------------------------ */
-
-	/**
-	 * @param array<string,mixed> $options
-	 * @return array<string,mixed>
-	 */
-	public function preview_file_replacements(string $search_text, string $replace_text, array $options): array {
-		$search = $this->file_search->search($search_text, $options);
-		if (! $search['success']) {
-			return $search;
-		}
-
-		$matcher = new Search_Matcher($search_text, $options);
-		$items   = array();
-		$total   = 0;
-
-		foreach ($search['files'] as $file) {
-			$path    = $this->absolute((string) $file['path']);
-			$content = $path ? @file_get_contents($path) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			if (false === $content) {
-				continue;
-			}
-
-			$result = $this->replace_lines($content, $matcher, $replace_text, true);
-			if ($result['count'] < 1) {
-				continue;
-			}
-
-			$total += $result['count'];
-			if (count($items) < self::PREVIEW_ITEMS) {
-				$items[] = array(
-					'key'           => (string) $file['path'],
-					'path'          => (string) $file['path'],
-					'replace_count' => $result['count'],
-					'lines_changed' => $result['lines'],
-					'samples'       => $result['samples'],
-					'writable'      => wp_is_writable($path),
-				);
-			}
-		}
-
-		return array(
-			'success'            => true,
-			'items'              => $items,
-			'total_items'        => count($search['files']),
-			'total_replacements' => $total,
-			'truncated'          => $search['truncated'],
-		);
-	}
-
-	/**
-	 * @param array<string,mixed>    $options
-	 * @param array<int,string>|null $only_paths Relative paths chosen in the preview; null = all.
-	 * @return array<string,mixed>
-	 */
-	public function execute_file_replacements(string $search_text, string $replace_text, array $options, bool $create_backup = true, ?array $only_paths = null): array {
-		$search = $this->file_search->search($search_text, $options);
-		if (! $search['success']) {
-			return $search;
-		}
-
-		$matcher  = new Search_Matcher($search_text, $options);
-		$backup   = $create_backup ? new Search_Backup(array('search' => $search_text, 'replace' => $replace_text, 'target' => 'files')) : null;
-		$selected = null === $only_paths ? null : array_flip($only_paths);
-		$modified = array();
-		$errors   = array();
-		$count    = 0;
-
-		foreach ($search['files'] as $file) {
-			$relative = (string) $file['path'];
-			if (null !== $selected && ! isset($selected[ $relative ])) {
-				continue;
-			}
-
-			$path    = $this->absolute($relative);
-			$content = $path ? @file_get_contents($path) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			if (false === $content) {
-				$errors[] = array('item' => $relative, 'error' => __('Could not read file.', 'diagnostics-toolkit'));
-				continue;
-			}
-			if (! wp_is_writable($path)) {
-				$errors[] = array('item' => $relative, 'error' => __('File is not writable.', 'diagnostics-toolkit'));
-				continue;
-			}
-
-			try {
-				$result = $this->replace_lines($content, $matcher, $replace_text, false);
-				if ($result['count'] < 1 || $result['content'] === $content) {
-					continue;
-				}
-				if ($backup) {
-					$backup->add_file($relative, $content, $result['content']);
-				}
-			} catch (\RuntimeException $e) {
-				$errors[] = array('item' => $relative, 'error' => $e->getMessage());
-				continue;
-			}
-
-			if (false === file_put_contents($path, $result['content'])) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-				$errors[] = array('item' => $relative, 'error' => __('Could not write file.', 'diagnostics-toolkit'));
-				continue;
-			}
-
-			$modified[] = $relative;
-			$count     += $result['count'];
-		}
-
-		return array(
-			'success'        => true,
-			'files_modified' => count($modified),
-			'files_failed'   => count($errors),
-			'replacements'   => $count,
-			'modified_files' => $modified,
-			'errors'         => $errors,
-			'backup_id'      => $this->save_backup($backup, $errors),
-			'truncated'      => $search['truncated'],
-		);
-	}
-
-	/**
-	 * Replace within each line, keeping the original line endings.
-	 *
-	 * @return array{content:string,count:int,lines:int,samples:array<int,array<string,mixed>>}
-	 * @throws \RuntimeException
-	 */
-	private function replace_lines(string $content, Search_Matcher $matcher, string $replace, bool $preview): array {
-		$parts   = preg_split('/(\r\n|\n|\r)/', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
-		$count   = 0;
-		$lines   = 0;
-		$samples = array();
-
-		for ($i = 0, $n = count($parts); $i < $n; $i += 2) {
-			$line = $parts[ $i ];
-			if (! $matcher->matches($line)) {
-				continue;
-			}
-			$count += max(1, $matcher->count($line));
-			$lines++;
-
-			if ($preview) {
-				if (count($samples) < self::PREVIEW_SAMPLES) {
-					$before    = $matcher->segments($line, 240);
-					$samples[] = array(
-						'line'   => (int) ($i / 2) + 1,
-						'before' => $before,
-						'after'  => $matcher->replace_segments($before, $replace),
-					);
-				}
-				continue;
-			}
-
-			$parts[ $i ] = $matcher->replace($line, $replace);
-		}
-
-		return array(
-			'content' => $preview ? $content : implode('', $parts),
-			'count'   => $count,
-			'lines'   => $lines,
-			'samples' => $samples,
-		);
-	}
-
-	/**
-	 * Resolve a path from search results, refusing anything outside WordPress.
-	 */
-	private function absolute(string $relative): ?string {
-		try {
-			$path = Security_Guard::normalize_inside_wp(ABSPATH . ltrim($relative, '/'));
-		} catch (\RuntimeException $e) {
-			return null;
-		}
-		return is_file($path) ? $path : null;
+		$this->db_search = new DB_Search();
 	}
 
 	/* ------------------------------------------------------------------

@@ -42,7 +42,7 @@ class Debug_Page {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {
@@ -63,17 +63,19 @@ class Debug_Page {
 	}
 
 	public function handle_toggle_runtime_debug(): void {
-		$this->authorize_action('wudt_toggle_runtime_debug');
-		$enabled = isset($_POST['enabled']) && '1' === (string) wp_unslash($_POST['enabled']);
+		check_admin_referer('wudt_toggle_runtime_debug');
+		$this->authorize_action();
+		$enabled = isset($_POST['enabled']) && '1' === sanitize_text_field(wp_unslash($_POST['enabled']));
 		update_option(self::OPTION_RUNTIME_DEBUG, $enabled, false);
 		$this->redirect_back();
 	}
 
 	public function handle_clear_debug_log(): void {
-		$this->authorize_action('wudt_clear_debug_log');
+		check_admin_referer('wudt_clear_debug_log');
+		$this->authorize_action();
 		$debug_file = WP_CONTENT_DIR . '/debug.log';
-		if (file_exists($debug_file) && is_writable($debug_file)) {
-			file_put_contents($debug_file, ''); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		if (file_exists($debug_file) && wp_is_writable($debug_file)) {
+			file_put_contents($debug_file, ''); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, PluginCheck.CodeAnalysis.WriteFile.PluginDirectoryWrite -- empties WordPress's own debug.log.
 		}
 		$this->redirect_back();
 	}
@@ -155,11 +157,10 @@ class Debug_Page {
 		return array_slice($content, -500);
 	}
 
-	private function authorize_action(string $nonce_action): void {
+	private function authorize_action(): void {
 		if (! current_user_can('manage_options')) {
 			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'));
 		}
-		check_admin_referer($nonce_action);
 	}
 
 	private function redirect_back(): void {

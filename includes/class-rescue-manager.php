@@ -84,77 +84,21 @@ class Rescue_Manager {
 		// Assembled at runtime: a literal header line in this file would make WordPress's
 		// plugin installer mistake this class file for the plugin's main file.
 		$header = 'Plugin' . ' Name';
-		return <<<PHP
-<?php
-/**
- * {$header}: Diagnostics Toolkit Safe Mode
- * Description: Lets an administrator open wp-admin with all other plugins and the theme disabled (for that browser only). Added when safe mode is first used in Diagnostics Toolkit; removed when Diagnostics Toolkit is deactivated. Safe to delete.
- * Version: 2.0
- */
-// {$marker}
-
-if (! defined('ABSPATH')) {
-	exit;
-}
-
-(function () {
-	\$basename = {$basename_export};
-	if (! is_file(WP_PLUGIN_DIR . '/' . \$basename)) {
-		return; // Diagnostics Toolkit was removed.
-	}
-	if (isset(\$_GET['wudt_exit_safe'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- leaving safe mode only clears this browser's cookie.
-		setcookie('{$cookie}', '', time() - 3600, '/');
-		unset(\$_COOKIE['{$cookie}']);
-		return;
-	}
-	\$key = (string) get_option('wudt_rescue_key', '');
-	\$value = isset(\$_COOKIE['{$cookie}']) ? sanitize_text_field(wp_unslash(\$_COOKIE['{$cookie}'])) : '';
-	\$parts = explode('.', \$value, 2);
-	if (strlen(\$key) < 32 || 2 !== count(\$parts) || (int) \$parts[0] < time() || ! hash_equals(hash_hmac('sha256', 'isolate|' . \$parts[0], \$key), \$parts[1])) {
-		return;
-	}
-
-	define('WUDT_SAFE_MODE', true);
-	add_filter('option_active_plugins', static function () use (\$basename) {
-		return array(\$basename);
-	}, PHP_INT_MAX);
-	add_filter('site_option_active_sitewide_plugins', static function () {
-		return array();
-	}, PHP_INT_MAX);
-	// Plugin (de)activations made in safe mode are applied to the real, stored list.
-	add_filter('pre_update_option_active_plugins', static function (\$new) use (\$basename) {
-		global \$wpdb;
-		\$real = maybe_unserialize(\$wpdb->get_var(\$wpdb->prepare("SELECT option_value FROM {\$wpdb->options} WHERE option_name = %s", 'active_plugins')));
-		\$real = is_array(\$real) ? \$real : array();
-		\$new = is_array(\$new) ? \$new : array();
-		\$added = array_diff(\$new, array(\$basename));
-		\$removed = in_array(\$basename, \$new, true) ? array() : array(\$basename);
-		\$result = array_values(array_diff(array_unique(array_merge(\$real, \$added)), \$removed));
-		sort(\$result);
-		return \$result;
-	}, PHP_INT_MAX);
-
-	// Use a bundled default theme so a broken theme cannot crash the request.
-	foreach (array('twentytwentyfive', 'twentytwentyfour', 'twentytwentythree', 'twentytwentytwo', 'twentytwentyone') as \$theme) {
-		if (is_file(WP_CONTENT_DIR . '/themes/' . \$theme . '/style.css')) {
-			\$use = static function () use (\$theme) {
-				return \$theme;
-			};
-			add_filter('pre_option_template', \$use, PHP_INT_MAX);
-			add_filter('pre_option_stylesheet', \$use, PHP_INT_MAX);
-			break;
-		}
-	}
-})();
-
-PHP;
+		$template = (string) file_get_contents(__DIR__ . '/safe-mode-loader.txt'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local template file.
+		return strtr($template, array(
+			'{{HEADER}}'   => $header,
+			'{{MARKER}}'   => $marker,
+			'{{BASENAME}}' => $basename_export,
+			'{{COOKIE}}'   => $cookie,
+		));
 	}
 
 	/**
 	 * Turn safe mode on for the current browser.
 	 */
 	public function ajax_enter(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		if (! self::install_loader()) {
 			wp_send_json_error(array('message' => __('Could not write the safe-mode loader. Make wp-content/mu-plugins writable and try again.', 'diagnostics-toolkit')));
 		}

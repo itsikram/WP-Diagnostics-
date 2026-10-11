@@ -1,4 +1,4 @@
-=== Diagnostics Toolkit – Debug, Error Log, Malware Scan, Backup & Migration ===
+=== Diagnostics Toolkit ===
 Contributors: ikramulislam
 Tags: diagnostics, debug, error log, malware scanner, migration
 Requires at least: 6.4
@@ -8,13 +8,13 @@ Stable tag: 1.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Find and fix site problems from one dashboard: error log, debug mode, plugin conflicts, malware scan, backups, site migration and an AI helper.
+Find and fix site problems from one screen: error log, debug mode, plugin conflicts, malware scan, backups and site migration.
 
 == Description ==
 
-**Diagnostics Toolkit** brings the tools you reach for when a WordPress site misbehaves into one admin screen. Read the error log, switch debug mode on safely, find the plugin that causes a conflict, scan for malware, back up, move a site between servers, and ask an AI assistant to explain or fix an error — without FTP or phpMyAdmin.
+**Diagnostics Toolkit** brings the tools you reach for when a site misbehaves into one admin screen. Read the error log, switch debug mode on safely, find the plugin that causes a conflict, scan for malware, back up and restore, and move a site between servers.
 
-It is built for site owners, freelancers and agencies who need complete WP diagnostics and repair in one place.
+It is built for site owners, freelancers and agencies. Every tool is limited to administrators.
 
 = Debugging and error logs =
 
@@ -27,38 +27,41 @@ It is built for site owners, freelancers and agencies who need complete WP diagn
 = Site health and performance =
 
 * System report: WordPress, PHP, database, server limits, active plugins and theme. Export it as JSON or email it.
-* Largest autoloaded options, memory use and page load timing.
-* Security quick scan: debug mode on a live site, wp-config.php permissions and sensitive files (.env, .git) left in the web root.
+* Largest autoloaded options, database table sizes, memory use and page load timing.
+* Security checks: debug mode on a live site, `wp-config.php` permissions and sensitive files (.env, .git) left in the web root.
 * File integrity check against the official WordPress.org checksums.
 
 = Malware scanner =
 
 * Scans core, plugins, themes and uploads for known malware patterns, backdoors and injected scripts.
+* Checks the database for injected scripts, spam links, hidden administrators and suspicious scheduled tasks.
 * Compares plugin files with the originals on WordPress.org and restores a modified file from the official copy.
-* Quarantine or delete infected files; optional daily scheduled scan with email report.
+* Checks WordPress, plugins and themes for known vulnerabilities.
+* Quarantine a flagged file in a protected folder or delete it; optional daily scheduled scan with an email report.
 
-= File manager and database manager =
+= Search and replace in the database =
 
-* Browse, edit, upload, rename, zip and change permissions of files, with a code editor.
-* Browse and edit database tables, run SQL in a safe mode, optimize and repair tables, export SQL.
-* Search text in files and the database and replace it, with a preview and an optional backup first.
+* Search text in files and in the database.
+* Replace text in the database with a preview, a selection of what to change and an undo backup. Serialized data is handled safely.
 
 = Backup, restore and site migration =
 
 * Back up the database, plugins, themes and uploads in resumable steps that work on shared hosting. Restore any part, with rollback.
-* Push a local site to live, or pull live to local, with the connection key of the other site. Only changed files are sent.
+* Push a local site to live, or pull live to local, using the connection key of the other site. Only changed files are sent.
 * Choose exactly what to migrate: the database, plugins, themes, uploads, or the entire WordPress folder.
 * **Add as new content**: copy posts, pages, custom post types, terms, comments and users into another site as new items, without replacing what is already there.
+* Scheduled push or pull migrations that run in the background.
+* Optionally load media from the source site instead of copying the uploads folder.
 * Every migration can be rolled back.
 
 = Recovery =
 
-* Safe mode: open wp-admin with every other plugin and the theme disabled, for your browser only — visitors are not affected.
+* Safe mode: open wp-admin with every other plugin and the theme disabled, for your browser only. Visitors are not affected.
 * Optional automatic deactivation of a plugin that keeps crashing the site (off by default).
 
-= AI troubleshooting assistant (optional) =
+= Debug mode =
 
-Connect your own API key for Google Gemini, OpenAI, Anthropic Claude or OpenRouter. The assistant can read error logs and files, explain what went wrong, and — only with your approval — edit files, run database queries or manage plugins. Every change is backed up and can be undone. The assistant is off until you add an API key.
+The debug options change PHP error logging only after an administrator turns them on in Diagnostics Toolkit, and errors are written to `wp-content/debug.log` without being shown to visitors unless `WP_DEBUG_DISPLAY` is switched on.
 
 = WP-CLI =
 
@@ -66,26 +69,25 @@ Run diagnostics, malware scans and database maintenance from the command line wi
 
 == External services ==
 
-Diagnostics Toolkit works offline by default. It connects to the external services below only when you use the related feature.
-
-= AI assistant (Google Gemini, OpenAI, Anthropic, OpenRouter) =
-
-Used only after you add your own API key on the AI Assistant settings screen, and only when you send a message or the assistant runs a step you started. The plugin sends your message, the conversation so far and the site information needed to answer it — for example error log lines, the contents of files the assistant opens, database query results and your WordPress, PHP and plugin versions — to the provider you selected. It also asks the provider for its list of available models.
-
-* Google Gemini API (generativelanguage.googleapis.com) — [Terms](https://ai.google.dev/gemini-api/terms), [Privacy Policy](https://policies.google.com/privacy)
-* OpenAI API (api.openai.com) — [Terms](https://openai.com/policies/services-agreement/), [Privacy Policy](https://openai.com/policies/privacy-policy/)
-* Anthropic API (api.anthropic.com) — [Commercial Terms](https://www.anthropic.com/legal/commercial-terms), [Privacy Policy](https://www.anthropic.com/legal/privacy)
-* OpenRouter (openrouter.ai) — [Terms](https://openrouter.ai/terms), [Privacy Policy](https://openrouter.ai/privacy)
-
-If you ask the assistant to upload an image from a web address, the plugin downloads that image from the address you (or the assistant) provided.
+Diagnostics Toolkit does not contact any service on its own. It connects to the services below only when you use the related feature.
 
 = WordPress.org =
 
-The malware scanner and file integrity check download official file checksums and original plugin and core files from WordPress.org (downloads.wordpress.org, plugins.svn.wordpress.org, core.svn.wordpress.org) when you run a scan or restore a file. Only the plugin slug, version and file path are sent. When you ask the AI assistant to install a plugin or theme, it is downloaded from WordPress.org through WordPress's own installer. [Privacy Policy](https://wordpress.org/about/privacy/)
+Used by the malware scanner, the file integrity check and site migration:
 
-= Your other sites (site migration) =
+* When you run a scan, the plugin downloads official file checksums for WordPress core and for installed plugins from WordPress.org (api.wordpress.org, downloads.wordpress.org). The plugin slug and version, or the WordPress version and locale, are sent.
+* When you repair a file, the original copy of that file is downloaded from WordPress.org (core.svn.wordpress.org, plugins.svn.wordpress.org). The slug, version and file path are sent.
+* When a migration includes unmodified plugins or themes from WordPress.org, the destination site downloads them from downloads.wordpress.org instead of receiving a copy. The slug and version are sent.
 
-When you connect another site and run a push or pull, this site exchanges database rows and files with that site, which you added yourself. Every request is signed with that site's connection key. No third party is involved.
+WordPress.org [Terms of Service](https://wordpress.org/about/domains/) and [Privacy Policy](https://wordpress.org/about/privacy/).
+
+= WPVulnerability API =
+
+When you run a malware scan, the plugin asks the WPVulnerability API (www.wpvulnerability.net) whether the installed versions of WordPress, your plugins and your themes have known vulnerabilities. For each item, only its type (core, plugin or theme) and its slug (for WordPress, the version number) are sent; no site address or personal data is sent. Answers are cached for 12 hours. The service is run by the WPVulnerability project: [website](https://www.wpvulnerability.net/), [about the service and its data use](https://wordpress.org/plugins/wpvulnerability/).
+
+= Your other sites (site migration and media source) =
+
+When you connect another site and run a push or pull, this site exchanges database rows and files only with that site, which you added yourself. Every request is signed with that site's connection key. If you turn on "Use media from source website", pages on this site load image and media URLs from the site address you entered. No third party is involved.
 
 = Your email server (SMTP) =
 
@@ -95,19 +97,21 @@ If you enable SMTP, emails sent by WordPress are delivered through the mail serv
 
 1. Install the plugin from **Plugins → Add New** (search for "Diagnostics Toolkit") or upload the zip file.
 2. Activate it.
-3. Open **Diagnostics Toolkit** in the wp-admin menu (also under **Tools → Diagnostics Toolkit**).
-
-To use the AI assistant, open **AI Assistant → Settings** and add an API key from the provider of your choice.
+3. Open **Diagnostics Toolkit** in the wp-admin menu.
 
 == Frequently Asked Questions ==
 
 = Is it safe to use on a live site? =
 
-Yes. All tools are limited to administrators (`manage_options`), every form is protected with a nonce, and destructive actions ask for confirmation and keep a backup or rollback copy first.
+Yes. All tools are limited to administrators (`manage_options`), every admin action is protected with a nonce, and destructive actions ask for confirmation and keep a backup or rollback copy first.
 
 = Does the plugin change my site on its own? =
 
-No. Automatic deactivation of a crashing plugin is off until you switch it on in the Recovery tab, and the AI assistant asks before each change unless you turn on auto-approve.
+No. Automatic deactivation of a crashing plugin is off until you switch it on in the Recovery tab. Scheduled scans and migrations run only after you create them.
+
+= Can I edit files or run SQL queries with this plugin? =
+
+No. Diagnostics Toolkit has no file editor and no SQL console. It reads logs and files to diagnose problems, and only changes things through specific actions such as restoring an official file from WordPress.org, quarantining a flagged file, or replacing text in the database with a preview and undo.
 
 = My site shows "There has been a critical error". How do I get in? =
 
@@ -117,9 +121,13 @@ Use the link in WordPress's "Your Site is Experiencing a Technical Issue" email 
 
 Instead of replacing the destination database, it adds the source site's posts, pages, custom post types, media library entries, menus, terms, comments and users as new items with new IDs. Existing content is never changed, content added by an earlier merge is skipped, and a rollback removes everything that was added.
 
+= Where are backups stored? =
+
+In `wp-content/uploads/wudt-backups`, protected from direct web access. They are kept when you delete the plugin so you do not lose them; delete that folder yourself if you no longer need it.
+
 = What is removed when I delete the plugin? =
 
-Settings, its database tables, logs, migration and quarantine files, and the safe-mode helper file. Backup archives in `wp-content/uploads/wudt-backups` are kept so you do not lose them; delete that folder yourself if you no longer need it.
+Settings, its database tables, logs, migration and quarantine files, and the safe-mode helper file.
 
 = Does it work on multisite? =
 
@@ -128,32 +136,4 @@ The diagnostics tools work on each site. Site migration does not support multisi
 == Changelog ==
 
 = 1.11.0 =
-* New: scheduled push and pull migrations (once, hourly, every 6 or 12 hours, daily, weekly or monthly) that run in the background through WP-Cron or a server cron URL, with retries and email notifications.
-* Improved: faster file transfers; requests are sent continuously instead of in rounds, and many small files share one request.
-
-= 1.10.0 =
-* New: Settings → Media Source loads media from the source website (all media, or only files missing on this site).
-
-= 1.9.0 =
-* New: malware scanner checks the database (injected scripts, spam, malicious snippets and scheduled tasks, hidden administrators, triggers), known vulnerabilities in WordPress, plugins and themes, and security settings, with a security score and one-click fixes.
-* New: the other site shows live progress of a migration it sends or receives.
-* New: a live site connected to a local site opens that site to run the migration from there.
-* Fixed: slow uploads no longer stop migrations; requests get smaller instead of running into the PHP time limit.
-* Fixed: performance sampling no longer writes to the database on every request.
-
-= 1.7.0 =
-* New: site migration can add content as new items instead of replacing the database.
-* New: migrate only active or only deactivated plugins and themes, or the entire WordPress folder.
-* New: connecting a site now connects back automatically.
-* New: safe mode is started from the Recovery tab.
-* Changed: automatic deactivation of crashing plugins is now opt-in.
-* Changed: secure HTTPS certificate checks for all remote requests.
-* Fixed: migrations now copy only the parts you select.
-
-= 1.6.0 =
-* Site migration, backup rollback and the AI agent.
-
-== Upgrade Notice ==
-
-= 1.7.0 =
-Adds "Add as new content" migrations and makes automatic plugin deactivation opt-in.
+* First release in the WordPress.org plugin directory.

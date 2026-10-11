@@ -20,6 +20,10 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- the transfer queue is read line by line and a lock file is held with flock(); WP_Filesystem cannot do either.
+
 class Migration_Runner {
 	private const STALE_AFTER = 900;
 	private const MAX_LOG = 150;
@@ -506,7 +510,7 @@ class Migration_Runner {
 			wp_mkdir_p($dir);
 		}
 		if (! file_exists($dir . '/index.php')) {
-			@file_put_contents($dir . '/index.php', "<?php\n// Silence is golden.\n");
+			@file_put_contents($dir . '/index.php', "<?php\n// Silence is golden.\n"); // phpcs:ignore PluginCheck.CodeAnalysis.WriteFile.PluginDirectoryWrite -- wp-content/wudt-progress, not the plugin folder.
 		}
 		$name = substr(hash('sha256', 'wudt-progress|' . $token), 0, 40) . '.json';
 		return array('file' => $dir . '/' . $name, 'url' => content_url('/wudt-progress/' . $name));
@@ -521,16 +525,16 @@ class Migration_Runner {
 		$summary['now'] = time();
 		$tmp = $file . '.' . getmypid() . '.tmp';
 		// Write then rename, so a reader never sees a half-written file.
-		if (false !== @file_put_contents($tmp, wp_json_encode($summary)) && ! @rename($tmp, $file)) {
+		if (false !== @file_put_contents($tmp, wp_json_encode($summary)) && ! @rename($tmp, $file)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename, WordPress.PHP.NoSilencedErrors.Discouraged -- atomic replace of the plugin's own job file.
 			@file_put_contents($file, wp_json_encode($summary));
-			@unlink($tmp);
+			wp_delete_file($tmp);
 		}
 	}
 
 	private static function delete_progress(array $state): void {
 		$file = (string) ($state['progress']['file'] ?? '');
 		if ('' !== $file && 0 === strpos(wp_normalize_path($file), wp_normalize_path(WP_CONTENT_DIR) . '/wudt-progress/')) {
-			@unlink($file);
+			wp_delete_file($file);
 		}
 	}
 
@@ -643,7 +647,7 @@ class Migration_Runner {
 				if ($runner) {
 					self::delete_progress($runner->state);
 				}
-				@unlink(self::job_file($old['id']));
+				wp_delete_file(self::job_file($old['id']));
 			}
 		}
 		return array_slice($jobs, 0, self::MAX_HISTORY);
@@ -666,9 +670,9 @@ class Migration_Runner {
 		if ($runner) {
 			self::delete_progress($runner->state);
 		}
-		@unlink(self::job_file($id));
+		wp_delete_file(self::job_file($id));
 		foreach ((array) glob(Migration_Engine::storage_dir('work') . '/' . Migration_Engine::sanitize_job_id($id) . '-*') as $f) {
-			@unlink((string) $f);
+			wp_delete_file((string) $f);
 		}
 	}
 
@@ -733,7 +737,7 @@ class Migration_Runner {
 			}
 		}
 		if (file_exists($this->queue_file())) {
-			unlink($this->queue_file());
+			wp_delete_file($this->queue_file());
 		}
 		$this->state['status'] = 'cancelled';
 		$this->state['message'] = 'Migration cancelled. The destination site was not changed.';
@@ -952,7 +956,7 @@ class Migration_Runner {
 		}
 		$component = (string) $components[$f['ci']];
 		if (0 === $f['offset'] && 0 === $f['ci'] && file_exists($this->queue_file())) {
-			unlink($this->queue_file());
+			wp_delete_file($this->queue_file());
 		}
 		$override = ! empty($this->state['override']);
 		$this->progress($override
@@ -1639,7 +1643,7 @@ class Migration_Runner {
 			}
 		}
 		if (file_exists($this->queue_file())) {
-			unlink($this->queue_file());
+			wp_delete_file($this->queue_file());
 		}
 
 		if (! empty($this->state['live_media']) && 'pull' === $this->state['direction']) {

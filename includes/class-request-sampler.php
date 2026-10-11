@@ -56,7 +56,7 @@ class Request_Sampler {
 		if (false !== $last && time() - $last < self::INTERVAL) {
 			return false;
 		}
-		@touch($stamp);
+		@file_put_contents($stamp, ''); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- an unwritable temp folder only means sampling more often.
 		return true;
 	}
 }

@@ -34,7 +34,8 @@ class Crash_Recovery_Module extends Module_Base {
 	}
 
 	public function ajax_auto_toggle(): void {
-		\WUDT\Includes\Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		\WUDT\Includes\Security_Guard::assert_admin();
 		$enabled = isset($_POST['enabled']) && '1' === sanitize_text_field(wp_unslash($_POST['enabled']));
 		update_option('wudt_auto_disable_crashing', $enabled, false);
 		wp_send_json_success(array('enabled' => $enabled));

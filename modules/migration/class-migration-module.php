@@ -15,6 +15,8 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
 class Migration_Module extends Module_Base {
 	private const OPTION_SITES = 'wudt_migration_sites';
 	private const INFO_CACHE_TTL = 600;
@@ -133,15 +135,17 @@ class Migration_Module extends Module_Base {
 	/* ------------------------------ Sites ------------------------------- */
 
 	public function ajax_get_state(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		wp_send_json_success($this->build_state());
 	}
 
 	public function ajax_save_site(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
-		$label = sanitize_text_field((string) wp_unslash($_POST['label'] ?? ''));
+		$label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
 		$url = trim(sanitize_text_field(wp_unslash($_POST['url'] ?? '')));
 		$api_key = trim(sanitize_text_field(wp_unslash($_POST['api_key'] ?? '')));
 		$connection = trim(sanitize_text_field(wp_unslash($_POST['connection'] ?? '')));
@@ -286,7 +290,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_delete_site(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
 		$sites = $this->get_sites();
 		unset($sites[$site_id]);
@@ -295,7 +300,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_test_connection(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$site = $this->require_site();
 		try {
 			$info = $this->remote_info($site);
@@ -314,7 +320,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_regenerate_key(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		update_option(Migration_API::KEY_OPTION, bin2hex(random_bytes(24)), false);
 		Operation_Logger::log('migration', 'Local connection key regenerated', array());
 		wp_send_json_success(array('state' => $this->build_state()));
@@ -323,7 +330,8 @@ class Migration_Module extends Module_Base {
 	/* ------------------------------ Jobs -------------------------------- */
 
 	public function ajax_preflight(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$site = $this->require_site();
 		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
 
@@ -352,7 +360,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_start(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$site = $this->require_site();
 		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
 		try {
@@ -382,6 +391,7 @@ class Migration_Module extends Module_Base {
 	 * What to migrate, read from the wizard's request. Also used to save schedules.
 	 */
 	public static function job_options_from_request(): array {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- only called by AJAX handlers that already ran check_ajax_referer().
 		$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
 		$tables = json_decode(sanitize_text_field(wp_unslash($_POST['tables'] ?? '[]')), true);
 		$excludes_raw = sanitize_textarea_field(wp_unslash($_POST['excludes'] ?? ''));
@@ -426,6 +436,7 @@ class Migration_Module extends Module_Base {
 			'live_media'      => ! empty($_POST['live_media']),
 			'live_media_mode' => 'all' === sanitize_key(wp_unslash($_POST['live_media_mode'] ?? 'missing')) ? 'all' : 'missing',
 		);
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 	}
 
 	/**
@@ -530,7 +541,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_delete_job(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		try {
 			Migration_Runner::delete(sanitize_text_field(wp_unslash($_POST['job_id'] ?? '')));
 		} catch (\Throwable $e) {
@@ -543,7 +555,8 @@ class Migration_Module extends Module_Base {
 	 * Roll back the last migration received by this site or by a remote site.
 	 */
 	public function ajax_rollback(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$target = sanitize_key((string) wp_unslash($_POST['site_id'] ?? 'local'));
 		Migration_Engine::raise_limits();
 		try {
@@ -572,7 +585,8 @@ class Migration_Module extends Module_Base {
 	}
 
 	public function ajax_discard_rollback(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		(new Migration_Engine())->discard_rollback();
 		wp_send_json_success(array('state' => $this->build_state()));
 	}
@@ -581,7 +595,8 @@ class Migration_Module extends Module_Base {
 	 * Migrations other sites are running with this one (polled by the page).
 	 */
 	public function ajax_peer_jobs(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$dismiss = sanitize_text_field(wp_unslash($_POST['dismiss'] ?? ''));
 		if ('' !== $dismiss) {
 			try {
@@ -599,7 +614,8 @@ class Migration_Module extends Module_Base {
 	 * Load this site's media from a connected site, change the mode or turn it off.
 	 */
 	public function ajax_live_media(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$op = sanitize_key((string) wp_unslash($_POST['op'] ?? ''));
 		try {
 			if ('disable' === $op) {
@@ -631,7 +647,8 @@ class Migration_Module extends Module_Base {
 	 * List a folder on this site or on a connected site, for picking files to migrate.
 	 */
 	public function ajax_browse(): void {
-		Security_Guard::assert_ajax_admin();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
 		$component = sanitize_key((string) wp_unslash($_POST['component'] ?? 'core'));
 		$component = in_array($component, Migration_Engine::COMPONENTS, true) ? $component : 'core';
 		$path = sanitize_text_field(wp_unslash($_POST['path'] ?? ''));
@@ -661,8 +678,9 @@ class Migration_Module extends Module_Base {
 	 * Map absolute paths on this site (from the file manager) to migration paths.
 	 */
 	public function ajax_locate(): void {
-		Security_Guard::assert_ajax_admin();
-		$paths = isset($_POST['paths']) && is_array($_POST['paths']) ? array_map('sanitize_text_field', array_map('wp_unslash', $_POST['paths'])) : array();
+		check_ajax_referer('wudt_admin_nonce', 'nonce');
+		Security_Guard::assert_admin();
+		$paths = isset($_POST['paths']) && is_array($_POST['paths']) ? array_map('sanitize_text_field', wp_unslash($_POST['paths'])) : array();
 		$abspath = untrailingslashit(wp_normalize_path(ABSPATH));
 		$items = array();
 		foreach (array_slice($paths, 0, 500) as $abs) {
@@ -711,12 +729,14 @@ class Migration_Module extends Module_Base {
 	}
 
 	private function require_site(): array {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- only called by AJAX handlers that already ran check_ajax_referer().
 		$site_id = sanitize_key((string) wp_unslash($_POST['site_id'] ?? ''));
 		$sites = $this->get_sites();
 		if ('' === $site_id || ! isset($sites[$site_id])) {
 			wp_send_json_error(array('message' => __('Site not found. Add it again.', 'diagnostics-toolkit')));
 		}
 		return $sites[$site_id];
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 	}
 
 	private static function info_cache_key(string $site_id): string {

@@ -16,6 +16,8 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread, WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- reads only the end of a possibly large debug.log, which WP_Filesystem cannot do.
+
 class Auto_Recovery_Module extends Module_Base {
 	private const OPTION_RECOVERY_LOG = 'wudt_auto_recovery_log';
 	private const OPTION_SAFE_MODE = 'wudt_safe_mode_active';
@@ -83,7 +85,7 @@ class Auto_Recovery_Module extends Module_Base {
 		// Convert early errors timestamps to match format
 		foreach ($early_errors as &$error) {
 			if (isset($error['time']) && is_int($error['time'])) {
-				$error['time'] = date('Y-m-d H:i:s', $error['time']);
+				$error['time'] = gmdate('Y-m-d H:i:s', $error['time']);
 			}
 		}
 		
@@ -618,13 +620,9 @@ class Auto_Recovery_Module extends Module_Base {
 	private function is_recovery_request(): bool {
 		$actions = array('wudt_restore_plugin', 'wudt_restore_theme', 'wudt_disable_safe_mode');
 		
-		foreach ($actions as $action) {
-			if (isset($_REQUEST['action']) && $_REQUEST['action'] === $action) {
-				return true;
-			}
-		}
-		
-		return false;
+		// Only compares the request's action name with the recovery actions; nothing is changed here.
+		$current = isset($_REQUEST['action']) ? sanitize_key(wp_unslash($_REQUEST['action'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		return in_array($current, $actions, true);
 	}
 
 	/**

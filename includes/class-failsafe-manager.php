@@ -22,7 +22,7 @@ class Failsafe_Manager {
 	}
 
 	public function is_emergency_mode(): bool {
-		if (isset($_GET['wudt_emergency']) && '1' === (string) wp_unslash($_GET['wudt_emergency'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if (isset($_GET['wudt_emergency']) && '1' === sanitize_text_field(wp_unslash($_GET['wudt_emergency']))) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			return true;
 		}
 
@@ -35,7 +35,7 @@ class Failsafe_Manager {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {
@@ -64,7 +64,7 @@ class Failsafe_Manager {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {
@@ -104,7 +104,7 @@ class Failsafe_Manager {
 		if (! current_user_can('manage_options')) {
 			wp_die(esc_html__('Insufficient permissions.', 'diagnostics-toolkit'), 403);
 		}
-		$enabled = '1' === (string) wp_unslash($_GET['wudt_set_emergency']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$enabled = '1' === sanitize_text_field(wp_unslash($_GET['wudt_set_emergency'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		update_option(self::MODE_OPTION, $enabled);
 		wp_safe_redirect(remove_query_arg(array('_wpnonce', 'wudt_set_emergency')));
 		exit;
@@ -124,7 +124,7 @@ class Failsafe_Manager {
 		// Suppress database errors during check to prevent race condition output
 		$wpdb->suppress_errors(true);
 		$table_name = $wpdb->prefix . 'options';
-		$table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) === $table_name;
 		$wpdb->suppress_errors(false);
 
 		if (!$table_exists) {

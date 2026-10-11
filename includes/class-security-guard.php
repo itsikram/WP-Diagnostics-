@@ -11,9 +11,14 @@ if (! defined('ABSPATH')) {
 	exit;
 }
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- exception messages are never printed as HTML: they are logged or returned with wp_send_json_*(), and the admin scripts escape them when displaying them.
+
 class Security_Guard {
-	public static function assert_ajax_admin(string $nonce_field = 'nonce', string $action = 'wudt_admin_nonce'): void {
-		check_ajax_referer($action, $nonce_field);
+	/**
+	 * Stop the AJAX request unless the current user is an administrator. Handlers call
+	 * check_ajax_referer() themselves first.
+	 */
+	public static function assert_admin(): void {
 		if (! current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Permission denied.', 'diagnostics-toolkit')), 403);
 		}

@@ -150,15 +150,15 @@ class SMTP_Module extends Module_Base {
 			return;
 		}
 
-		$enabled = isset($_POST['enabled']) && '1' === (string) wp_unslash($_POST['enabled']);
-		$host = isset($_POST['host']) ? sanitize_text_field((string) wp_unslash($_POST['host'])) : '';
-		$port = isset($_POST['port']) ? (int) wp_unslash($_POST['port']) : 587;
-		$encryption = isset($_POST['encryption']) ? sanitize_text_field((string) wp_unslash($_POST['encryption'])) : 'tls';
-		$auth = isset($_POST['auth']) && '1' === (string) wp_unslash($_POST['auth']);
-		$user = isset($_POST['user']) ? sanitize_text_field((string) wp_unslash($_POST['user'])) : '';
+		$enabled = isset($_POST['enabled']) && '1' === sanitize_text_field(wp_unslash($_POST['enabled']));
+		$host = isset($_POST['host']) ? sanitize_text_field(wp_unslash($_POST['host'])) : '';
+		$port = isset($_POST['port']) ? absint(wp_unslash($_POST['port'])) : 587;
+		$encryption = isset($_POST['encryption']) ? sanitize_text_field(wp_unslash($_POST['encryption'])) : 'tls';
+		$auth = isset($_POST['auth']) && '1' === sanitize_text_field(wp_unslash($_POST['auth']));
+		$user = isset($_POST['user']) ? sanitize_text_field(wp_unslash($_POST['user'])) : '';
 		$pass = isset($_POST['pass']) ? (string) wp_unslash($_POST['pass']) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- SMTP passwords must not be altered.
 		$from_email = isset($_POST['from_email']) ? sanitize_email((string) wp_unslash($_POST['from_email'])) : '';
-		$from_name = isset($_POST['from_name']) ? sanitize_text_field((string) wp_unslash($_POST['from_name'])) : '';
+		$from_name = isset($_POST['from_name']) ? sanitize_text_field(wp_unslash($_POST['from_name'])) : '';
 
 		// Validate
 		if ($enabled && empty($host)) {
@@ -213,7 +213,7 @@ class SMTP_Module extends Module_Base {
 			return;
 		}
 
-		$subject = sprintf(__('Test Email from %s', 'diagnostics-toolkit'), get_bloginfo('name'));
+		$subject = sprintf(/* translators: %s: site name. */ __('Test Email from %s', 'diagnostics-toolkit'), get_bloginfo('name'));
 		$message = sprintf(
 			"This is a test email from Diagnostics Toolkit.\n\n" .
 			"SMTP Configuration:\n" .
@@ -237,7 +237,7 @@ class SMTP_Module extends Module_Base {
 
 		if ($result) {
 			wp_send_json_success(array(
-				'message' => sprintf(__('Test email sent successfully to %s', 'diagnostics-toolkit'), $to),
+				'message' => sprintf(/* translators: %s: recipient email address. */ __('Test email sent successfully to %s', 'diagnostics-toolkit'), $to),
 			));
 		} else {
 			$error_message = $this->last_mail_error ?: __('Unknown error occurred.', 'diagnostics-toolkit');
@@ -289,18 +289,19 @@ class SMTP_Module extends Module_Base {
 		}
 
 		// Try to connect
-		$connection = @fsockopen($host, $port, $errno, $errstr, 10);
+		// A plain TCP connection test to the mail server; the HTTP API cannot open SMTP connections.
+		$connection = @fsockopen($host, $port, $errno, $errstr, 10); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fsockopen, WordPress.PHP.NoSilencedErrors.Discouraged
 		
 		if ($connection) {
-			fclose($connection);
+			fclose($connection); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- closes the socket above.
 			return array(
 				'success' => true,
-				'message' => sprintf(__('Successfully connected to %s:%d', 'diagnostics-toolkit'), $host, $port),
+				'message' => sprintf(/* translators: 1: SMTP host, 2: SMTP port. */ __('Successfully connected to %1$s:%2$d', 'diagnostics-toolkit'), $host, $port),
 			);
 		} else {
 			return array(
 				'success' => false,
-				'message' => sprintf(__('Failed to connect to %s:%d - %s', 'diagnostics-toolkit'), $host, $port, $errstr ?: __('Connection timeout', 'diagnostics-toolkit')),
+				'message' => sprintf(/* translators: 1: SMTP host, 2: SMTP port, 3: error message. */ __('Failed to connect to %1$s:%2$d - %3$s', 'diagnostics-toolkit'), $host, $port, $errstr ?: __('Connection timeout', 'diagnostics-toolkit')),
 			);
 		}
 	}
