@@ -279,6 +279,8 @@
 	font-size: 13px;
 }
 .wudt-fm-menu button:hover { background: #e9f2ff; }
+.wudt-fm-menu-sep { height: 1px; margin: 4px 6px; background: #e5e7eb; }
+.wudt-fm-toolbar .wudt-fm-migrate { border-color: #2271b1; color: #2271b1; }
 .is-drop-target {
 	outline: 2px dashed #60a5fa;
 	outline-offset: -2px;
@@ -303,6 +305,7 @@
 .wudt-fm-shell.is-dark .wudt-fm-menu { background: #1f2328; border-color: #343a40; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button { color: #e6edf3; }
 .wudt-fm-shell.is-dark .wudt-fm-menu button:hover { background: #2b3642; }
+.wudt-fm-shell.is-dark .wudt-fm-menu-sep { background: #343a40; }
 
 /* File Manager Loading State */
 .wudt-fm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; color: #6b7280; }

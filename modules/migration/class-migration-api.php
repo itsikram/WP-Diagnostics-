@@ -205,8 +205,11 @@ class Migration_API {
 					$budget,
 					max(500, min(10000, (int) ($p['max_entries'] ?? 3000))),
 					! isset($p['hash']) || ! empty($p['hash']),
-					! empty($p['cached_only'])
+					! empty($p['cached_only']),
+					isset($p['only']) && is_array($p['only']) ? array_map('strval', $p['only']) : null
 				);
+			case 'browse':
+				return $engine->browse((string) ($p['component'] ?? 'core'), (string) ($p['path'] ?? ''));
 			case 'diff':
 				return $engine->diff_entries((string) ($p['component'] ?? ''), (array) ($p['entries'] ?? array()), $budget, ! empty($p['lazy']));
 			case 'hashes':

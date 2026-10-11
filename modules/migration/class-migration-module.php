@@ -17,6 +17,7 @@ if (! defined('ABSPATH')) {
 
 class Migration_Module extends Module_Base {
 	private const OPTION_SITES = 'wudt_migration_sites';
+	private const INFO_CACHE_TTL = 600;
 
 	private Migration_API $api;
 
@@ -39,6 +40,8 @@ class Migration_Module extends Module_Base {
 			'wudt_migration_regenerate_key'   => 'ajax_regenerate_key',
 			'wudt_migration_rollback'         => 'ajax_rollback',
 			'wudt_migration_discard_rollback' => 'ajax_discard_rollback',
+			'wudt_migration_browse'           => 'ajax_browse',
+			'wudt_migration_locate'           => 'ajax_locate',
 		);
 		foreach ($admin_actions as $action => $method) {
 			add_action('wp_ajax_' . $action, array($this, $method));
@@ -296,6 +299,8 @@ class Migration_Module extends Module_Base {
 		} catch (\Throwable $e) {
 			wp_send_json_error(array('message' => $e->getMessage()));
 		}
+		// Start reuses this check instead of contacting the other site again.
+		set_transient(self::info_cache_key($site['id']), $remote, self::INFO_CACHE_TTL);
 
 		$src = 'pull' === $direction ? $remote : $local;
 		$dst = 'pull' === $direction ? $local : $remote;
@@ -329,6 +334,13 @@ class Migration_Module extends Module_Base {
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
 		$pt_plugins = json_decode(sanitize_text_field(wp_unslash($_POST['pt_plugins'] ?? '[]')), true);
 		$pt_themes = json_decode(sanitize_text_field(wp_unslash($_POST['pt_themes'] ?? '[]')), true);
+		// Specific files and folders: [{c: component, p: relative path}].
+		$files = json_decode((string) wp_unslash($_POST['files'] ?? '[]'), true); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- cleaned by Migration_Runner::normalize_files().
+		$files = Migration_Runner::normalize_files(is_array($files) ? $files : array());
+		if (! empty($files)) {
+			$components = array();
+			$tables = array();
+		}
 
 		$active = Migration_Runner::active_job();
 		if ($active) {
@@ -336,7 +348,11 @@ class Migration_Module extends Module_Base {
 		}
 
 		try {
-			$remote = $this->remote_info($site);
+			$remote = get_transient(self::info_cache_key($site['id']));
+			delete_transient(self::info_cache_key($site['id']));
+			if (! is_array($remote) || (int) ($remote['api_version'] ?? 0) < Migration_Engine::API_VERSION) {
+				$remote = $this->remote_info($site);
+			}
 			$local = (new Migration_Engine())->site_info();
 			$src = 'pull' === $direction ? $remote : $local;
 			$dst = 'pull' === $direction ? $local : $remote;
@@ -345,6 +361,14 @@ class Migration_Module extends Module_Base {
 			foreach (array('content', 'core') as $c) {
 				if (is_array($components) && in_array($c, $components, true)) {
 					$needs[] = $c;
+				}
+			}
+			if (! empty($files)) {
+				$needs[] = 'paths';
+				foreach ($files as $item) {
+					if (in_array($item['c'], array('content', 'core'), true)) {
+						$needs[] = $item['c'];
+					}
 				}
 			}
 			foreach ($needs as $feature) {
@@ -372,6 +396,8 @@ class Migration_Module extends Module_Base {
 					'pt_filter'      => $pt_filter,
 					'pt_plugins'     => is_array($pt_plugins) ? $pt_plugins : array(),
 					'pt_themes'      => is_array($pt_themes) ? $pt_themes : array(),
+					'files'          => $files,
+					'keep_backup'    => ! isset($_POST['keep_backup']) || ! empty($_POST['keep_backup']),
 					'sites_snapshot' => $this->get_sites(),
 				),
 				$remote,
@@ -451,6 +477,69 @@ class Migration_Module extends Module_Base {
 		wp_send_json_success(array('state' => $this->build_state()));
 	}
 
+	/* ------------------------------ File picker ------------------------- */
+
+	/**
+	 * List a folder on this site or on a connected site, for picking files to migrate.
+	 */
+	public function ajax_browse(): void {
+		Security_Guard::assert_ajax_admin();
+		$component = sanitize_key((string) wp_unslash($_POST['component'] ?? 'core'));
+		$component = in_array($component, Migration_Engine::COMPONENTS, true) ? $component : 'core';
+		$path = sanitize_text_field(wp_unslash($_POST['path'] ?? ''));
+		$side = sanitize_key((string) wp_unslash($_POST['side'] ?? 'local'));
+		try {
+			if ('remote' === $side) {
+				$site = $this->require_site();
+				$client = new Remote_Client($site['url'], $site['api_key'], (string) ($site['transport'] ?? ''));
+				try {
+					$result = (array) $client->call('browse', array('component' => $component, 'path' => $path), 60);
+				} catch (\Throwable $e) {
+					if (false !== strpos($e->getMessage(), 'Unknown migration action')) {
+						throw new \RuntimeException(__('The remote site runs an older Diagnostics Toolkit version that cannot list its files. Update the plugin on the remote site and try again.', 'diagnostics-toolkit'));
+					}
+					throw $e;
+				}
+			} else {
+				$result = (new Migration_Engine())->browse($component, $path);
+			}
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
+		}
+		wp_send_json_success($result);
+	}
+
+	/**
+	 * Map absolute paths on this site (from the file manager) to migration paths.
+	 */
+	public function ajax_locate(): void {
+		Security_Guard::assert_ajax_admin();
+		$paths = isset($_POST['paths']) && is_array($_POST['paths']) ? array_map('sanitize_text_field', array_map('wp_unslash', $_POST['paths'])) : array();
+		$abspath = untrailingslashit(wp_normalize_path(ABSPATH));
+		$items = array();
+		foreach (array_slice($paths, 0, 500) as $abs) {
+			$abs = untrailingslashit(wp_normalize_path((string) $abs));
+			$label = 0 === strpos($abs . '/', $abspath . '/') ? ltrim(substr($abs, strlen($abspath)), '/') : $abs;
+			$item = array(
+				'abs'   => $abs,
+				'label' => '' === $label ? '/' : $label,
+				'type'  => is_dir($abs) ? 'dir' : 'file',
+				's'     => is_file($abs) ? (int) @filesize($abs) : 0,
+			);
+			$loc = preg_match('#(^|/)\.\.(/|$)#', $abs) || ! file_exists($abs) ? null : Migration_Engine::locate($abs);
+			if (null === $loc) {
+				$item['error'] = __('Outside the WordPress folder; it cannot be migrated.', 'diagnostics-toolkit');
+			} elseif (! empty($loc['excluded'])) {
+				$item['error'] = __('Never migrated (site-specific, cache or migration data).', 'diagnostics-toolkit');
+			} else {
+				$item['c'] = $loc['c'];
+				$item['p'] = $loc['p'];
+			}
+			$items[] = $item;
+		}
+		wp_send_json_success(array('items' => $items, 'roots' => Migration_Engine::component_roots()));
+	}
+
 	/* ------------------------------ Helpers ----------------------------- */
 
 	private function require_job_with_token(): Migration_Runner {
@@ -475,6 +564,10 @@ class Migration_Module extends Module_Base {
 			wp_send_json_error(array('message' => __('Site not found. Add it again.', 'diagnostics-toolkit')));
 		}
 		return $sites[$site_id];
+	}
+
+	private static function info_cache_key(string $site_id): string {
+		return 'wudt_mig_info_' . md5($site_id . '|' . get_current_user_id());
 	}
 
 	private function remote_info(array $site): array {

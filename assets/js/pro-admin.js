@@ -600,6 +600,7 @@
 			+ '<button class="button" id="wudt-fm-new-folder">New Folder</button>'
 			+ '<button class="button" id="wudt-fm-upload-trigger">Upload File</button>'
 			+ '<button class="button" id="wudt-fm-download">Download</button>'
+			+ '<button class="button wudt-fm-migrate" id="wudt-fm-migrate" title="' + esc(state.selected.length ? 'Push or pull the ' + state.selected.length + ' selected item(s) to or from a connected site' : 'Push or pull this folder to or from a connected site') + '">⇅ Push / Pull' + (state.selected.length ? ' (' + state.selected.length + ')' : '') + '</button>'
 			+ compressBtn
 			+ '<button class="button" id="wudt-fm-toggle-view">' + (state.fileViewMode === 'grid' ? 'Details View' : 'Grid View') + '</button>'
 			+ '<button class="button" id="wudt-fm-dark">' + (state.darkExplorer ? 'Light' : 'Dark') + '</button>'
@@ -2593,6 +2594,9 @@
 				window.location.href = r.data.url;
 			});
 		});
+		$('#wudt-fm-migrate').on('click', function () {
+			openFmTransfer(state.selected.length ? state.selected.slice() : [state.currentPath], '');
+		});
 		$(document).off('click.wudtfmcompress').on('click.wudtfmcompress', '#wudt-fm-compress-selected', function () {
 			if (!state.selected.length) { return; }
 			var archiveName = prompt('Enter archive name:', 'archive.zip');
@@ -3141,6 +3145,10 @@
 				html += '<button data-act="extract">Extract Here</button>';
 			}
 			html += '<button data-act="download">Download</button>';
+			html += '<div class="wudt-fm-menu-sep"></div>';
+			html += '<button data-act="mig_push">⬆ Push to another site…</button>';
+			html += '<button data-act="mig_pull">⬇ Pull from another site…</button>';
+			html += '<div class="wudt-fm-menu-sep"></div>';
 			html += '<button data-act="copy_path">Copy Path</button>';
 			html += '<button data-act="properties">Properties</button>';
 		} else {
@@ -3148,6 +3156,7 @@
 			html += '<button data-act="upload">Upload File</button>';
 			html += '<button data-act="refresh">Refresh</button>';
 			html += '<button data-act="paste">Paste</button>';
+			html += '<button data-act="mig_folder">⇅ Push / Pull this folder…</button>';
 			// Show Compress Selected if files are selected
 			if (state.selected.length > 0) {
 				html += '<button data-act="compress_selected">Compress Selected (' + state.selected.length + ')</button>';
@@ -3258,6 +3267,15 @@
 			});
 			return;
 		}
+		if ((action === 'mig_push' || action === 'mig_pull') && item) {
+			var migTargets = (state.selected.length > 1 && state.selected.indexOf(item.path) !== -1) ? state.selected.slice() : [item.path];
+			openFmTransfer(migTargets, action === 'mig_pull' ? 'pull' : 'push');
+			return;
+		}
+		if (action === 'mig_folder') {
+			openFmTransfer([state.currentPath], '');
+			return;
+		}
 		if (action === 'copy_path' && item) {
 			navigator.clipboard.writeText(item.path);
 			return;
@@ -3277,6 +3295,23 @@
 				loadDirectory(state.currentPath, false);
 			});
 		}
+	}
+
+	/**
+	 * Push or pull files to or from a site connected in Site Migration.
+	 */
+	function openFmTransfer(paths, direction) {
+		if (!window.WUDTMigration || !window.WUDTMigration.openTransfer) {
+			showToast('Site Migration', 'The migration module is not loaded on this page. Reload the page and try again.', 'error', 7000);
+			return;
+		}
+		window.WUDTMigration.openTransfer(paths, {
+			direction: direction,
+			onDone: function () {
+				// Pulled files changed this site: show their new sizes and dates.
+				loadDirectory(state.currentPath, false);
+			}
+		});
 	}
 
 	function persistFileManagerState() {
