@@ -97,6 +97,7 @@ safe_require('modules/migration/class-remote-client.php');
 safe_require('modules/migration/class-migration-runner.php');
 safe_require('modules/migration/class-peer-progress.php');
 safe_require('modules/migration/class-live-media.php');
+safe_require('modules/migration/class-migration-scheduler.php');
 safe_require('modules/migration/class-migration-module.php');
 safe_require('modules/malware/class-malware-scanner.php');
 safe_require('modules/malware/class-enterprise-malware-module.php');
@@ -152,6 +153,9 @@ if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
 }
 
 register_deactivation_hook(__FILE__, static function (): void {
+	if (class_exists(__NAMESPACE__ . '\\Modules\\Migration\\Migration_Scheduler')) {
+		Modules\Migration\Migration_Scheduler::clear_cron();
+	}
 	if (class_exists(__NAMESPACE__ . '\\Includes\\Rescue_Manager')) {
 		Includes\Rescue_Manager::remove_loader();
 	}

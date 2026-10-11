@@ -1267,6 +1267,8 @@ class Migration_Engine {
 		$written = 0;
 		$completed = 0;
 		$failed = array();
+		$listed = '';
+		$dirs = array();
 
 		foreach ($segments as $seg) {
 			$component = (string) ($seg['c'] ?? '');
@@ -1279,8 +1281,11 @@ class Migration_Engine {
 			}
 			$target = $stage . '/' . $component . '/' . $rel;
 			$dir = dirname($target);
-			if (! is_dir($dir) && ! wp_mkdir_p($dir)) {
-				throw new \RuntimeException('Unable to create staging directory for ' . $rel);
+			if (! isset($dirs[$dir])) {
+				if (! is_dir($dir) && ! wp_mkdir_p($dir)) {
+					throw new \RuntimeException('Unable to create staging directory for ' . $rel);
+				}
+				$dirs[$dir] = true;
 			}
 			$data = isset($seg['raw']) && is_string($seg['raw']) ? $seg['raw'] : base64_decode((string) ($seg['d'] ?? ''), true);
 			if (false === $data) {
@@ -1314,9 +1319,13 @@ class Migration_Engine {
 					$failed[] = array('c' => $component, 'p' => $rel);
 					continue;
 				}
-				file_put_contents($list, $component . '|' . $rel . "\n", FILE_APPEND | LOCK_EX);
+				$listed .= $component . '|' . $rel . "\n";
 				$completed++;
 			}
+		}
+		// One append for the whole request instead of one per file.
+		if ('' !== $listed) {
+			file_put_contents($list, $listed, FILE_APPEND | LOCK_EX);
 		}
 
 		return array('bytes' => $written, 'completed' => $completed, 'failed' => $failed);

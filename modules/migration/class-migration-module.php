@@ -20,13 +20,16 @@ class Migration_Module extends Module_Base {
 	private const INFO_CACHE_TTL = 600;
 
 	private Migration_API $api;
+	private Migration_Scheduler $scheduler;
 
 	public function __construct() {
 		$this->api = new Migration_API();
+		$this->scheduler = new Migration_Scheduler($this);
 	}
 
 	public function register_hooks(): void {
 		$this->api->register_hooks();
+		$this->scheduler->register_hooks();
 		(new Live_Media())->register_hooks();
 		add_action('init', array(Migration_Engine::class, 'maybe_flush_rewrite'), 999);
 
@@ -70,6 +73,13 @@ class Migration_Module extends Module_Base {
 		return $this->build_state();
 	}
 
+	/**
+	 * Everything the Site Migration page shows.
+	 */
+	public function state(): array {
+		return $this->build_state();
+	}
+
 	private function build_state(): array {
 		$sites = array();
 		foreach ($this->get_sites() as $site) {
@@ -108,7 +118,16 @@ class Migration_Module extends Module_Base {
 			'live_media'        => Live_Media::settings(),
 			'local_uploads_url' => untrailingslashit((string) wp_get_upload_dir()['baseurl']),
 			'api_version'       => Migration_Engine::API_VERSION,
+			'scheduler'         => $this->scheduler_state(),
 		);
+	}
+
+	private function scheduler_state(): array {
+		try {
+			return $this->scheduler->public_state();
+		} catch (\Throwable $e) {
+			return array('schedules' => array(), 'runner' => null, 'error' => $e->getMessage());
+		}
 	}
 
 	/* ------------------------------ Sites ------------------------------- */
@@ -336,14 +355,40 @@ class Migration_Module extends Module_Base {
 		Security_Guard::assert_ajax_admin();
 		$site = $this->require_site();
 		$direction = 'push' === sanitize_key(wp_unslash($_POST['direction'] ?? '')) ? 'push' : 'pull';
+		try {
+			$options = self::job_options_from_request();
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()), 400);
+		}
 
+		if (Migration_Runner::active_job()) {
+			wp_send_json_error(array('message' => __('Another migration is already running. Wait for it to finish or cancel it first.', 'diagnostics-toolkit')));
+		}
+
+		try {
+			$runner = $this->start_job($site, $direction, $options);
+		} catch (\Throwable $e) {
+			wp_send_json_error(array('message' => $e->getMessage()));
+		}
+
+		$state = $runner->get_state();
+		wp_send_json_success(array(
+			'job'   => $runner->summary(),
+			'token' => $state['token'],
+		));
+	}
+
+	/**
+	 * What to migrate, read from the wizard's request. Also used to save schedules.
+	 */
+	public static function job_options_from_request(): array {
 		$components = json_decode(sanitize_text_field(wp_unslash($_POST['components'] ?? '[]')), true);
 		$tables = json_decode(sanitize_text_field(wp_unslash($_POST['tables'] ?? '[]')), true);
 		$excludes_raw = sanitize_textarea_field(wp_unslash($_POST['excludes'] ?? ''));
-		$excludes = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array()));
+		$excludes = array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array())));
 		$db_mode = sanitize_key(wp_unslash($_POST['db_mode'] ?? 'replace'));
 		if (! in_array($db_mode, array('replace', 'replace_content', 'merge'), true)) {
-			wp_send_json_error(array('message' => __('Choose a valid database migration mode.', 'diagnostics-toolkit')), 400);
+			throw new \RuntimeException(__('Choose a valid database migration mode.', 'diagnostics-toolkit'));
 		}
 		$merge_groups = json_decode(sanitize_text_field(wp_unslash($_POST['merge_groups'] ?? '[]')), true);
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
@@ -352,89 +397,122 @@ class Migration_Module extends Module_Base {
 		// Specific files and folders: [{c: component, p: relative path}].
 		$files = json_decode((string) wp_unslash($_POST['files'] ?? '[]'), true); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- cleaned by Migration_Runner::normalize_files().
 		$files = Migration_Runner::normalize_files(is_array($files) ? $files : array());
+		$components = is_array($components) ? array_values(array_intersect(Migration_Engine::COMPONENTS, array_map('strval', $components))) : array();
+		$tables = is_array($tables) ? array_values(array_map('strval', $tables)) : array();
+		$tables_all = ! empty($_POST['tables_all']);
 		if (! empty($files)) {
 			$components = array();
 			$tables = array();
+			$tables_all = false;
 		}
 
-		$active = Migration_Runner::active_job();
-		if ($active) {
-			wp_send_json_error(array('message' => __('Another migration is already running. Wait for it to finish or cancel it first.', 'diagnostics-toolkit')));
-		}
+		return array(
+			'components'      => $components,
+			'tables'          => $tables,
+			// Every table the source has when the job starts (a schedule runs later, when tables may differ).
+			'tables_all'      => $tables_all,
+			'skip_unchanged'  => ! empty($_POST['skip_unchanged']),
+			'override'        => ! empty($_POST['override']),
+			'excludes'        => $excludes,
+			'exclude_dev'     => ! empty($_POST['exclude_dev']),
+			'db_mode'         => $db_mode,
+			'merge_groups'    => is_array($merge_groups) ? array_values(array_map('strval', $merge_groups)) : array(),
+			'pt_filter'       => $pt_filter,
+			'pt_plugins'      => is_array($pt_plugins) ? array_values(array_map('strval', $pt_plugins)) : array(),
+			'pt_themes'       => is_array($pt_themes) ? array_values(array_map('strval', $pt_themes)) : array(),
+			'files'           => $files,
+			'keep_backup'     => ! isset($_POST['keep_backup']) || ! empty($_POST['keep_backup']),
+			'repo'            => ! empty($_POST['repo']),
+			'live_media'      => ! empty($_POST['live_media']),
+			'live_media_mode' => 'all' === sanitize_key(wp_unslash($_POST['live_media_mode'] ?? 'missing')) ? 'all' : 'missing',
+		);
+	}
 
-		try {
-			$remote = get_transient(self::info_cache_key($site['id']));
-			delete_transient(self::info_cache_key($site['id']));
-			if (! is_array($remote) || (int) ($remote['api_version'] ?? 0) < Migration_Engine::API_VERSION) {
-				$remote = $this->remote_info($site);
-			}
-			$local = (new Migration_Engine())->site_info();
-			$src = 'pull' === $direction ? $remote : $local;
-			$dst = 'pull' === $direction ? $local : $remote;
-			list($errors) = $this->compatibility_checks($src, $dst, $direction);
-			$needs = 'merge' === $db_mode && ! empty($tables) ? array('merge') : array();
-			foreach (array('content', 'core') as $c) {
-				if (is_array($components) && in_array($c, $components, true)) {
-					$needs[] = $c;
-				}
-			}
-			$repo = ! empty($_POST['repo']) && empty($files) && is_array($components) && array_intersect(array('plugins', 'themes'), $components);
-			if ($repo) {
-				$needs[] = 'repo';
-			}
-			if (! empty($files)) {
-				$needs[] = 'paths';
-				foreach ($files as $item) {
-					if (in_array($item['c'], array('content', 'core'), true)) {
-						$needs[] = $item['c'];
-					}
-				}
-			}
-			foreach ($needs as $feature) {
-				if (! in_array($feature, (array) ($remote['features'] ?? array()), true)) {
-					$errors[] = __('The remote site runs an older Diagnostics Toolkit version that does not support the selected options. Update the plugin on the remote site and try again.', 'diagnostics-toolkit');
-					break;
-				}
-			}
-			if (! empty($errors)) {
-				throw new \RuntimeException(implode(' ', $errors));
-			}
-			$site = $this->get_sites()[$site['id']] ?? $site;
-			$runner = Migration_Runner::create(
-				$site,
-				$direction,
-				array(
-					'components'     => is_array($components) ? $components : array(),
-					'tables'         => is_array($tables) ? $tables : array(),
-					'skip_unchanged' => ! empty($_POST['skip_unchanged']),
-					'override'       => ! empty($_POST['override']),
-					'excludes'       => $excludes,
-					'exclude_dev'    => ! empty($_POST['exclude_dev']),
-					'db_mode'        => $db_mode,
-					'merge_groups'   => is_array($merge_groups) ? $merge_groups : array(),
-					'pt_filter'      => $pt_filter,
-					'pt_plugins'     => is_array($pt_plugins) ? $pt_plugins : array(),
-					'pt_themes'      => is_array($pt_themes) ? $pt_themes : array(),
-					'files'          => $files,
-					'keep_backup'    => ! isset($_POST['keep_backup']) || ! empty($_POST['keep_backup']),
-					'repo'           => ! empty($repo),
-					'live_media'     => 'pull' === $direction && ! empty($_POST['live_media']),
-					'live_media_mode' => sanitize_key(wp_unslash($_POST['live_media_mode'] ?? 'missing')),
-					'sites_snapshot' => $this->get_sites(),
-				),
-				$remote,
-				$local
-			);
-		} catch (\Throwable $e) {
-			wp_send_json_error(array('message' => $e->getMessage()));
-		}
+	/**
+	 * Check both sites and create a migration job (it still has to be stepped).
+	 *
+	 * @param array $options   From job_options_from_request().
+	 * @param array $scheduled {id, name} when a schedule started the job.
+	 */
+	public function start_job(array $site, string $direction, array $options, array $scheduled = array()): Migration_Runner {
+		$direction = 'push' === $direction ? 'push' : 'pull';
+		$components = (array) ($options['components'] ?? array());
+		$tables = (array) ($options['tables'] ?? array());
+		$files = (array) ($options['files'] ?? array());
+		$db_mode = (string) ($options['db_mode'] ?? 'replace');
 
+		// The wizard's preflight just checked the other site; a schedule always checks again.
+		$remote = empty($scheduled) ? get_transient(self::info_cache_key($site['id'])) : false;
+		delete_transient(self::info_cache_key($site['id']));
+		if (! is_array($remote) || (int) ($remote['api_version'] ?? 0) < Migration_Engine::API_VERSION) {
+			$remote = $this->remote_info($site);
+		}
+		$local = (new Migration_Engine())->site_info();
+		$src = 'pull' === $direction ? $remote : $local;
+		$dst = 'pull' === $direction ? $local : $remote;
+		if (! empty($options['tables_all'])) {
+			$tables = array_values(array_map(static function ($t) {
+				return (string) $t['name'];
+			}, (array) ($src['tables'] ?? array())));
+		}
+		list($errors) = $this->compatibility_checks($src, $dst, $direction);
+		$needs = 'merge' === $db_mode && ! empty($tables) ? array('merge') : array();
+		foreach (array('content', 'core') as $c) {
+			if (in_array($c, $components, true)) {
+				$needs[] = $c;
+			}
+		}
+		$repo = ! empty($options['repo']) && empty($files) && array_intersect(array('plugins', 'themes'), $components);
+		if ($repo) {
+			$needs[] = 'repo';
+		}
+		if (! empty($files)) {
+			$needs[] = 'paths';
+			foreach ($files as $item) {
+				if (in_array($item['c'], array('content', 'core'), true)) {
+					$needs[] = $item['c'];
+				}
+			}
+		}
+		foreach ($needs as $feature) {
+			if (! in_array($feature, (array) ($remote['features'] ?? array()), true)) {
+				$errors[] = __('The remote site runs an older Diagnostics Toolkit version that does not support the selected options. Update the plugin on the remote site and try again.', 'diagnostics-toolkit');
+				break;
+			}
+		}
+		if (! empty($errors)) {
+			throw new \RuntimeException(implode(' ', $errors));
+		}
+		$site = $this->get_sites()[$site['id']] ?? $site;
+		$runner = Migration_Runner::create(
+			$site,
+			$direction,
+			array(
+				'components'      => $components,
+				'tables'          => $tables,
+				'skip_unchanged'  => ! empty($options['skip_unchanged']),
+				'override'        => ! empty($options['override']),
+				'excludes'        => (array) ($options['excludes'] ?? array()),
+				'exclude_dev'     => ! empty($options['exclude_dev']),
+				'db_mode'         => $db_mode,
+				'merge_groups'    => (array) ($options['merge_groups'] ?? array()),
+				'pt_filter'       => (string) ($options['pt_filter'] ?? 'all'),
+				'pt_plugins'      => (array) ($options['pt_plugins'] ?? array()),
+				'pt_themes'       => (array) ($options['pt_themes'] ?? array()),
+				'files'           => $files,
+				'keep_backup'     => ! array_key_exists('keep_backup', $options) || ! empty($options['keep_backup']),
+				'repo'            => ! empty($repo),
+				'live_media'      => 'pull' === $direction && ! empty($options['live_media']),
+				'live_media_mode' => (string) ($options['live_media_mode'] ?? 'missing'),
+				'sites_snapshot'  => $this->get_sites(),
+				'scheduled'       => $scheduled,
+			),
+			$remote,
+			$local
+		);
 		$state = $runner->get_state();
-		Operation_Logger::log('migration', 'Migration started', array('job' => $state['id'], 'direction' => $direction, 'site' => $site['url']));
-		wp_send_json_success(array(
-			'job'   => $runner->summary(),
-			'token' => $state['token'],
-		));
+		Operation_Logger::log('migration', empty($scheduled) ? 'Migration started' : 'Scheduled migration started', array('job' => $state['id'], 'direction' => $direction, 'site' => $site['url']));
+		return $runner;
 	}
 
 	public function ajax_step(): void {
@@ -625,6 +703,11 @@ class Migration_Module extends Module_Base {
 			wp_send_json_error(array('message' => __('Migration job not found or access denied.', 'diagnostics-toolkit')), 403);
 		}
 		return $runner;
+	}
+
+	public function find_site(string $site_id): ?array {
+		$sites = $this->get_sites();
+		return '' !== $site_id && isset($sites[$site_id]) ? $sites[$site_id] : null;
 	}
 
 	private function require_site(): array {

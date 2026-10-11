@@ -59,7 +59,7 @@ function wudt_uninstall_site(): void {
 	}
 	// phpcs:enable
 
-	foreach (array('wudt_scheduled_backup_event', 'wudt_backup_continue', 'wudt_mw_scheduled_scan') as $hook) {
+	foreach (array('wudt_scheduled_backup_event', 'wudt_backup_continue', 'wudt_mw_scheduled_scan', 'wudt_migration_scheduler_tick') as $hook) {
 		wp_unschedule_hook($hook);
 	}
 }

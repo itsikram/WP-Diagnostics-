@@ -30,6 +30,10 @@ class Remote_Client {
 	private static $multi = null;
 	/** @var array<int,resource|\CurlHandle> Reusable easy handles, one per parallel slot. */
 	private static array $handles = array();
+	/** @var resource|\CurlMultiHandle|null Multi handle of call_stream(), separate so calls made meanwhile do not interfere. */
+	private static $stream_multi = null;
+	/** @var array<int,resource|\CurlHandle> Easy handles of call_stream(), one per lane. */
+	private static array $stream_handles = array();
 
 	public function __construct(string $url, string $key, string $transport = '') {
 		$this->url = untrailingslashit(trim($url));
@@ -217,6 +221,170 @@ class Remote_Client {
 			}
 		}
 		return $sorted;
+	}
+
+	/**
+	 * Keep up to $lanes requests running at once: as soon as one finishes, the
+	 * next one starts, instead of waiting for a whole round of requests.
+	 *
+	 * Requests are prepared only when a lane is free, so $next can read and pack
+	 * the data just in time. Requests that fail for transient reasons are retried
+	 * once on their own.
+	 *
+	 * @param callable $next fn(): ?array — the next request as [key, action, params, options?]
+	 *                       (options: timeout, retry), or null when none can start now (it is
+	 *                       asked again after the next request finishes; the stream ends when
+	 *                       nothing runs).
+	 * @param callable $done fn($key, $data, ?string $error, bool $timed_out): void
+	 */
+	public function call_stream(callable $next, callable $done, int $lanes, int $timeout = 120): void {
+		$this->assert_reachable();
+		if ('' === $this->transport || ! self::use_curl()) {
+			while (null !== ($item = $next())) {
+				list($k, $action, $params) = $item;
+				$opts = (array) ($item[3] ?? array());
+				try {
+					$data = $this->call($action, $params, (int) ($opts['timeout'] ?? $timeout), false === ($opts['retry'] ?? true) ? 1 : 3);
+				} catch (\RuntimeException $e) {
+					$done($k, null, $e->getMessage(), self::is_timeout_error($e->getMessage()));
+					continue;
+				}
+				$done($k, $data, null, false);
+			}
+			return;
+		}
+
+		if (null === self::$stream_multi) {
+			self::$stream_multi = curl_multi_init();
+		}
+		$active = array();
+		try {
+			$this->stream_loop(self::$stream_multi, $next, $done, max(1, $lanes), $timeout, $active);
+		} catch (\Throwable $e) {
+			// A callback failed: detach what is still running, so the lanes can be reused.
+			foreach (array_keys($active) as $lane) {
+				curl_multi_remove_handle(self::$stream_multi, self::$stream_handles[$lane]);
+			}
+			throw $e;
+		}
+	}
+
+	/**
+	 * @param resource|\CurlMultiHandle $mh
+	 * @param array<int,array>          $active Running requests by lane.
+	 */
+	private function stream_loop($mh, callable $next, callable $done, int $lanes, int $timeout, array &$active): void {
+		$free = range(0, $lanes - 1);
+		$locations = array();
+		$out_of_time = false;
+		while (true) {
+			while (! empty($free) && ! $out_of_time && null !== ($item = $next())) {
+				$k = $item[0];
+				$opts = (array) ($item[3] ?? array());
+				try {
+					$req_timeout = $this->time_for((int) ($opts['timeout'] ?? $timeout));
+				} catch (\RuntimeException $e) {
+					$out_of_time = true;
+					$done($k, null, $e->getMessage(), true);
+					break;
+				}
+				$req = $this->build_request($this->transport, (string) $item[1], (array) $item[2]);
+				if (isset($req['error'])) {
+					$done($k, null, (string) $req['error'], false);
+					continue;
+				}
+				$req['timeout'] = $req_timeout;
+				$lane = array_shift($free);
+				if (! isset(self::$stream_handles[$lane])) {
+					self::$stream_handles[$lane] = curl_init();
+				} else {
+					curl_reset(self::$stream_handles[$lane]); // Keeps the connection open.
+				}
+				$this->prepare_handle(self::$stream_handles[$lane], $req, $locations, $lane);
+				curl_multi_add_handle($mh, self::$stream_handles[$lane]);
+				$active[$lane] = $item;
+			}
+			if (empty($active)) {
+				return;
+			}
+			$status = curl_multi_exec($mh, $running);
+			if ($running && -1 === curl_multi_select($mh, 0.5)) {
+				usleep(1000);
+			}
+			while ($info = curl_multi_info_read($mh)) {
+				foreach ($active as $lane => $item) {
+					$ch = self::$stream_handles[$lane];
+					if ($ch !== $info['handle']) {
+						continue;
+					}
+					$response = $this->read_handle($ch, (int) $info['result'], (string) ($locations[$lane] ?? ''));
+					curl_multi_remove_handle($mh, $ch);
+					unset($active[$lane]);
+					$free[] = $lane;
+					$this->finish_stream_item($item, $response, $done, $timeout);
+					break;
+				}
+			}
+			if (CURLM_OK !== $status) {
+				// The multi handle broke: report what is still running and start afresh next time.
+				foreach ($active as $lane => $item) {
+					curl_multi_remove_handle($mh, self::$stream_handles[$lane]);
+					$done($item[0], null, 'Connection error (cURL multi status ' . $status . ').', false);
+				}
+				$active = array();
+				curl_multi_close($mh);
+				self::$stream_multi = null;
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Hand one finished stream request to the caller, retrying it once on its
+	 * own when it failed for a transient reason (as call_multi() does).
+	 */
+	private function finish_stream_item(array $item, array $response, callable $done, int $timeout): void {
+		list($k, $action, $params) = $item;
+		$result = $this->interpret($response, $action);
+		if (! empty($response['timed_out'])) {
+			// Sending the same large request again would only time out again.
+			$done($k, null, (string) $result['error'], true);
+			return;
+		}
+		if (isset($result['envelope'])) {
+			$env = $result['envelope'];
+			if (! empty($env['ok'])) {
+				$done($k, $env['data'] ?? null, null, false);
+				return;
+			}
+			$code = (string) ($env['code'] ?? '');
+			if ('clock_skew' === $code && isset($env['now'])) {
+				$this->clock_offset = (int) $env['now'] - time();
+			}
+			if (! in_array($code, array('clock_skew', 'replay'), true)) {
+				$done($k, null, 'Remote site: ' . (string) ($env['error'] ?? 'Unknown error'), false);
+				return;
+			}
+		} elseif (empty($result['retry']) && empty($response['redirect'])) {
+			$done($k, null, (string) ($result['error'] ?? 'Unknown error'), false);
+			return;
+		}
+		$opts = (array) ($item[3] ?? array());
+		if (false === ($opts['retry'] ?? true)) {
+			$done($k, null, (string) ($result['error'] ?? 'Request failed.'), false);
+			return;
+		}
+		try {
+			$data = $this->call($action, $params, $timeout, 2);
+		} catch (\RuntimeException $e) {
+			$done($k, null, $e->getMessage(), self::is_timeout_error($e->getMessage()));
+			return;
+		}
+		$done($k, $data, null, false);
+	}
+
+	private static function is_timeout_error(string $error): bool {
+		return (bool) preg_match('/timed out|timeout|did not answer in time/i', $error);
 	}
 
 	/**
@@ -420,8 +588,6 @@ class Remote_Client {
 			self::$multi = curl_multi_init();
 		}
 		$mh = self::$multi;
-		$verify = $this->verify_ssl();
-		$ca = ABSPATH . WPINC . '/certificates/ca-bundle.crt';
 
 		$chs = array();
 		$locations = array();
@@ -433,35 +599,7 @@ class Remote_Client {
 				curl_reset(self::$handles[$slot]); // Keeps the connection open.
 			}
 			$ch = self::$handles[$slot];
-			$headers = array('Expect:'); // No 100-continue round trip before large bodies.
-			foreach ($req['headers'] as $name => $value) {
-				$headers[] = $name . ': ' . $value;
-			}
-			$locations[$k] = '';
-			curl_setopt_array($ch, array(
-				CURLOPT_URL            => $req['endpoint'],
-				CURLOPT_POST           => true,
-				CURLOPT_POSTFIELDS     => $req['body'],
-				CURLOPT_HTTPHEADER     => $headers,
-				CURLOPT_RETURNTRANSFER => true,
-				CURLOPT_FOLLOWLOCATION => false,
-				CURLOPT_CONNECTTIMEOUT => min(20, (int) $req['timeout']),
-				CURLOPT_TIMEOUT        => (int) $req['timeout'],
-				CURLOPT_SSL_VERIFYPEER => $verify,
-				CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
-				CURLOPT_USERAGENT      => self::user_agent(),
-				CURLOPT_ENCODING       => '',
-				CURLOPT_TCP_NODELAY    => true,
-				CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$locations, $k): int {
-					if (0 === stripos($line, 'location:')) {
-						$locations[$k] = trim(substr($line, 9));
-					}
-					return strlen($line);
-				},
-			));
-			if ($verify && is_readable($ca)) {
-				curl_setopt($ch, CURLOPT_CAINFO, $ca);
-			}
+			$this->prepare_handle($ch, $req, $locations, $k);
 			curl_multi_add_handle($mh, $ch);
 			$chs[$k] = $ch;
 		}
@@ -483,22 +621,71 @@ class Remote_Client {
 
 		$out = array();
 		foreach ($chs as $k => $ch) {
-			$errno = $errors[$k] ?? curl_errno($ch);
-			if (0 !== $errno) {
-				$msg = curl_error($ch);
-				$out[$k] = array(
-					'error'     => '' !== $msg ? $msg : (function_exists('curl_strerror') ? curl_strerror($errno) : 'cURL error ' . $errno),
-					'timed_out' => CURLE_OPERATION_TIMEDOUT === $errno,
-				);
-			} else {
-				$code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-				$out[$k] = in_array($code, array(301, 302, 303, 307, 308), true) && '' !== $locations[$k]
-					? array('code' => $code, 'redirect' => $locations[$k])
-					: array('code' => $code, 'body' => (string) curl_multi_getcontent($ch));
-			}
+			$out[$k] = $this->read_handle($ch, $errors[$k] ?? curl_errno($ch), (string) $locations[$k]);
 			curl_multi_remove_handle($mh, $ch);
 		}
 		return $out;
+	}
+
+	/**
+	 * Set up a (reset) curl handle for one signed request.
+	 *
+	 * @param resource|\CurlHandle    $ch
+	 * @param array<int|string,string> $locations Receives the redirect target under $k.
+	 * @param int|string               $k
+	 */
+	private function prepare_handle($ch, array $req, array &$locations, $k): void {
+		$verify = $this->verify_ssl();
+		$ca = ABSPATH . WPINC . '/certificates/ca-bundle.crt';
+		$headers = array('Expect:'); // No 100-continue round trip before large bodies.
+		foreach ($req['headers'] as $name => $value) {
+			$headers[] = $name . ': ' . $value;
+		}
+		$locations[$k] = '';
+		curl_setopt_array($ch, array(
+			CURLOPT_URL            => $req['endpoint'],
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => $req['body'],
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_CONNECTTIMEOUT => min(20, (int) $req['timeout']),
+			CURLOPT_TIMEOUT        => (int) $req['timeout'],
+			CURLOPT_SSL_VERIFYPEER => $verify,
+			CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+			CURLOPT_USERAGENT      => self::user_agent(),
+			CURLOPT_ENCODING       => '',
+			CURLOPT_TCP_NODELAY    => true,
+			CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$locations, $k): int {
+				if (0 === stripos($line, 'location:')) {
+					$locations[$k] = trim(substr($line, 9));
+				}
+				return strlen($line);
+			},
+		));
+		if ($verify && is_readable($ca)) {
+			curl_setopt($ch, CURLOPT_CAINFO, $ca);
+		}
+	}
+
+	/**
+	 * The outcome of a finished curl handle.
+	 *
+	 * @param resource|\CurlHandle $ch
+	 * @return array{code?:int,body?:string,error?:string,redirect?:string,timed_out?:bool}
+	 */
+	private function read_handle($ch, int $errno, string $location): array {
+		if (0 !== $errno) {
+			$msg = curl_error($ch);
+			return array(
+				'error'     => '' !== $msg ? $msg : (function_exists('curl_strerror') ? curl_strerror($errno) : 'cURL error ' . $errno),
+				'timed_out' => CURLE_OPERATION_TIMEDOUT === $errno,
+			);
+		}
+		$code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+		return in_array($code, array(301, 302, 303, 307, 308), true) && '' !== $location
+			? array('code' => $code, 'redirect' => $location)
+			: array('code' => $code, 'body' => (string) curl_multi_getcontent($ch));
 	}
 
 	private static function user_agent(): string {
