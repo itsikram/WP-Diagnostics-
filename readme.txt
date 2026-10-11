@@ -4,7 +4,7 @@ Tags: diagnostics, debug, error log, malware scanner, migration
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -127,11 +127,13 @@ The diagnostics tools work on each site. Site migration does not support multisi
 
 == Changelog ==
 
+= 1.10.0 =
+* New: Settings → Media Source loads media from the source website (all media, or only files missing on this site).
+
 = 1.9.0 =
 * New: malware scanner checks the database (injected scripts, spam, malicious snippets and scheduled tasks, hidden administrators, triggers), known vulnerabilities in WordPress, plugins and themes, and security settings, with a security score and one-click fixes.
 * New: the other site shows live progress of a migration it sends or receives.
 * New: a live site connected to a local site opens that site to run the migration from there.
-* New: Settings → Media Source loads media from the source website (all media, or only files missing on this site).
 * Fixed: slow uploads no longer stop migrations; requests get smaller instead of running into the PHP time limit.
 * Fixed: performance sampling no longer writes to the database on every request.
 

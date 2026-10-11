@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Diagnostics Toolkit
  * Description:       Site diagnostics and repair toolkit: error log, debug mode, plugin conflict finder, malware scanner, database and file manager, backups, site migration and an AI troubleshooting assistant.
- * Version:           1.9.0
+ * Version:           1.10.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            Programmer Ikram
@@ -21,7 +21,7 @@ if (! defined('ABSPATH')) {
 }
 
 if (! defined('WUDT_VERSION')) {
-	define('WUDT_VERSION', '1.9.0');
+	define('WUDT_VERSION', '1.10.0');
 }
 if (! defined('WUDT_PLUGIN_FILE')) {
 	define('WUDT_PLUGIN_FILE', __FILE__);
