@@ -234,7 +234,11 @@ class Migration_API {
 					(string) ($p['source_prefix'] ?? ''),
 					(string) ($p['source_key'] ?? ''),
 					(array) ($p['groups'] ?? array()),
-					$budget
+					$budget,
+					array(
+						'post_types' => (array) ($p['post_types'] ?? array()),
+						'replace'    => ! empty($p['replace']),
+					)
 				);
 				if (! empty($result['done'])) {
 					Operation_Logger::log('migration', 'Incoming content merged', array('job' => (string) ($p['job'] ?? ''), 'stats' => $result['stats']));

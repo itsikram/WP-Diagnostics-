@@ -4,7 +4,7 @@ Tags: diagnostics, debug, error log, malware scanner, migration
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -126,6 +126,9 @@ Settings, its database tables, logs, migration and quarantine files, and the saf
 The diagnostics tools work on each site. Site migration does not support multisite networks.
 
 == Changelog ==
+
+= 1.12.0 =
+* New: Site Migration can push or pull only specific post types (posts, pages, products, any custom post type). Choose to replace the destination's posts of those types (IDs kept where possible) or add them as new posts; featured images, galleries, child posts, terms, and optionally comments and authors come along. Rollback restores the replaced posts.
 
 = 1.11.0 =
 * New: scheduled push and pull migrations (once, hourly, every 6 or 12 hours, daily, weekly or monthly) that run in the background through WP-Cron or a server cron URL, with retries and email notifications.

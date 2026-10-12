@@ -56,6 +56,9 @@
 .wudt-mig-merge { margin: 8px 0 0 22px; }
 .wudt-mig-merge label { display: block; margin: 4px 0; }
 .wudt-mig-merge small, .wudt-mig-mode em { color: var(--mig-muted); }
+.wudt-mig-posttypes details { margin: 6px 0; }
+.wudt-mig-posttypes summary { cursor: pointer; }
+.wudt-mig-posttypes .wudt-mig-sub-title { margin: 10px 0 2px; }
 .wudt-mig-select { margin-left: 8px; font-weight: normal; }
 .wudt-mig-grid {display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .wudt-mig-check { display: block; padding: 10px 12px; border: 1px solid var(--mig-line); border-radius: 6px; cursor: pointer; }

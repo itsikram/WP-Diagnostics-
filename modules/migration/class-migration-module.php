@@ -345,6 +345,8 @@ class Migration_Module extends Module_Base {
 			'source'    => $this->public_info($src),
 			'dest'      => $this->public_info($dst),
 			'tables'    => $src['tables'],
+			// Missing when the source runs an older version without the post type picker.
+			'post_types' => isset($src['post_types']) ? (array) $src['post_types'] : null,
 			'items'     => $this->plugin_theme_items($src, $dst),
 			'errors'    => $errors,
 			'warnings'  => $warnings,
@@ -387,10 +389,15 @@ class Migration_Module extends Module_Base {
 		$excludes_raw = sanitize_textarea_field(wp_unslash($_POST['excludes'] ?? ''));
 		$excludes = array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $excludes_raw) ?: array())));
 		$db_mode = sanitize_key(wp_unslash($_POST['db_mode'] ?? 'replace'));
-		if (! in_array($db_mode, array('replace', 'replace_content', 'merge'), true)) {
+		if (! in_array($db_mode, array('replace', 'replace_content', 'merge', 'post_types'), true)) {
 			throw new \RuntimeException(__('Choose a valid database migration mode.', 'diagnostics-toolkit'));
 		}
 		$merge_groups = json_decode(sanitize_text_field(wp_unslash($_POST['merge_groups'] ?? '[]')), true);
+		$post_types = json_decode(sanitize_text_field(wp_unslash($_POST['post_types'] ?? '[]')), true);
+		$post_types = is_array($post_types) ? array_values(array_unique(array_filter(array_map('sanitize_key', $post_types)))) : array();
+		if ('post_types' === $db_mode && empty($post_types)) {
+			throw new \RuntimeException(__('Select at least one post type to migrate.', 'diagnostics-toolkit'));
+		}
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
 		$pt_plugins = json_decode(sanitize_text_field(wp_unslash($_POST['pt_plugins'] ?? '[]')), true);
 		$pt_themes = json_decode(sanitize_text_field(wp_unslash($_POST['pt_themes'] ?? '[]')), true);
@@ -417,6 +424,9 @@ class Migration_Module extends Module_Base {
 			'exclude_dev'     => ! empty($_POST['exclude_dev']),
 			'db_mode'         => $db_mode,
 			'merge_groups'    => is_array($merge_groups) ? array_values(array_map('strval', $merge_groups)) : array(),
+			'post_types'      => $post_types,
+			// Post types: 'replace' this site's posts of those types, or 'add' the source's as new posts.
+			'post_type_sync'  => 'add' === sanitize_key(wp_unslash($_POST['post_type_sync'] ?? 'replace')) ? 'add' : 'replace',
 			'pt_filter'       => $pt_filter,
 			'pt_plugins'      => is_array($pt_plugins) ? array_values(array_map('strval', $pt_plugins)) : array(),
 			'pt_themes'       => is_array($pt_themes) ? array_values(array_map('strval', $pt_themes)) : array(),
@@ -457,6 +467,9 @@ class Migration_Module extends Module_Base {
 		}
 		list($errors) = $this->compatibility_checks($src, $dst, $direction);
 		$needs = 'merge' === $db_mode && ! empty($tables) ? array('merge') : array();
+		if ('post_types' === $db_mode && ! empty($tables)) {
+			$needs[] = 'post_types';
+		}
 		foreach (array('content', 'core') as $c) {
 			if (in_array($c, $components, true)) {
 				$needs[] = $c;
@@ -496,6 +509,8 @@ class Migration_Module extends Module_Base {
 				'exclude_dev'     => ! empty($options['exclude_dev']),
 				'db_mode'         => $db_mode,
 				'merge_groups'    => (array) ($options['merge_groups'] ?? array()),
+				'post_types'      => (array) ($options['post_types'] ?? array()),
+				'post_type_sync'  => (string) ($options['post_type_sync'] ?? 'replace'),
 				'pt_filter'       => (string) ($options['pt_filter'] ?? 'all'),
 				'pt_plugins'      => (array) ($options['pt_plugins'] ?? array()),
 				'pt_themes'       => (array) ($options['pt_themes'] ?? array()),
@@ -567,6 +582,10 @@ class Migration_Module extends Module_Base {
 				/* translators: %d: number of items */
 				__('%d added items removed.', 'diagnostics-toolkit'),
 				(int) $result['merged_removed']
+			)) . (empty($result['posts_restored']) ? '' : ' ' . sprintf(
+				/* translators: %d: number of posts */
+				__('%d replaced posts put back.', 'diagnostics-toolkit'),
+				(int) $result['posts_restored']
 			)),
 		));
 	}

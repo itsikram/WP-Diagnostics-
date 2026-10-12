@@ -30,7 +30,8 @@ class Migration_Engine {
 	// Capabilities newer than API v2; the other side must list one before it is used.
 	// 'paths': browse files and migrate only selected files and folders.
 	// 'repo': check plugins and themes against WordPress.org and install them from there.
-	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo', 'progress');
+	// 'post_types': migrate only the posts of selected post types.
+	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo', 'progress', 'post_types');
 	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
 	// WordPress content tables used by both "add as new content" and content replacement.
 	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
@@ -173,8 +174,30 @@ class Migration_Engine {
 			'template'        => (string) get_option('template'),
 			'self_plugin_dir' => basename(dirname(WUDT_PLUGIN_FILE)),
 			'tables'          => $this->list_tables(),
+			'post_types'      => $this->list_post_types(),
 			'rollback'        => $this->rollback_summary(),
 		);
+	}
+
+	/**
+	 * Post types that have content, with their labels, for the post type picker.
+	 */
+	public function list_post_types(): array {
+		global $wpdb;
+		$rows = $wpdb->get_results("SELECT post_type, COUNT(*) AS n FROM {$wpdb->posts} WHERE post_type <> 'revision' AND post_status <> 'auto-draft' GROUP BY post_type ORDER BY post_type", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		$types = array();
+		foreach ((array) $rows as $row) {
+			$name = (string) $row['post_type'];
+			$object = get_post_type_object($name);
+			$types[] = array(
+				'name'    => $name,
+				'label'   => $object ? (string) $object->labels->name : $name,
+				'count'   => (int) $row['n'],
+				// Content people edit, as opposed to internal types such as menu items or templates.
+				'content' => in_array($name, array('post', 'page', 'attachment'), true) || ($object && ! $object->_builtin && $object->show_ui),
+			);
+		}
+		return $types;
 	}
 
 	/**
@@ -1843,14 +1866,17 @@ class Migration_Engine {
 	 *
 	 * @param string $source_key Identifies the source site so a repeated merge skips posts it already added.
 	 * @param array  $groups     Subset of MERGE_GROUPS to add.
+	 * @param array  $options    {post_types: string[], replace: bool}. With post types, only posts of those
+	 *                           types (and the media and child posts they use) are added; with replace, this
+	 *                           site's posts of those types are removed first and source IDs are kept when free.
 	 */
-	public function merge_database(string $job_id, string $source_prefix, string $source_key, array $groups, float $budget = 12.0): array {
+	public function merge_database(string $job_id, string $source_prefix, string $source_key, array $groups, float $budget = 12.0, array $options = array()): array {
 		global $wpdb;
 		$job_id = self::sanitize_job_id($job_id);
 		$state_file = self::storage_dir('work') . '/' . $job_id . '-merge.json';
 		$st = $this->read_json($state_file);
 		if (empty($st)) {
-			$st = array('step' => 0, 'cursor' => 0, 'stats' => array('posts' => 0, 'skipped' => 0, 'terms' => 0, 'comments' => 0, 'users' => 0));
+			$st = array('step' => 0, 'cursor' => 0, 'stats' => array('posts' => 0, 'skipped' => 0, 'terms' => 0, 'comments' => 0, 'users' => 0, 'deleted' => 0));
 		}
 		$map = self::merge_map_table($job_id);
 
@@ -1882,9 +1908,21 @@ class Migration_Engine {
 			'src_key'  => substr(preg_replace('/[^a-z0-9]/', '', strtolower($source_key)) ?: 'src', 0, 32),
 			'fallback' => $this->merge_fallback_author(),
 			'budget'   => $budget,
+			'job'      => $job_id,
+			'types'    => array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($options['post_types'] ?? array()))))),
+			'replace'  => ! empty($options['replace']),
+			'authors'  => null,
+			'taxes'    => null,
 		);
 
 		$steps = array('users', 'usermeta', 'terms', 'term_parents', 'termmeta', 'posts_seen', 'posts', 'post_parents', 'postmeta', 'postmeta_ids', 'relationships', 'comments', 'comment_parents', 'commentmeta', 'recount');
+		if (! empty($this->mc['types'])) {
+			// Pick the posts to bring first; replaced posts are removed just before posts are added.
+			array_unshift($steps, 'pt_select');
+			if ($this->mc['replace']) {
+				array_splice($steps, (int) array_search('posts_seen', $steps, true), 0, array('pt_delete'));
+			}
+		}
 		while ($st['step'] < count($steps) && $this->time_left($budget)) {
 			$method = 'merge_step_' . $steps[$st['step']];
 			$res = $this->$method((int) $st['cursor'], $st['stats']);
@@ -2014,7 +2052,7 @@ class Migration_Engine {
 			}
 			if ($existing) {
 				$this->map_put('u', $old, $existing, false);
-			} elseif ($this->merge_has('users')) {
+			} elseif ($this->merge_has('users') && $this->pt_wants_author($old)) {
 				unset($row['ID']);
 				$new = $this->merge_insert($wpdb->users, $row);
 				$this->map_put('u', $old, $new, true);
@@ -2050,8 +2088,17 @@ class Migration_Engine {
 		if ('' === $tt || '' === $terms) {
 			return array('done' => true);
 		}
+		$only = '';
+		if (! empty($this->mc['types'])) {
+			// Only the taxonomies the selected posts use.
+			$taxes = $this->pt_taxonomies();
+			if (empty($taxes)) {
+				return array('done' => true);
+			}
+			$only = " AND tt.taxonomy IN ('" . implode("', '", array_map('esc_sql', $taxes)) . "')";
+		}
 		$rows = $wpdb->get_results(
-			$wpdb->prepare("SELECT tt.term_taxonomy_id, tt.term_id, tt.taxonomy, tt.description, t.name, t.slug, t.term_group FROM `{$tt}` tt JOIN `{$terms}` t ON t.term_id = tt.term_id WHERE tt.term_taxonomy_id > %d ORDER BY tt.term_taxonomy_id LIMIT 300", $cursor), // phpcs:ignore WordPress.DB.PreparedSQL
+			$wpdb->prepare("SELECT tt.term_taxonomy_id, tt.term_id, tt.taxonomy, tt.description, t.name, t.slug, t.term_group FROM `{$tt}` tt JOIN `{$terms}` t ON t.term_id = tt.term_id WHERE tt.term_taxonomy_id > %d{$only} ORDER BY tt.term_taxonomy_id LIMIT 300", $cursor), // phpcs:ignore WordPress.DB.PreparedSQL
 			ARRAY_A
 		);
 		foreach ((array) $rows as $row) {
@@ -2097,6 +2144,172 @@ class Migration_Engine {
 	}
 
 	/**
+	 * Post types: list the source posts to add (map kind 'r'), meaning the posts of the selected
+	 * types, their child posts (such as product variations) and the media they use.
+	 */
+	private function merge_step_pt_select(int $cursor, array &$stats): array {
+		global $wpdb;
+		$t = $this->mc['tmp']['posts'];
+		if ('' === $t) {
+			return array('done' => true);
+		}
+		$m = $this->mc['map'];
+		$in = $this->pt_in_list();
+		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', ID, 0, 0 FROM `{$t}` WHERE post_type IN ({$in}) AND post_status <> 'auto-draft'");
+		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', c.ID, 0, 0 FROM `{$t}` c JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'revision' AND c.post_status <> 'auto-draft'");
+		$pm = $this->mc['tmp']['postmeta'];
+		if ('' !== $pm) {
+			$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', CAST(o.meta_value AS UNSIGNED), 0, 0 FROM `{$pm}` o JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_thumbnail_id' AND o.meta_value REGEXP '^[0-9]+$'");
+			// WooCommerce product galleries: comma-separated attachment IDs.
+			$ids = array();
+			foreach ((array) $wpdb->get_col("SELECT o.meta_value FROM `{$pm}` o JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_product_image_gallery' AND o.meta_value <> ''") as $value) { // phpcs:ignore WordPress.DB.PreparedSQL
+				foreach (explode(',', (string) $value) as $id) {
+					if ((int) $id > 0) {
+						$ids[(int) $id] = true;
+					}
+				}
+			}
+			foreach (array_chunk(array_keys($ids), 500) as $chunk) {
+				$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) VALUES ('r', " . implode(", 0, 0), ('r', ", $chunk) . ', 0, 0)');
+			}
+		}
+		return array('done' => true);
+	}
+
+	/**
+	 * Replace post types: back up, then remove this site's posts of the selected types with their
+	 * child posts, custom fields, term links and comments. Media files and attachments stay.
+	 */
+	private function merge_step_pt_delete(int $cursor, array &$stats): array {
+		global $wpdb;
+		$m = $this->mc['map'];
+		$in = $this->pt_in_list();
+		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'd', ID, 0, 0 FROM {$wpdb->posts} WHERE post_type IN ({$in})");
+		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'd', c.ID, 0, 0 FROM {$wpdb->posts} c JOIN `{$m}` d ON d.kind = 'd' AND d.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'attachment'");
+
+		$owned = array(
+			'posts'              => array($wpdb->posts, 'ID'),
+			'postmeta'           => array($wpdb->postmeta, 'post_id'),
+			'term_relationships' => array($wpdb->term_relationships, 'object_id'),
+			'comments'           => array($wpdb->comments, 'comment_post_ID'),
+		);
+		$bak = array();
+		foreach ($owned as $suffix => $live) {
+			$bak[$suffix] = self::pt_backup_table($this->mc['job'], $suffix);
+			$this->merge_query("CREATE TABLE IF NOT EXISTS `{$bak[$suffix]}` LIKE {$live[0]}");
+			$this->merge_query("INSERT IGNORE INTO `{$bak[$suffix]}` SELECT l.* FROM {$live[0]} l JOIN `{$m}` d ON d.kind = 'd' AND d.old_id = l.`{$live[1]}`");
+		}
+		$bak['commentmeta'] = self::pt_backup_table($this->mc['job'], 'commentmeta');
+		$this->merge_query("CREATE TABLE IF NOT EXISTS `{$bak['commentmeta']}` LIKE {$wpdb->commentmeta}");
+		$this->merge_query("INSERT IGNORE INTO `{$bak['commentmeta']}` SELECT l.* FROM {$wpdb->commentmeta} l JOIN `{$bak['comments']}` c ON c.comment_ID = l.comment_id");
+		$meta = $this->read_json($this->rollback_meta_file());
+		$meta['pt_deleted'] = $bak;
+		file_put_contents($this->rollback_meta_file(), wp_json_encode($meta));
+
+		$this->merge_query("DELETE l FROM {$wpdb->commentmeta} l JOIN `{$bak['comments']}` c ON c.comment_ID = l.comment_id");
+		foreach (array('comments', 'postmeta', 'term_relationships', 'posts') as $suffix) {
+			$this->merge_query("DELETE l FROM {$owned[$suffix][0]} l JOIN `{$m}` d ON d.kind = 'd' AND d.old_id = l.`{$owned[$suffix][1]}`");
+		}
+		$this->pt_recount($bak['term_relationships']);
+		$stats['deleted'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$m}` WHERE kind = 'd'"); // phpcs:ignore WordPress.DB.PreparedSQL
+		return array('done' => true);
+	}
+
+	private static function pt_backup_table(string $job_id, string $suffix): string {
+		return self::BAK_PREFIX . 'd' . substr(md5($job_id . '|' . $suffix), 0, 12);
+	}
+
+	private function pt_in_list(): string {
+		return "'" . implode("', '", array_map('esc_sql', $this->mc['types'])) . "'";
+	}
+
+	/**
+	 * With post types selected, only authors of the selected posts are added as new users.
+	 */
+	private function pt_wants_author(int $user_id): bool {
+		global $wpdb;
+		if (empty($this->mc['types'])) {
+			return true;
+		}
+		if (null === $this->mc['authors']) {
+			$t = $this->mc['tmp']['posts'];
+			$this->mc['authors'] = '' === $t ? array() : array_flip(array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT p.post_author FROM `{$t}` p JOIN `{$this->mc['map']}` r ON r.kind = 'r' AND r.old_id = p.ID"))); // phpcs:ignore WordPress.DB.PreparedSQL
+		}
+		return isset($this->mc['authors'][$user_id]);
+	}
+
+	/**
+	 * Taxonomies the selected posts use.
+	 */
+	private function pt_taxonomies(): array {
+		global $wpdb;
+		if (null === $this->mc['taxes']) {
+			$rel = $this->mc['tmp']['term_relationships'];
+			$tt = $this->mc['tmp']['term_taxonomy'];
+			$this->mc['taxes'] = ('' === $rel || '' === $tt) ? array() : array_map('strval', (array) $wpdb->get_col(
+				"SELECT DISTINCT tt.taxonomy FROM `{$rel}` o JOIN `{$this->mc['map']}` r ON r.kind = 'r' AND r.old_id = o.object_id JOIN `{$tt}` tt ON tt.term_taxonomy_id = o.term_taxonomy_id" // phpcs:ignore WordPress.DB.PreparedSQL
+			));
+		}
+		return $this->mc['taxes'];
+	}
+
+	/**
+	 * This site's attachment for the same uploaded file as a source attachment, or 0.
+	 */
+	private function pt_existing_attachment(int $old): int {
+		global $wpdb;
+		$pm = $this->mc['tmp']['postmeta'];
+		if ('' === $pm) {
+			return 0;
+		}
+		$file = (string) $wpdb->get_var($wpdb->prepare("SELECT meta_value FROM `{$pm}` WHERE post_id = %d AND meta_key = '_wp_attached_file' LIMIT 1", $old)); // phpcs:ignore WordPress.DB.PreparedSQL
+		if ('' === $file) {
+			return 0;
+		}
+		return (int) $wpdb->get_var($wpdb->prepare("SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type = 'attachment' WHERE pm.meta_key = '_wp_attached_file' AND pm.meta_value = %s LIMIT 1", $file));
+	}
+
+	/**
+	 * Recount the terms linked in a relationships table.
+	 */
+	private function pt_recount(string $relationships): void {
+		global $wpdb;
+		$this->merge_query("UPDATE {$wpdb->term_taxonomy} tt SET tt.count = (SELECT COUNT(*) FROM {$wpdb->term_relationships} tr WHERE tr.term_taxonomy_id = tt.term_taxonomy_id) WHERE tt.term_taxonomy_id IN (SELECT term_taxonomy_id FROM `{$relationships}`)");
+	}
+
+	/**
+	 * Put back the posts a post type replacement removed (used by rollback).
+	 */
+	private function restore_pt_backup(array $bak): int {
+		global $wpdb;
+		$restored = 0;
+		foreach (array('posts', 'postmeta', 'term_relationships', 'comments', 'commentmeta') as $suffix) {
+			$table = (string) ($bak[$suffix] ?? '');
+			if ('' === $table || 0 !== strpos($table, self::BAK_PREFIX) || $table !== $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
+				continue;
+			}
+			$this->merge_query("INSERT IGNORE INTO {$wpdb->$suffix} SELECT * FROM `{$table}`");
+			if ('posts' === $suffix) {
+				$restored = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$table}`"); // phpcs:ignore WordPress.DB.PreparedSQL
+			}
+			if ('term_relationships' === $suffix) {
+				$this->pt_recount($table);
+			}
+		}
+		$this->drop_pt_backup($bak);
+		return $restored;
+	}
+
+	private function drop_pt_backup(array $bak): void {
+		global $wpdb;
+		foreach ($bak as $table) {
+			if (0 === strpos((string) $table, self::BAK_PREFIX)) {
+				$wpdb->query('DROP TABLE IF EXISTS `' . esc_sql((string) $table) . '`'); // phpcs:ignore WordPress.DB.PreparedSQL
+			}
+		}
+	}
+
+	/**
 	 * Map posts that an earlier merge from the same source already added, so they are skipped.
 	 */
 	private function merge_step_posts_seen(int $cursor, array &$stats): array {
@@ -2119,9 +2332,14 @@ class Migration_Engine {
 		$rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM `{$t}` WHERE ID > %d ORDER BY ID LIMIT 200", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
 		$seen = $this->map_get('p', array_column($rows, 'ID'));
 		$authors = $this->map_get('u', array_column($rows, 'post_author'));
+		$filtered = ! empty($this->mc['types']);
+		$wanted = $filtered ? $this->map_get('r', array_column($rows, 'ID')) : array();
 		foreach ($rows as $row) {
 			$old = (int) $row['ID'];
 			$cursor = $old;
+			if ($filtered && ! array_key_exists($old, $wanted)) {
+				continue;
+			}
 			if (isset($seen[$old])) {
 				$stats['skipped']++;
 				continue;
@@ -2130,7 +2348,20 @@ class Migration_Engine {
 			if ('revision' === $row['post_type'] || 'auto-draft' === $row['post_status']) {
 				continue;
 			}
-			unset($row['ID']);
+			// Media a selected post uses: reuse this site's copy of the same file instead of duplicating it.
+			if ($filtered && 'attachment' === $row['post_type'] && ! in_array('attachment', $this->mc['types'], true)) {
+				$existing = $this->pt_existing_attachment($old);
+				if ($existing) {
+					$this->map_put('p', $old, $existing, false);
+					continue;
+				}
+			}
+			// Replacing post types keeps the source IDs where they are free, so links by ID keep working.
+			$keep_id = $filtered && $this->mc['replace']
+				&& ! $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE ID = %d", $old));
+			if (! $keep_id) {
+				unset($row['ID']);
+			}
 			$row['post_author'] = $authors[(int) $row['post_author']] ?? $this->mc['fallback'];
 			$row['post_parent'] = 0; // Set once every post has its new ID.
 			$new = $this->merge_insert($wpdb->posts, $row);
@@ -2389,6 +2620,8 @@ class Migration_Engine {
 		}
 
 		$merged = empty($meta['merge_map']) ? 0 : $this->rollback_merge((string) $meta['merge_map']);
+		// Posts a post type replacement removed come back once the posts it added are gone.
+		$posts_restored = empty($meta['pt_deleted']) ? 0 : $this->restore_pt_backup((array) $meta['pt_deleted']);
 
 		// Restore preserved plugin options (the restored tables are older).
 		foreach ($preserved as $row) {
@@ -2424,7 +2657,7 @@ class Migration_Engine {
 		self::schedule_rewrite_flush();
 		$this->discard_rollback(false);
 
-		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored, 'merged_removed' => $merged);
+		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored, 'merged_removed' => $merged, 'posts_restored' => $posts_restored);
 	}
 
 	public function discard_rollback(bool $drop_tables = true): void {
@@ -2440,6 +2673,7 @@ class Migration_Engine {
 			if (0 === strpos($map, self::BAK_PREFIX)) {
 				$wpdb->query('DROP TABLE IF EXISTS `' . esc_sql($map) . '`'); // phpcs:ignore WordPress.DB.PreparedSQL
 			}
+			$this->drop_pt_backup((array) ($meta['pt_deleted'] ?? array()));
 		}
 		self::delete_tree(self::storage_dir() . '/rollback');
 	}

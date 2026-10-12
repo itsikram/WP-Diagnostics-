@@ -745,6 +745,8 @@ class Migration_Scheduler {
 					'files_count'     => count((array) $options['files']),
 					'db_mode'         => $options['db_mode'],
 					'merge_groups'    => (array) $options['merge_groups'],
+					'post_types'      => (array) $options['post_types'],
+					'post_type_sync'  => $options['post_type_sync'],
 					'excludes'        => (array) $options['excludes'],
 					'exclude_dev'     => ! empty($options['exclude_dev']),
 					'pt_filter'       => $options['pt_filter'],
@@ -813,7 +815,7 @@ class Migration_Scheduler {
 			$data['schedules'][$id]['options'] = (array) $data['schedules'][$id]['options'] + array(
 				'components' => array(), 'tables' => array(), 'tables_all' => false, 'skip_unchanged' => false,
 				'override' => false, 'excludes' => array(), 'exclude_dev' => false, 'db_mode' => 'replace',
-				'merge_groups' => array(), 'pt_filter' => 'all', 'pt_plugins' => array(), 'pt_themes' => array(),
+				'merge_groups' => array(), 'post_types' => array(), 'post_type_sync' => 'replace', 'pt_filter' => 'all', 'pt_plugins' => array(), 'pt_themes' => array(),
 				'files' => array(), 'keep_backup' => true, 'repo' => false, 'live_media' => false, 'live_media_mode' => 'missing',
 			);
 		}

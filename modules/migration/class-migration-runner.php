@@ -110,14 +110,26 @@ class Migration_Runner {
 		foreach ((array) ($src['tables'] ?? array()) as $t) {
 			$src_tables[$t['name']] = (int) $t['rows'];
 		}
-		$db_mode = in_array(($options['db_mode'] ?? ''), array('replace', 'replace_content', 'merge'), true)
+		$db_mode = in_array(($options['db_mode'] ?? ''), array('replace', 'replace_content', 'merge', 'post_types'), true)
 			? (string) $options['db_mode']
 			: 'replace';
 		$merge = 'merge' === $db_mode;
 		$replace_content = 'replace_content' === $db_mode;
+		$by_type = 'post_types' === $db_mode;
 		$wanted = (array) ($options['tables'] ?? array());
 		$merge_groups = array_values(array_intersect(Migration_Engine::MERGE_GROUPS, (array) ($options['merge_groups'] ?? array())));
-		if ($merge) {
+		$post_types = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($options['post_types'] ?? array())))));
+		$post_type_sync = 'add' === ($options['post_type_sync'] ?? '') ? 'add' : 'replace';
+		if ($by_type) {
+			if (! empty($wanted) && empty($post_types)) {
+				throw new \RuntimeException('Select at least one post type to migrate.');
+			}
+			// Posts and the terms they use always come along; comments and new authors are optional.
+			$merge_groups = array_values(array_unique(array_merge(array('posts', 'terms'), array_intersect(array('comments', 'users'), $merge_groups))));
+			$wanted = empty($wanted) ? array() : array_map(static function ($suffix) use ($src) {
+				return (string) ($src['prefix'] ?? '') . $suffix;
+			}, Migration_Engine::MERGE_TABLES);
+		} elseif ($merge) {
 			// Adding content uses core content tables, never site settings or plugin tables.
 			$wanted = empty($wanted) || empty($merge_groups) ? array() : array_map(static function ($suffix) use ($src) {
 				return (string) ($src['prefix'] ?? '') . $suffix;
@@ -197,7 +209,7 @@ class Migration_Runner {
 			'override'   => ! empty($options['override']),
 			// Override replaces everything, so tables are never skipped as "unchanged";
 			// a merge needs every content table imported to map IDs.
-			'skip_unchanged' => ! $merge && empty($options['override']) && ! empty($options['skip_unchanged']),
+			'skip_unchanged' => ! $merge && ! $by_type && empty($options['override']) && ! empty($options['skip_unchanged']),
 			'custom_excludes' => array_values(array_unique(array_filter(array_map('trim', (array) ($options['excludes'] ?? array()))))),
 			'excludes'   => array_values(array_unique(array_merge(
 				array_filter(array_map('trim', (array) ($options['excludes'] ?? array()))),
@@ -206,6 +218,8 @@ class Migration_Runner {
 			'exclude_dev' => ! empty($options['exclude_dev']),
 			'db_mode'    => $db_mode,
 			'merge_groups' => $merge_groups,
+			'post_types' => $by_type ? $post_types : array(),
+			'post_type_sync' => $post_type_sync,
 			'pt_filter'  => $pt_filter,
 			'pt_selected' => 'selected' === $pt_filter ? $pt_selected : array(),
 			'component_excludes' => $component_excludes,
@@ -297,7 +311,8 @@ class Migration_Runner {
 			'Selected — database: %s; files: %s.',
 			empty($tables) ? 'not included' : (
 				$merge ? 'add as new content (' . implode(', ', $merge_groups) . ')'
-					: ($replace_content ? 'replace selected WordPress content tables' : count($tables) . ' tables')
+					: ($by_type ? $post_type_sync . ' post types ' . implode(', ', $post_types) . ' (with ' . implode(', ', $merge_groups) . ')'
+					: ($replace_content ? 'replace selected WordPress content tables' : count($tables) . ' tables'))
 			),
 			empty($components) ? 'not included' : implode(', ', $components) . $pt_note
 		));
@@ -568,6 +583,8 @@ class Migration_Runner {
 			'tables'           => count($s['tables']),
 			'db_mode'          => $s['db_mode'] ?? 'replace',
 			'merge_groups'     => $s['merge_groups'] ?? array(),
+			'post_types'       => $s['post_types'] ?? array(),
+			'post_type_sync'   => $s['post_type_sync'] ?? 'replace',
 			'pt_filter'        => $s['pt_filter'] ?? 'all',
 			'pt_selected'      => $s['pt_selected'] ?? array(),
 			'files'            => array_slice((array) ($s['picked'] ?? array()), 0, 200),
@@ -740,7 +757,7 @@ class Migration_Runner {
 		if (in_array($this->state['phase'], array('finalize_files', 'finalize_db'), true) && $this->state['fin']['moved'] > 0) {
 			$this->state['message'] = 'Migration cancelled. Some files were already replaced — use Rollback to restore them.';
 		}
-		if ('finalize_db' === $this->state['phase'] && 'merge' === ($this->state['db_mode'] ?? '')) {
+		if ('finalize_db' === $this->state['phase'] && in_array($this->state['db_mode'] ?? '', array('merge', 'post_types'), true)) {
 			$this->state['message'] = 'Migration cancelled. Some content may already have been added — use Rollback to remove it.';
 		}
 		$this->log('Cancelled by user.');
@@ -1578,6 +1595,39 @@ class Migration_Runner {
 
 	private function phase_finalize_db(): void {
 		$imported = $this->state['db']['imported'];
+		if (! empty($imported) && empty($this->state['db']['finalized']) && 'post_types' === ($this->state['db_mode'] ?? '')) {
+			$replace = 'add' !== ($this->state['post_type_sync'] ?? 'replace');
+			$this->progress(($replace ? 'Replacing' : 'Adding') . ' posts of the selected post types…');
+			$res = (array) $this->call('dst', 'merge_db', array(
+				'job'           => $this->state['id'],
+				'source_prefix' => $this->state['src']['prefix'],
+				'source_key'    => substr(md5((string) $this->state['src']['home']), 0, 12),
+				'groups'        => $this->state['merge_groups'],
+				'post_types'    => $this->state['post_types'],
+				'replace'       => $replace ? 1 : 0,
+				'budget'        => 15,
+			));
+			$s = (array) ($res['stats'] ?? array());
+			$this->state['message'] = sprintf(
+				'%s posts of the selected post types… %s posts added%s',
+				$replace ? 'Replacing' : 'Adding',
+				number_format_i18n((int) ($s['posts'] ?? 0)),
+				$replace ? ', ' . number_format_i18n((int) ($s['deleted'] ?? 0)) . ' replaced' : ''
+			);
+			if (empty($res['done'])) {
+				return; // Continue in the next step.
+			}
+			$this->state['db']['finalized'] = true;
+			$this->log(sprintf(
+				'Post types %s: %d posts added%s, %d terms, %d comments, %d users added. Other content and settings were not changed.',
+				implode(', ', $this->state['post_types']),
+				(int) ($s['posts'] ?? 0),
+				$replace ? sprintf(' (replacing %d existing)', (int) ($s['deleted'] ?? 0)) : sprintf(' (%d added earlier were skipped)', (int) ($s['skipped'] ?? 0)),
+				(int) ($s['terms'] ?? 0),
+				(int) ($s['comments'] ?? 0),
+				(int) ($s['users'] ?? 0)
+			));
+		}
 		if (! empty($imported) && empty($this->state['db']['finalized']) && 'merge' === ($this->state['db_mode'] ?? '')) {
 			$this->progress('Adding content as new items…');
 			$res = (array) $this->call('dst', 'merge_db', array(
