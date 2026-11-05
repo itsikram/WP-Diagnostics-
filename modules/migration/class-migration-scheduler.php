@@ -747,6 +747,8 @@ class Migration_Scheduler {
 					'merge_groups'    => (array) $options['merge_groups'],
 					'post_types'      => (array) $options['post_types'],
 					'post_type_sync'  => $options['post_type_sync'],
+					'post_type_media' => $options['post_type_media'],
+					'post_type_settings' => (array) $options['post_type_settings'],
 					'excludes'        => (array) $options['excludes'],
 					'exclude_dev'     => ! empty($options['exclude_dev']),
 					'pt_filter'       => $options['pt_filter'],
@@ -815,7 +817,7 @@ class Migration_Scheduler {
 			$data['schedules'][$id]['options'] = (array) $data['schedules'][$id]['options'] + array(
 				'components' => array(), 'tables' => array(), 'tables_all' => false, 'skip_unchanged' => false,
 				'override' => false, 'excludes' => array(), 'exclude_dev' => false, 'db_mode' => 'replace',
-				'merge_groups' => array(), 'post_types' => array(), 'post_type_sync' => 'replace', 'pt_filter' => 'all', 'pt_plugins' => array(), 'pt_themes' => array(),
+				'merge_groups' => array(), 'post_types' => array(), 'post_type_sync' => 'replace', 'post_type_media' => null, 'post_type_settings' => array(), 'pt_filter' => 'all', 'pt_plugins' => array(), 'pt_themes' => array(),
 				'files' => array(), 'keep_backup' => true, 'repo' => false, 'live_media' => false, 'live_media_mode' => 'missing',
 			);
 		}

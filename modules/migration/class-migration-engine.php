@@ -31,8 +31,15 @@ class Migration_Engine {
 	// 'paths': browse files and migrate only selected files and folders.
 	// 'repo': check plugins and themes against WordPress.org and install them from there.
 	// 'post_types': migrate only the posts of selected post types.
-	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo', 'progress', 'post_types');
+	// 'pt_related': with post types, copy only the media files those posts use and their related settings.
+	public const FEATURES = array('merge', 'content', 'core', 'peers', 'wire', 'fast', 'solid', 'paths', 'repo', 'progress', 'post_types', 'pt_related');
 	public const MERGE_GROUPS = array('posts', 'terms', 'comments', 'users');
+	// Settings that belong to post types and can come along with their posts.
+	public const PT_SETTING_GROUPS = array('pages', 'sticky', 'menus', 'registrations', 'fields', 'product_attributes');
+	// Options that point at a page (the front page, posts page, privacy policy page and WooCommerce pages).
+	private const PT_PAGE_OPTIONS = array('page_on_front', 'page_for_posts', 'wp_page_for_privacy_policy', 'woocommerce_shop_page_id', 'woocommerce_cart_page_id', 'woocommerce_checkout_page_id', 'woocommerce_myaccount_page_id', 'woocommerce_terms_page_id');
+	// Definitions stored as posts and identified by their key (post_name): ACF field groups, fields, post types and taxonomies.
+	private const PT_DEFINITION_TYPES = array('acf-field-group', 'acf-field', 'acf-post-type', 'acf-taxonomy');
 	// WordPress content tables used by both "add as new content" and content replacement.
 	public const MERGE_TABLES = array('users', 'usermeta', 'terms', 'term_taxonomy', 'termmeta', 'term_relationships', 'posts', 'postmeta', 'comments', 'commentmeta');
 	// Files the whole-folder components never overwrite: they hold this server's own settings.
@@ -175,6 +182,7 @@ class Migration_Engine {
 			'self_plugin_dir' => basename(dirname(WUDT_PLUGIN_FILE)),
 			'tables'          => $this->list_tables(),
 			'post_types'      => $this->list_post_types(),
+			'pt_settings'     => $this->pt_settings_available(),
 			'rollback'        => $this->rollback_summary(),
 		);
 	}
@@ -198,6 +206,151 @@ class Migration_Engine {
 			);
 		}
 		return $types;
+	}
+
+	/**
+	 * Related settings this site can send with the posts of a post type, for the wizard:
+	 * each group lists the post types it belongs to and what it contains here (an item is a
+	 * name, or {n: name, t: post types} when it belongs to only some of the group's types).
+	 *
+	 * @return array<int,array{key:string,types:string[],items:array}>
+	 */
+	public function pt_settings_available(): array {
+		global $wpdb;
+		$groups = array();
+
+		$pages = array();
+		if ('page' === get_option('show_on_front') && (int) get_option('page_on_front')) {
+			$pages[] = 'homepage';
+		} else {
+			$pages[] = 'homepage shows the latest posts';
+		}
+		if ((int) get_option('page_for_posts')) {
+			$pages[] = 'posts page';
+		}
+		if ((int) get_option('wp_page_for_privacy_policy')) {
+			$pages[] = 'privacy policy page';
+		}
+		foreach (self::PT_PAGE_OPTIONS as $name) {
+			if (0 === strpos($name, 'woocommerce_') && (int) get_option($name)) {
+				$pages[] = 'shop pages';
+				break;
+			}
+		}
+		$groups[] = array('key' => 'pages', 'types' => array('page'), 'items' => $pages);
+
+		$sticky = array_filter((array) get_option('sticky_posts', array()));
+		$groups[] = array('key' => 'sticky', 'types' => array('post'), 'items' => array(count($sticky) . (1 === count($sticky) ? ' sticky post' : ' sticky posts')));
+
+		$locations = get_theme_mod('nav_menu_locations');
+		if (is_array($locations) && array_filter($locations)) {
+			$groups[] = array('key' => 'menus', 'types' => array('nav_menu_item'), 'items' => array_map('strval', array_keys(array_filter($locations))));
+		}
+
+		// Items of these two groups name the post types they belong to ('t'), so only the relevant ones are listed.
+		$reg_types = array();
+		$reg_items = array();
+		$cpt = get_option('cptui_post_types');
+		foreach (is_array($cpt) ? $cpt : array() as $slug => $def) {
+			$reg_types[] = (string) $slug;
+			$reg_items[] = array('n' => (string) $slug, 't' => array((string) $slug));
+		}
+		$cpt_tax = get_option('cptui_taxonomies');
+		foreach (is_array($cpt_tax) ? $cpt_tax : array() as $slug => $def) {
+			$objects = array_map('strval', (array) ($def['object_types'] ?? array()));
+			if ($objects) {
+				$reg_types = array_merge($reg_types, $objects);
+				$reg_items[] = array('n' => (string) $slug, 't' => $objects);
+			}
+		}
+		$fields_types = array();
+		$fields_items = array();
+		$rows = $wpdb->get_results("SELECT post_type, post_title, post_content FROM {$wpdb->posts} WHERE post_type IN ('acf-post-type', 'acf-taxonomy', 'acf-field-group') AND post_status <> 'trash'", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		foreach ((array) $rows as $row) {
+			$settings = self::safe_unserialize((string) $row['post_content']);
+			if (! is_array($settings)) {
+				continue;
+			}
+			$for = self::pt_definition_types((string) $row['post_type'], $settings);
+			if (empty($for)) {
+				continue;
+			}
+			if ('acf-field-group' === $row['post_type']) {
+				$fields_types = array_merge($fields_types, $for);
+				$fields_items[] = array('n' => (string) $row['post_title'], 't' => $for);
+			} else {
+				$reg_types = array_merge($reg_types, $for);
+				$reg_items[] = array('n' => (string) ($settings['post_type'] ?? $settings['taxonomy'] ?? $row['post_title']), 't' => $for);
+			}
+		}
+		if ($reg_types) {
+			$groups[] = array('key' => 'registrations', 'types' => array_values(array_unique($reg_types)), 'items' => $reg_items);
+		}
+		if ($fields_types) {
+			$groups[] = array('key' => 'fields', 'types' => array_values(array_unique($fields_types)), 'items' => $fields_items);
+		}
+
+		$attributes = $this->wc_attribute_rows();
+		if ($attributes) {
+			$groups[] = array('key' => 'product_attributes', 'types' => array('product'), 'items' => array_map(static function ($row) {
+				return (string) $row['attribute_label'];
+			}, $attributes));
+		}
+		return $groups;
+	}
+
+	/**
+	 * WooCommerce product attribute definitions (an empty list without WooCommerce).
+	 */
+	private function wc_attribute_rows(): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'woocommerce_attribute_taxonomies';
+		if ($table !== $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)))) {
+			return array();
+		}
+		return (array) $wpdb->get_results("SELECT attribute_name, attribute_label, attribute_type, attribute_orderby, attribute_public FROM `{$table}` ORDER BY attribute_id", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+	}
+
+	/**
+	 * The post types an ACF definition belongs to: a post type's own name, a taxonomy's
+	 * object types, or the post types a field group's location rules show it on.
+	 *
+	 * @return string[]
+	 */
+	private static function pt_definition_types(string $kind, array $settings): array {
+		if ('acf-post-type' === $kind) {
+			return '' === (string) ($settings['post_type'] ?? '') ? array() : array((string) $settings['post_type']);
+		}
+		if ('acf-taxonomy' === $kind) {
+			return array_values(array_filter(array_map('strval', (array) ($settings['object_type'] ?? array()))));
+		}
+		$types = array();
+		foreach ((array) ($settings['location'] ?? array()) as $rules) {
+			foreach ((array) $rules as $rule) {
+				$param = (string) ($rule['param'] ?? '');
+				if ('post_type' === $param && '==' === (string) ($rule['operator'] ?? '==')) {
+					$types[] = (string) ($rule['value'] ?? '');
+				} elseif (in_array($param, array('page_template', 'page_type', 'page', 'page_parent'), true)) {
+					$types[] = 'page';
+				} elseif (in_array($param, array('post_format', 'post_category'), true)) {
+					$types[] = 'post';
+				}
+			}
+		}
+		return array_values(array_unique(array_filter($types)));
+	}
+
+	/**
+	 * Unserialize a value from another site's database without creating objects.
+	 *
+	 * @return mixed Null when the value is not serialized.
+	 */
+	private static function safe_unserialize(string $value) {
+		$value = trim($value);
+		if ('' === $value || ! is_serialized($value)) {
+			return null;
+		}
+		return @unserialize($value, array('allowed_classes' => false)); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions,WordPress.PHP.NoSilencedErrors
 	}
 
 	/**
@@ -875,15 +1028,26 @@ class Migration_Engine {
 	/**
 	 * Page through the files of a component. The first call (offset 0)
 	 * walks the directory tree and caches the listing; later pages hash files.
+	 *
+	 * @param array|null $post_media {types: string[]} lists only the uploads the posts of these post types use.
 	 */
-	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000, bool $hash = true, bool $cached_only = false, ?array $only = null): array {
+	public function manifest_page(string $job_id, string $component, int $offset, array $excludes = array(), float $budget = 12.0, int $max_entries = 3000, bool $hash = true, bool $cached_only = false, ?array $only = null, ?array $post_media = null): array {
 		$job_id = self::sanitize_job_id($job_id);
 		$root = self::component_root($component);
 		$list_file = self::storage_dir('work') . '/' . $job_id . '-list-' . $component . '.txt';
 
 		$skipped = array();
+		$missing = null;
 		if (0 === $offset || ! file_exists($list_file)) {
-			$skipped = $this->build_file_list($root, $component, $excludes, $list_file, $only);
+			if (null !== $post_media && 'uploads' === $component) {
+				$missing = $this->build_post_media_list($job_id, (array) ($post_media['types'] ?? array()), $root, $list_file, $budget);
+				if (null === $missing) {
+					// Still finding the media on a large site: ask again (offset 0) to continue.
+					return array('component' => $component, 'entries' => array(), 'next' => 0, 'done' => false, 'total' => 0, 'skipped' => array(), 'listing' => true);
+				}
+			} else {
+				$skipped = $this->build_file_list($root, $component, $excludes, $list_file, $only);
+			}
 		}
 
 		$entries = array();
@@ -902,7 +1066,9 @@ class Migration_Engine {
 			if ($line_no++ < $offset) {
 				continue;
 			}
-			if (count($entries) >= $max_entries || ! $this->time_left($budget)) {
+			// Always get past at least one line: when building the list used up the time, asking
+			// again from offset 0 would build it again, and again.
+			if (count($entries) >= $max_entries || ($next > $offset && ! $this->time_left($budget))) {
 				break;
 			}
 			$abs = $root . '/' . $line;
@@ -928,7 +1094,7 @@ class Migration_Engine {
 			@unlink($list_file);
 		}
 
-		return array(
+		$page = array(
 			'component' => $component,
 			'entries'   => $entries,
 			'next'      => $next,
@@ -936,6 +1102,173 @@ class Migration_Engine {
 			'total'     => $total,
 			'skipped'   => $skipped,
 		);
+		if (null !== $missing) {
+			// Media the posts use whose files are not on this site (for example offloaded to a CDN).
+			$page['missing'] = $missing;
+		}
+		return $page;
+	}
+
+	/**
+	 * Post types: list the uploads the posts of the given post types use — every file of their
+	 * featured images, galleries and attached or inserted media (all generated sizes), and other
+	 * files of the uploads folder their content links to. Resumable: on a large site the posts are
+	 * checked over several calls (progress in the job's work files).
+	 *
+	 * @return int|null Media files the posts use that are missing on this site; null when not finished yet.
+	 */
+	private function build_post_media_list(string $job_id, array $types, string $root, string $list_file, float $budget): ?int {
+		global $wpdb;
+		$types = array_values(array_unique(array_filter(array_map('sanitize_key', $types))));
+		$sel = self::tmp_table($job_id, 'pt-media');
+		$state_file = self::storage_dir('work') . '/' . $job_id . '-ptmedia.json';
+		$links_file = self::storage_dir('work') . '/' . $job_id . '-ptmedia-links.txt';
+		$st = $this->read_json($state_file);
+		$this->prepare_session();
+		if (empty($st) || $sel !== $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sel))) {
+			$wpdb->query("DROP TABLE IF EXISTS `{$sel}`"); // phpcs:ignore WordPress.DB.PreparedSQL
+			$this->merge_query("CREATE TABLE `{$sel}` (kind CHAR(1) NOT NULL, old_id BIGINT UNSIGNED NOT NULL, new_id BIGINT UNSIGNED NOT NULL, created TINYINT(1) NOT NULL DEFAULT 0, PRIMARY KEY (kind, old_id))");
+			if (! empty($types)) {
+				$this->pt_collect($sel, $wpdb->posts, $wpdb->postmeta, $types, array());
+			}
+			@unlink($links_file);
+			$st = array('cursor' => 0, 'done' => empty($types));
+			file_put_contents($state_file, wp_json_encode($st));
+		}
+		if (empty($st['done'])) {
+			$uploads = wp_get_upload_dir();
+			$base = untrailingslashit((string) wp_parse_url((string) $uploads['baseurl'], PHP_URL_PATH));
+			$links = array();
+			$res = $this->pt_collect_refs($sel, $wpdb->posts, $wpdb->postmeta, (int) $st['cursor'], max(3.0, $budget - 2.0), $links, $base);
+			if (! empty($links)) {
+				file_put_contents($links_file, implode("\n", array_keys($links)) . "\n", FILE_APPEND | LOCK_EX);
+			}
+			$st = array('cursor' => (int) $res['cursor'], 'done' => ! empty($res['done']));
+			file_put_contents($state_file, wp_json_encode($st));
+			if (! $st['done']) {
+				return null;
+			}
+		}
+
+		// Other uploads the content links to (path => false until listed).
+		$paths = array();
+		foreach (file_exists($links_file) ? (array) file($links_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : array() as $rel) {
+			$paths[(string) $rel] = false;
+		}
+
+		$missing = 0;
+		$out = @fopen($list_file, 'wb');
+		if (! $out) {
+			throw new \RuntimeException('Unable to write migration work file. Check that wp-content is writable.');
+		}
+		$count = 0;
+		$write = static function (string $rel, bool $required) use ($out, $root, &$count, &$missing, &$paths): void {
+			try {
+				$rel = self::safe_rel($rel);
+			} catch (\Throwable $e) {
+				return;
+			}
+			if (isset($paths[$rel]) && true === $paths[$rel]) {
+				return; // Listed already.
+			}
+			$abs = $root . '/' . $rel;
+			if (str_contains($rel, "\n") || is_link($abs) || self::is_excluded('uploads', $rel) || ! is_file($abs)) {
+				if ($required) {
+					$missing++;
+				}
+				return;
+			}
+			$paths[$rel] = true;
+			fwrite($out, $rel . "\n");
+			$count++;
+		};
+
+		// Every file of the selected attachments.
+		$last = 0;
+		while (true) {
+			$ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT p.ID FROM {$wpdb->posts} p JOIN `{$sel}` r ON r.kind = 'r' AND r.old_id = p.ID WHERE p.post_type = 'attachment' AND p.ID > %d ORDER BY p.ID LIMIT 500", $last))); // phpcs:ignore WordPress.DB.PreparedSQL
+			if (empty($ids)) {
+				break;
+			}
+			$last = (int) end($ids);
+			$meta = array();
+			foreach ((array) $wpdb->get_results("SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode(',', $ids) . ") AND meta_key IN ('_wp_attached_file', '_wp_attachment_metadata', '_wp_attachment_backup_sizes')", ARRAY_A) as $row) { // phpcs:ignore WordPress.DB.PreparedSQL
+				$meta[(int) $row['post_id']][(string) $row['meta_key']] = (string) $row['meta_value'];
+			}
+			foreach ($meta as $m) {
+				$files = self::attachment_files(
+					(string) ($m['_wp_attached_file'] ?? ''),
+					self::safe_unserialize((string) ($m['_wp_attachment_metadata'] ?? '')),
+					self::safe_unserialize((string) ($m['_wp_attachment_backup_sizes'] ?? '')),
+					$root
+				);
+				foreach ($files as $i => $rel) {
+					// The original upload is required; generated sizes may have been cleaned up.
+					$write($rel, 0 === $i);
+				}
+			}
+			if (count($ids) < 500) {
+				break;
+			}
+		}
+		// Other uploads the content links to.
+		foreach (array_keys($paths) as $rel) {
+			if (true !== $paths[$rel]) {
+				$write((string) $rel, false);
+			}
+		}
+		fclose($out);
+		$wpdb->query("DROP TABLE IF EXISTS `{$sel}`"); // phpcs:ignore WordPress.DB.PreparedSQL
+		@unlink($state_file);
+		@unlink($links_file);
+		set_transient('wudt_mig_count_' . md5($list_file), $count, DAY_IN_SECONDS);
+		return $missing;
+	}
+
+	/**
+	 * Files of one attachment, relative to the uploads folder: the original upload first, then its
+	 * generated sizes (and their WebP/AVIF versions), the original of a scaled image and edit backups.
+	 *
+	 * @param mixed $meta   Unserialized _wp_attachment_metadata.
+	 * @param mixed $backup Unserialized _wp_attachment_backup_sizes.
+	 * @return string[]
+	 */
+	private static function attachment_files(string $attached, $meta, $backup, string $root): array {
+		$attached = str_replace('\\', '/', trim($attached));
+		if ('' === $attached || preg_match('#^[a-z][a-z0-9+.-]*://#i', $attached)) {
+			return array(); // Stored elsewhere (offloaded media).
+		}
+		if (0 === strpos($attached, $root . '/')) {
+			$attached = substr($attached, strlen($root) + 1);
+		} elseif ('/' === $attached[0] || preg_match('#^[a-zA-Z]:/#', $attached)) {
+			return array();
+		}
+		$dir = dirname($attached);
+		$dir = ('.' === $dir || '' === $dir) ? '' : $dir . '/';
+		$files = array($attached);
+		$add = static function ($file) use (&$files, $dir): void {
+			if (is_string($file) && '' !== $file) {
+				$files[] = $dir . basename(str_replace('\\', '/', $file));
+			}
+		};
+		if (is_array($meta)) {
+			$add($meta['original_image'] ?? '');
+			foreach ((array) ($meta['sizes'] ?? array()) as $size) {
+				if (is_array($size)) {
+					$add($size['file'] ?? '');
+					foreach ((array) ($size['sources'] ?? array()) as $source) {
+						$add(is_array($source) ? ($source['file'] ?? '') : '');
+					}
+				}
+			}
+			foreach ((array) ($meta['sources'] ?? array()) as $source) {
+				$add(is_array($source) ? ($source['file'] ?? '') : '');
+			}
+		}
+		foreach (is_array($backup) ? $backup : array() as $size) {
+			$add(is_array($size) ? ($size['file'] ?? '') : '');
+		}
+		return array_values(array_unique($files));
 	}
 
 	/**
@@ -1866,9 +2199,11 @@ class Migration_Engine {
 	 *
 	 * @param string $source_key Identifies the source site so a repeated merge skips posts it already added.
 	 * @param array  $groups     Subset of MERGE_GROUPS to add.
-	 * @param array  $options    {post_types: string[], replace: bool}. With post types, only posts of those
-	 *                           types (and the media and child posts they use) are added; with replace, this
-	 *                           site's posts of those types are removed first and source IDs are kept when free.
+	 * @param array  $options    {post_types: string[], replace: bool, settings: array, settings_groups: string[]}.
+	 *                           With post types, only posts of those types (and the media and child posts they
+	 *                           use) are added; with replace, this site's posts of those types are removed first
+	 *                           and source IDs are kept when free. Settings (from pt_settings_export() on the
+	 *                           source) are applied last; settings groups also bring the ACF definitions of the types.
 	 */
 	public function merge_database(string $job_id, string $source_prefix, string $source_key, array $groups, float $budget = 12.0, array $options = array()): array {
 		global $wpdb;
@@ -1876,7 +2211,7 @@ class Migration_Engine {
 		$state_file = self::storage_dir('work') . '/' . $job_id . '-merge.json';
 		$st = $this->read_json($state_file);
 		if (empty($st)) {
-			$st = array('step' => 0, 'cursor' => 0, 'stats' => array('posts' => 0, 'skipped' => 0, 'terms' => 0, 'comments' => 0, 'users' => 0, 'deleted' => 0));
+			$st = array('step' => 0, 'cursor' => 0, 'stats' => array('posts' => 0, 'skipped' => 0, 'terms' => 0, 'comments' => 0, 'users' => 0, 'deleted' => 0, 'relinked' => 0, 'settings' => array()));
 		}
 		$map = self::merge_map_table($job_id);
 
@@ -1913,15 +2248,22 @@ class Migration_Engine {
 			'replace'  => ! empty($options['replace']),
 			'authors'  => null,
 			'taxes'    => null,
+			'settings' => (array) ($options['settings'] ?? array()),
+			'pt_groups' => array_values(array_intersect(self::PT_SETTING_GROUPS, array_map('strval', (array) ($options['settings_groups'] ?? array())))),
+			'defs'     => null,
+			'acf_types' => array(),
 		);
 
 		$steps = array('users', 'usermeta', 'terms', 'term_parents', 'termmeta', 'posts_seen', 'posts', 'post_parents', 'postmeta', 'postmeta_ids', 'relationships', 'comments', 'comment_parents', 'commentmeta', 'recount');
 		if (! empty($this->mc['types'])) {
-			// Pick the posts to bring first; replaced posts are removed just before posts are added.
-			array_unshift($steps, 'pt_select');
+			// Pick the posts and media to bring first; replaced posts are removed just before posts are added.
+			array_unshift($steps, 'pt_select', 'pt_refs');
 			if ($this->mc['replace']) {
 				array_splice($steps, (int) array_search('posts_seen', $steps, true), 0, array('pt_delete'));
 			}
+			// Then IDs in content and fields follow the new IDs, and related settings are applied.
+			array_splice($steps, (int) array_search('postmeta_ids', $steps, true) + 1, 0, array('pt_ids'));
+			$steps[] = 'pt_settings';
 		}
 		while ($st['step'] < count($steps) && $this->time_left($budget)) {
 			$method = 'merge_step_' . $steps[$st['step']];
@@ -2145,35 +2487,296 @@ class Migration_Engine {
 
 	/**
 	 * Post types: list the source posts to add (map kind 'r'), meaning the posts of the selected
-	 * types, their child posts (such as product variations) and the media they use.
+	 * types, their related definitions, all their descendants and their featured and gallery images.
 	 */
 	private function merge_step_pt_select(int $cursor, array &$stats): array {
-		global $wpdb;
+		$t = $this->mc['tmp']['posts'];
+		if ('' !== $t) {
+			$this->pt_collect($this->mc['map'], $t, $this->mc['tmp']['postmeta'], $this->mc['types'], $this->mc['pt_groups']);
+		}
+		return array('done' => true);
+	}
+
+	/**
+	 * Post types: add the media the selected posts use in their content and custom fields.
+	 */
+	private function merge_step_pt_refs(int $cursor, array &$stats): array {
 		$t = $this->mc['tmp']['posts'];
 		if ('' === $t) {
 			return array('done' => true);
 		}
-		$m = $this->mc['map'];
-		$in = $this->pt_in_list();
-		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', ID, 0, 0 FROM `{$t}` WHERE post_type IN ({$in}) AND post_status <> 'auto-draft'");
-		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', c.ID, 0, 0 FROM `{$t}` c JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'revision' AND c.post_status <> 'auto-draft'");
-		$pm = $this->mc['tmp']['postmeta'];
-		if ('' !== $pm) {
-			$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'r', CAST(o.meta_value AS UNSIGNED), 0, 0 FROM `{$pm}` o JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_thumbnail_id' AND o.meta_value REGEXP '^[0-9]+$'");
-			// WooCommerce product galleries: comma-separated attachment IDs.
-			$ids = array();
-			foreach ((array) $wpdb->get_col("SELECT o.meta_value FROM `{$pm}` o JOIN `{$m}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_product_image_gallery' AND o.meta_value <> ''") as $value) { // phpcs:ignore WordPress.DB.PreparedSQL
-				foreach (explode(',', (string) $value) as $id) {
-					if ((int) $id > 0) {
-						$ids[(int) $id] = true;
+		$paths = null;
+		return $this->pt_collect_refs($this->mc['map'], $t, $this->mc['tmp']['postmeta'], $cursor, $this->mc['budget'], $paths);
+	}
+
+	/**
+	 * Post types: add the source posts a migration brings to $sel as rows of kind 'r' — the posts of
+	 * the selected types, the ACF definitions that belong to them, all their descendants (product
+	 * variations, attached media, child posts, ACF sub fields…) and their featured and gallery images.
+	 * Used on the destination (imported tables) and on the source (live tables, to list media files).
+	 *
+	 * @param string   $sel      Table shaped like the merge map.
+	 * @param string   $posts    Posts table to read.
+	 * @param string   $postmeta Postmeta table to read ('' when there is none).
+	 * @param string[] $groups   Related settings; 'registrations' and 'fields' bring ACF definitions.
+	 */
+	private function pt_collect(string $sel, string $posts, string $postmeta, array $types, array $groups): void {
+		global $wpdb;
+		$in = "'" . implode("', '", array_map('esc_sql', $types)) . "'";
+		$this->merge_query("INSERT IGNORE INTO `{$sel}` (kind, old_id, new_id, created) SELECT 'r', ID, 0, 0 FROM `{$posts}` WHERE post_type IN ({$in}) AND post_status <> 'auto-draft'");
+		$defs = $this->pt_definition_ids($posts, $types, $groups);
+		foreach (array_chunk($defs, 500) as $chunk) {
+			$this->merge_query("INSERT IGNORE INTO `{$sel}` (kind, old_id, new_id, created) VALUES ('r', " . implode(", 0, 0), ('r', ", $chunk) . ', 0, 0)');
+		}
+		// Descendants, level by level.
+		for ($level = 0; $level < 25; $level++) {
+			$this->merge_query("INSERT IGNORE INTO `{$sel}` (kind, old_id, new_id, created) SELECT 'r', c.ID, 0, 0 FROM `{$posts}` c JOIN `{$sel}` r ON r.kind = 'r' AND r.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'revision' AND c.post_status <> 'auto-draft'");
+			if ((int) $wpdb->rows_affected < 1) {
+				break;
+			}
+		}
+		if ('' === $postmeta) {
+			return;
+		}
+		$ids = array_map('intval', (array) $wpdb->get_col("SELECT o.meta_value FROM `{$postmeta}` o JOIN `{$sel}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_thumbnail_id' AND o.meta_value REGEXP '^[0-9]+$'")); // phpcs:ignore WordPress.DB.PreparedSQL
+		// WooCommerce product galleries: comma-separated attachment IDs.
+		foreach ((array) $wpdb->get_col("SELECT o.meta_value FROM `{$postmeta}` o JOIN `{$sel}` r ON r.kind = 'r' AND r.old_id = o.post_id WHERE o.meta_key = '_product_image_gallery' AND o.meta_value <> ''") as $value) { // phpcs:ignore WordPress.DB.PreparedSQL
+			$ids = array_merge($ids, self::id_list((string) $value));
+		}
+		$this->pt_add_attachments($sel, $posts, $ids);
+	}
+
+	/**
+	 * Add the attachments among $ids to $sel.
+	 */
+	private function pt_add_attachments(string $sel, string $posts, array $ids): void {
+		$ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+		foreach (array_chunk($ids, 500) as $chunk) {
+			$this->merge_query("INSERT IGNORE INTO `{$sel}` (kind, old_id, new_id, created) SELECT 'r', ID, 0, 0 FROM `{$posts}` WHERE ID IN (" . implode(',', $chunk) . ") AND post_type = 'attachment'");
+		}
+	}
+
+	/**
+	 * ACF definitions (field groups, post types and taxonomies) that belong to the selected post types.
+	 *
+	 * @return int[]
+	 */
+	private function pt_definition_ids(string $posts, array $types, array $groups): array {
+		global $wpdb;
+		$kinds = array();
+		if (in_array('fields', $groups, true)) {
+			$kinds[] = 'acf-field-group';
+		}
+		if (in_array('registrations', $groups, true)) {
+			$kinds[] = 'acf-post-type';
+			$kinds[] = 'acf-taxonomy';
+		}
+		if (empty($kinds) || empty($types)) {
+			return array();
+		}
+		$ids = array();
+		$rows = $wpdb->get_results("SELECT ID, post_type, post_content FROM `{$posts}` WHERE post_type IN ('" . implode("', '", $kinds) . "') AND post_status <> 'trash'", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		foreach ((array) $rows as $row) {
+			$settings = self::safe_unserialize((string) $row['post_content']);
+			if (is_array($settings) && array_intersect(self::pt_definition_types((string) $row['post_type'], $settings), $types)) {
+				$ids[] = (int) $row['ID'];
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Post types: find the media the selected posts use in their content and custom fields — image
+	 * classes, media blocks, gallery shortcodes, Elementor data and ACF image, file and gallery fields —
+	 * and add those attachments to $sel. With $paths (source side), other files of the uploads folder
+	 * that the content links to are collected too, as relative path => false.
+	 *
+	 * @return array{done:bool,cursor:int}
+	 */
+	private function pt_collect_refs(string $sel, string $posts, string $postmeta, int $cursor, float $budget, ?array &$paths, string $uploads_path = ''): array {
+		global $wpdb;
+		$folder = '' === $uploads_path ? '' : basename($uploads_path);
+		while (true) {
+			$rows = (array) $wpdb->get_results($wpdb->prepare("SELECT p.ID, p.post_content FROM `{$posts}` p JOIN `{$sel}` r ON r.kind = 'r' AND r.old_id = p.ID WHERE p.ID > %d AND p.post_type <> 'attachment' ORDER BY p.ID LIMIT 200", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+			if (empty($rows)) {
+				return array('done' => true, 'cursor' => $cursor);
+			}
+			$cursor = (int) $rows[count($rows) - 1]['ID'];
+			$found = array();
+			$collect = static function (string $id) use (&$found): string {
+				$found[(int) $id] = true;
+				return $id;
+			};
+			$linked = array();
+			foreach ($rows as $row) {
+				self::walk_media_ids((string) $row['post_content'], $collect, false);
+				$linked[] = (string) $row['post_content'];
+			}
+			if ('' !== $postmeta) {
+				$in = implode(',', array_map('intval', array_column($rows, 'ID')));
+				$sql = "SELECT post_id, meta_key, meta_value FROM `{$postmeta}` WHERE post_id IN ({$in}) AND (meta_key = '_elementor_data' OR (meta_key LIKE %s AND meta_value LIKE %s)";
+				$args = array($wpdb->esc_like('_') . '%', $wpdb->esc_like('field_') . '%');
+				if (null !== $paths && '' !== $folder) {
+					$sql .= ' OR meta_value LIKE %s';
+					$args[] = '%' . $wpdb->esc_like($folder) . '%';
+				}
+				$fields = array();
+				foreach ((array) $wpdb->get_results($wpdb->prepare($sql . ')', $args), ARRAY_A) as $meta) { // phpcs:ignore WordPress.DB.PreparedSQL
+					$key = (string) $meta['meta_key'];
+					$value = (string) $meta['meta_value'];
+					if ('_elementor_data' === $key) {
+						self::walk_media_ids($value, $collect, true);
+					} elseif (0 === strpos($key, '_') && 0 === strpos($value, 'field_')) {
+						$fields[substr($key, 1)] = true;
+					}
+					if (null !== $paths) {
+						$linked[] = $value;
+					}
+				}
+				// ACF fields: numeric values may be image, file or gallery attachments (only attachments are added).
+				foreach (array_chunk(array_keys($fields), 300) as $names) {
+					$list = "'" . implode("', '", array_map('esc_sql', $names)) . "'";
+					foreach ((array) $wpdb->get_col("SELECT meta_value FROM `{$postmeta}` WHERE post_id IN ({$in}) AND meta_key IN ({$list})") as $value) { // phpcs:ignore WordPress.DB.PreparedSQL
+						foreach (self::id_list((string) $value) as $id) {
+							$found[$id] = true;
+						}
 					}
 				}
 			}
-			foreach (array_chunk(array_keys($ids), 500) as $chunk) {
-				$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) VALUES ('r', " . implode(", 0, 0), ('r', ", $chunk) . ', 0, 0)');
+			$this->pt_add_attachments($sel, $posts, array_keys($found));
+			if (null !== $paths) {
+				foreach ($linked as $text) {
+					self::upload_paths($text, $uploads_path, $paths);
+				}
+			}
+			if (count($rows) < 200) {
+				return array('done' => true, 'cursor' => $cursor);
+			}
+			if (! $this->time_left($budget)) {
+				return array('done' => false, 'cursor' => $cursor);
 			}
 		}
-		return array('done' => true);
+	}
+
+	/**
+	 * Pass every attachment ID in post content or page builder data to $fn and write back what it
+	 * returns. Content: image classes, data-id attributes of images, media block attributes and
+	 * gallery and playlist shortcodes. Page builder data (Elementor): media controls and image classes.
+	 * Each ID is visited exactly once, so the same function serves to find and to replace IDs.
+	 *
+	 * @param callable(string):string $fn
+	 */
+	private static function walk_media_ids(string $text, callable $fn, bool $builder): string {
+		if ('' === $text || ! preg_match('/wp-image-|<!--\s+wp:|\[(?:gallery|playlist)|"id":/i', $text)) {
+			return $text;
+		}
+		$one = static function (array $m) use ($fn): string {
+			return $m[1] . $fn($m[2]) . ($m[3] ?? '');
+		};
+		$list = static function (string $ids) use ($fn): string {
+			return (string) preg_replace_callback('/\d+/', static function ($m) use ($fn) {
+				return $fn($m[0]);
+			}, $ids);
+		};
+		$patterns = array('/(\bwp-image-)(\d+)()/');
+		if ($builder) {
+			$patterns[] = '/(\{"url":"(?:[^"\\\\]|\\\\.)*","id":"?)(\d+)()/';
+			$patterns[] = '/(\{"id":"?)(\d+)("?,"url":")/';
+		} else {
+			$patterns[] = '/(<img\b[^>]*?\bdata-id=["\'])(\d+)()/i';
+		}
+		foreach ($patterns as $re) {
+			$out = preg_replace_callback($re, $one, $text);
+			$text = is_string($out) ? $out : $text;
+		}
+		if ($builder) {
+			return $text;
+		}
+		$out = preg_replace_callback('/(<!--\s+wp:(?:core\/)?(?:image|cover|media-text|file|video|audio|gallery)\s+)(\{.*?\})(\s+\/?-->)/s', static function ($m) use ($fn, $list) {
+			$attrs = (string) preg_replace_callback('/("(?:id|mediaId)":)(\d+)/', static function ($a) use ($fn) {
+				return $a[1] . $fn($a[2]);
+			}, $m[2]);
+			$attrs = (string) preg_replace_callback('/("ids":\[)([^\]]*)(\])/', static function ($a) use ($list) {
+				return $a[1] . $list($a[2]) . $a[3];
+			}, $attrs);
+			return $m[1] . $attrs . $m[3];
+		}, $text);
+		$text = is_string($out) ? $out : $text;
+		$out = preg_replace_callback('/\[(?:gallery|playlist)\b[^\]]*\]/i', static function ($m) use ($list) {
+			return (string) preg_replace_callback('/(\b(?:ids|include|exclude)\s*=\s*["\']?)([\d,\s]+)/i', static function ($a) use ($list) {
+				return $a[1] . $list($a[2]);
+			}, $m[0]);
+		}, $text);
+		return is_string($out) ? $out : $text;
+	}
+
+	/**
+	 * IDs in a meta value: a number, a comma-separated list or a serialized array of numbers.
+	 *
+	 * @return int[]
+	 */
+	private static function id_list(string $value): array {
+		$value = trim($value);
+		if (preg_match('/^\d+(?:\s*,\s*\d+)*$/', $value)) {
+			return array_map('intval', explode(',', $value));
+		}
+		$data = self::safe_unserialize($value);
+		$ids = array();
+		foreach (is_array($data) ? $data : array() as $item) {
+			if (is_int($item) || (is_string($item) && ctype_digit($item))) {
+				$ids[] = (int) $item;
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * A meta value of IDs with the changed ones replaced, keeping its format; null when nothing changed.
+	 *
+	 * @param array<int,int> $changed Old ID => new ID.
+	 */
+	private static function remap_id_value(string $value, array $changed): ?string {
+		$trim = trim($value);
+		if (preg_match('/^\d+(?:\s*,\s*\d+)*$/', $trim)) {
+			$out = (string) preg_replace_callback('/\d+/', static function ($m) use ($changed) {
+				return isset($changed[(int) $m[0]]) ? (string) $changed[(int) $m[0]] : $m[0];
+			}, $trim);
+			return $out === $trim ? null : $out;
+		}
+		$data = self::safe_unserialize($trim);
+		if (! is_array($data)) {
+			return null;
+		}
+		$hit = false;
+		foreach ($data as $k => $item) {
+			if ((is_int($item) || (is_string($item) && ctype_digit($item))) && isset($changed[(int) $item])) {
+				$data[$k] = is_int($item) ? $changed[(int) $item] : (string) $changed[(int) $item];
+				$hit = true;
+			}
+		}
+		return $hit ? serialize($data) : null; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions
+	}
+
+	/**
+	 * Collect the files of the uploads folder (path relative to it => false) that a text links to.
+	 *
+	 * @param string $base Path of the uploads URL, such as "/wp-content/uploads".
+	 */
+	private static function upload_paths(string $text, string $base, array &$paths): void {
+		$folder = basename($base);
+		if ('' === $base || '/' === $base || '' === $folder || false === strpos($text, $folder)) {
+			return;
+		}
+		$text = str_replace('\\/', '/', $text);
+		if (! preg_match_all('#' . preg_quote($base, '#') . '/([^\s"\'<>()\[\]{}|\\\\^`,;*]+)#', $text, $m)) {
+			return;
+		}
+		foreach ($m[1] as $rel) {
+			$rel = trim(rawurldecode((string) preg_replace('/[?#].*$/', '', (string) $rel)), '/');
+			if ('' !== $rel && ! isset($paths[$rel]) && preg_match('/\.[A-Za-z0-9]{2,5}$/', $rel)) {
+				$paths[$rel] = false;
+			}
+		}
 	}
 
 	/**
@@ -2185,7 +2788,19 @@ class Migration_Engine {
 		$m = $this->mc['map'];
 		$in = $this->pt_in_list();
 		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'd', ID, 0, 0 FROM {$wpdb->posts} WHERE post_type IN ({$in})");
-		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'd', c.ID, 0, 0 FROM {$wpdb->posts} c JOIN `{$m}` d ON d.kind = 'd' AND d.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'attachment'");
+		// ACF definitions the source brings replace this site's ones with the same key.
+		foreach ($this->pt_source_definitions() as $def) {
+			$id = (int) $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_name = %s LIMIT 1", $def['post_type'], $def['post_name']));
+			if ($id) {
+				$this->map_put('d', $id, 0, false);
+			}
+		}
+		for ($level = 0; $level < 25; $level++) {
+			$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) SELECT 'd', c.ID, 0, 0 FROM {$wpdb->posts} c JOIN `{$m}` d ON d.kind = 'd' AND d.old_id = c.post_parent WHERE c.post_parent > 0 AND c.post_type <> 'attachment'");
+			if ((int) $wpdb->rows_affected < 1) {
+				break;
+			}
+		}
 
 		$owned = array(
 			'posts'              => array($wpdb->posts, 'ID'),
@@ -2213,6 +2828,24 @@ class Migration_Engine {
 		$this->pt_recount($bak['term_relationships']);
 		$stats['deleted'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$m}` WHERE kind = 'd'"); // phpcs:ignore WordPress.DB.PreparedSQL
 		return array('done' => true);
+	}
+
+	/**
+	 * ACF definitions among the source posts being added, with their type and key.
+	 *
+	 * @return array<int,array{ID:string,post_type:string,post_name:string}>
+	 */
+	private function pt_source_definitions(): array {
+		global $wpdb;
+		if (null === $this->mc['defs']) {
+			$this->mc['defs'] = array();
+			$t = $this->mc['tmp']['posts'];
+			if ('' !== $t) {
+				$kinds = "'" . implode("', '", self::PT_DEFINITION_TYPES) . "'";
+				$this->mc['defs'] = (array) $wpdb->get_results("SELECT o.ID, o.post_type, o.post_name FROM `{$t}` o JOIN `{$this->mc['map']}` r ON r.kind = 'r' AND r.old_id = o.ID WHERE o.post_type IN ({$kinds}) AND o.post_name <> ''", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+			}
+		}
+		return $this->mc['defs'];
 	}
 
 	private static function pt_backup_table(string $job_id, string $suffix): string {
@@ -2356,6 +2989,14 @@ class Migration_Engine {
 					continue;
 				}
 			}
+			// Adding keeps this site's ACF definitions with the same key (replacing removed them first).
+			if ($filtered && ! $this->mc['replace'] && in_array($row['post_type'], self::PT_DEFINITION_TYPES, true) && '' !== (string) $row['post_name']) {
+				$existing = (int) $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_name = %s LIMIT 1", $row['post_type'], $row['post_name']));
+				if ($existing) {
+					$this->map_put('p', $old, $existing, false);
+					continue;
+				}
+			}
 			// Replacing post types keeps the source IDs where they are free, so links by ID keep working.
 			$keep_id = $filtered && $this->mc['replace']
 				&& ! $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE ID = %d", $old));
@@ -2394,7 +3035,7 @@ class Migration_Engine {
 		}
 		$sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) SELECT m.new_id, o.meta_key, o.meta_value FROM `{$t}` o"
 			. " JOIN `{$this->mc['map']}` m ON m.kind = 'p' AND m.old_id = o.post_id AND m.created = 1"
-			. " WHERE o.meta_id > %d AND o.meta_id <= %d AND o.meta_key NOT IN ('_edit_lock', '_wudt_merge_source')";
+			. " WHERE o.meta_id > %d AND o.meta_id <= %d AND o.meta_key NOT IN ('_edit_lock', '_wudt_merge_source', '_elementor_css', '_elementor_element_cache')";
 		return $this->merge_range($t, 'meta_id', $cursor, $sql);
 	}
 
@@ -2428,6 +3069,161 @@ class Migration_Engine {
 			$wpdb->update($pm, array('meta_value' => implode(',', $new)), array('meta_id' => (int) $row['meta_id'])); // phpcs:ignore WordPress.DB.SlowDBQuery
 		}
 		return array('done' => true);
+	}
+
+	/**
+	 * Post types: when posts or media got other IDs here than on the source, point the IDs in the
+	 * added posts at them — image classes, media blocks and galleries in the content, Elementor
+	 * media, ACF image, file, gallery and post fields, and WooCommerce upsells, cross-sells and
+	 * grouped products. Each post is done once (marked with map kind 'i'), so a retry is safe.
+	 */
+	private function merge_step_pt_ids(int $cursor, array &$stats): array {
+		global $wpdb;
+		$m = $this->mc['map'];
+		if (0 === $cursor && ! $wpdb->get_var("SELECT 1 FROM `{$m}` WHERE kind = 'p' AND old_id <> new_id LIMIT 1")) { // phpcs:ignore WordPress.DB.PreparedSQL
+			return array('done' => true);
+		}
+		$rows = (array) $wpdb->get_results($wpdb->prepare("SELECT p.ID, p.post_content FROM {$wpdb->posts} p JOIN `{$m}` mp ON mp.kind = 'p' AND mp.new_id = p.ID AND mp.created = 1 LEFT JOIN `{$m}` mi ON mi.kind = 'i' AND mi.old_id = p.ID WHERE p.ID > %d AND mi.old_id IS NULL ORDER BY p.ID LIMIT 100", $cursor), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+		if (empty($rows)) {
+			return array('done' => true);
+		}
+		$ids = array_map('intval', array_column($rows, 'ID'));
+		$cursor = (int) end($ids);
+		$in = implode(',', $ids);
+		$stats['relinked'] = (int) ($stats['relinked'] ?? 0);
+
+		$builder = array();
+		$plain = array();
+		$refs = array();
+		$meta = (array) $wpdb->get_results($wpdb->prepare(
+			"SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$in}) AND (meta_key IN ('_elementor_data', '_upsell_ids', '_crosssell_ids', '_children') OR (meta_key LIKE %s AND meta_value LIKE %s))", // phpcs:ignore WordPress.DB.PreparedSQL
+			$wpdb->esc_like('_') . '%',
+			$wpdb->esc_like('field_') . '%'
+		), ARRAY_A);
+		foreach ($meta as $row) {
+			$key = (string) $row['meta_key'];
+			if ('_elementor_data' === $key) {
+				$builder[] = $row;
+			} elseif (in_array($key, array('_upsell_ids', '_crosssell_ids', '_children'), true)) {
+				$plain[] = $row;
+			} else {
+				$refs[(int) $row['post_id']][substr($key, 1)] = (string) $row['meta_value'];
+			}
+		}
+		// ACF fields that hold attachment or post IDs, by the type of their field definition.
+		if (! empty($refs)) {
+			$field_types = $this->acf_field_types(array_merge(...array_map('array_values', array_values($refs))));
+			$names = array();
+			foreach ($refs as $list) {
+				foreach ($list as $name => $key) {
+					if (in_array($field_types[$key] ?? '', array('image', 'file', 'gallery', 'post_object', 'relationship', 'page_link'), true)) {
+						$names[(string) $name] = true;
+					}
+				}
+			}
+			foreach (array_chunk(array_keys($names), 300) as $chunk) {
+				$list = "'" . implode("', '", array_map('esc_sql', $chunk)) . "'";
+				foreach ((array) $wpdb->get_results("SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$in}) AND meta_key IN ({$list})", ARRAY_A) as $row) { // phpcs:ignore WordPress.DB.PreparedSQL
+					if (isset($refs[(int) $row['post_id']][(string) $row['meta_key']])) {
+						$plain[] = $row;
+					}
+				}
+			}
+		}
+
+		$found = array();
+		$collect = static function (string $id) use (&$found): string {
+			$found[(int) $id] = true;
+			return $id;
+		};
+		foreach ($rows as $row) {
+			self::walk_media_ids((string) $row['post_content'], $collect, false);
+		}
+		foreach ($builder as $row) {
+			self::walk_media_ids((string) $row['meta_value'], $collect, true);
+		}
+		foreach ($plain as $row) {
+			foreach (self::id_list((string) $row['meta_value']) as $id) {
+				$found[$id] = true;
+			}
+		}
+		$changed = array();
+		foreach ($this->map_get('p', array_keys($found)) as $old => $new) {
+			if ($old !== $new) {
+				$changed[$old] = $new;
+			}
+		}
+		if (! empty($changed)) {
+			$fn = static function (string $id) use ($changed): string {
+				return isset($changed[(int) $id]) ? (string) $changed[(int) $id] : $id;
+			};
+			foreach ($rows as $row) {
+				$content = self::walk_media_ids((string) $row['post_content'], $fn, false);
+				if ($content !== (string) $row['post_content']) {
+					$wpdb->update($wpdb->posts, array('post_content' => $content), array('ID' => (int) $row['ID']));
+					$stats['relinked']++;
+				}
+			}
+			foreach ($builder as $row) {
+				$value = self::walk_media_ids((string) $row['meta_value'], $fn, true);
+				if ($value !== (string) $row['meta_value']) {
+					$wpdb->update($wpdb->postmeta, array('meta_value' => $value), array('meta_id' => (int) $row['meta_id'])); // phpcs:ignore WordPress.DB.SlowDBQuery
+					$stats['relinked']++;
+				}
+			}
+			foreach ($plain as $row) {
+				$value = self::remap_id_value((string) $row['meta_value'], $changed);
+				if (null !== $value) {
+					$wpdb->update($wpdb->postmeta, array('meta_value' => $value), array('meta_id' => (int) $row['meta_id'])); // phpcs:ignore WordPress.DB.SlowDBQuery
+					$stats['relinked']++;
+				}
+			}
+		}
+		$this->merge_query("INSERT IGNORE INTO `{$m}` (kind, old_id, new_id, created) VALUES ('i', " . implode(", 0, 0), ('i', ", $ids) . ', 0, 0)');
+		return array('done' => count($rows) < 100, 'cursor' => $cursor);
+	}
+
+	/**
+	 * Types of ACF fields by key, from this site's field definitions, the imported ones or ACF itself.
+	 *
+	 * @param string[] $keys
+	 * @return array<string,string>
+	 */
+	private function acf_field_types(array $keys): array {
+		global $wpdb;
+		$keys = array_values(array_unique(array_filter(array_map('strval', $keys), static function ($key) {
+			return (bool) preg_match('/^field_[A-Za-z0-9_]+$/', $key);
+		})));
+		$need = array_values(array_diff($keys, array_keys($this->mc['acf_types'])));
+		if (! empty($need)) {
+			foreach ($need as $key) {
+				$this->mc['acf_types'][$key] = '';
+			}
+			foreach (array_chunk($need, 300) as $chunk) {
+				$list = "'" . implode("', '", array_map('esc_sql', $chunk)) . "'";
+				foreach (array($this->mc['tmp']['posts'], $wpdb->posts) as $table) {
+					if ('' === $table) {
+						continue;
+					}
+					foreach ((array) $wpdb->get_results("SELECT post_name, post_content FROM `{$table}` WHERE post_type = 'acf-field' AND post_name IN ({$list})", ARRAY_A) as $row) { // phpcs:ignore WordPress.DB.PreparedSQL
+						$settings = self::safe_unserialize((string) $row['post_content']);
+						if (is_array($settings) && ! empty($settings['type'])) {
+							$this->mc['acf_types'][(string) $row['post_name']] = (string) $settings['type'];
+						}
+					}
+				}
+			}
+			// Fields registered in PHP or JSON exist only in ACF itself.
+			if (function_exists('acf_get_field')) {
+				foreach ($need as $key) {
+					if ('' === $this->mc['acf_types'][$key]) {
+						$field = acf_get_field($key);
+						$this->mc['acf_types'][$key] = is_array($field) ? (string) ($field['type'] ?? '') : '';
+					}
+				}
+			}
+		}
+		return array_intersect_key($this->mc['acf_types'], array_flip($keys));
 	}
 
 	private function merge_step_relationships(int $cursor, array &$stats): array {
@@ -2498,6 +3294,312 @@ class Migration_Engine {
 		global $wpdb;
 		$this->merge_query("UPDATE {$wpdb->term_taxonomy} tt JOIN `{$map}` mx ON mx.kind = 'x' AND mx.new_id = tt.term_taxonomy_id SET tt.count = (SELECT COUNT(*) FROM {$wpdb->term_relationships} tr WHERE tr.term_taxonomy_id = tt.term_taxonomy_id)");
 		$this->merge_query("UPDATE {$wpdb->posts} p JOIN `{$map}` mp ON mp.kind = 'p' AND mp.new_id = p.ID AND mp.created = 1 SET p.comment_count = (SELECT COUNT(*) FROM {$wpdb->comments} c WHERE c.comment_post_ID = p.ID AND c.comment_approved = '1')");
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Post types: related settings
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Source side: the settings that belong to the given post types, for merge_database() on the
+	 * destination. IDs stay this site's; the destination maps them to the IDs the posts got there.
+	 *
+	 * @param string[] $groups Subset of PT_SETTING_GROUPS.
+	 */
+	public function pt_settings_export(array $types, array $groups): array {
+		$types = array_values(array_unique(array_filter(array_map('sanitize_key', $types))));
+		$groups = array_values(array_intersect(self::PT_SETTING_GROUPS, array_map('strval', $groups)));
+		$out = array('options' => array(), 'theme_mods' => array(), 'wc_attributes' => array(), 'extra' => array());
+
+		if (in_array('pages', $groups, true) && in_array('page', $types, true)) {
+			$out['options']['show_on_front'] = 'page' === get_option('show_on_front') ? 'page' : 'posts';
+			foreach (self::PT_PAGE_OPTIONS as $name) {
+				$value = get_option($name, null);
+				if (null !== $value && false !== $value && '' !== $value) {
+					$out['options'][$name] = (int) $value;
+				}
+			}
+		}
+		if (in_array('sticky', $groups, true) && in_array('post', $types, true)) {
+			$out['options']['sticky_posts'] = array_values(array_filter(array_map('intval', (array) get_option('sticky_posts', array()))));
+		}
+		if (in_array('menus', $groups, true) && in_array('nav_menu_item', $types, true)) {
+			$locations = get_theme_mod('nav_menu_locations');
+			if (is_array($locations) && array_filter($locations)) {
+				$out['theme_mods']['nav_menu_locations'] = array_map('intval', array_filter($locations));
+			}
+		}
+		if (in_array('registrations', $groups, true)) {
+			// Custom Post Type UI. ACF post types and taxonomies come along as posts (see pt_collect()).
+			$cpt = get_option('cptui_post_types');
+			if (is_array($cpt) && ($pick = array_intersect_key($cpt, array_flip($types)))) {
+				$out['options']['cptui_post_types'] = $pick;
+			}
+			$cpt_tax = get_option('cptui_taxonomies');
+			foreach (is_array($cpt_tax) ? $cpt_tax : array() as $slug => $def) {
+				if (is_array($def) && array_intersect(array_map('strval', (array) ($def['object_types'] ?? array())), $types)) {
+					$out['options']['cptui_taxonomies'][(string) $slug] = $def;
+				}
+			}
+		}
+		if (in_array('product_attributes', $groups, true) && in_array('product', $types, true)) {
+			$out['wc_attributes'] = $this->wc_attribute_rows();
+		}
+		// Plugins can send more options with a post type; the destination applies only the names its own filter allows.
+		foreach ((array) apply_filters('wudt_migration_post_type_options', array(), $types) as $name) {
+			$value = get_option((string) $name, null);
+			if (null !== $value) {
+				$out['extra'][(string) $name] = $value;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Post types: apply the related settings from the source, pointing IDs at the IDs the posts,
+	 * pages and menus got here. Every changed option is kept for rollback first.
+	 */
+	private function merge_step_pt_settings(int $cursor, array &$stats): array {
+		$applied = array();
+		// ACF definitions this run added with the posts.
+		$defs = $this->pt_source_definitions();
+		$added = $this->map_get('p', array_column($defs, 'ID'), true);
+		foreach ($defs as $def) {
+			if (isset($added[(int) $def['ID']])) {
+				$applied[] = in_array($def['post_type'], array('acf-field-group', 'acf-field'), true) ? 'fields' : 'registrations';
+			}
+		}
+		$stats['settings'] = array_values(array_unique($applied));
+		$bundle = $this->mc['settings'];
+		if (empty($bundle)) {
+			return array('done' => true);
+		}
+		$types = $this->mc['types'];
+		$options = is_array($bundle['options'] ?? null) ? $bundle['options'] : array();
+
+		// Homepage, posts page, privacy policy and WooCommerce pages point at the copied pages.
+		if (in_array('page', $types, true) && array_key_exists('show_on_front', $options)) {
+			$pages = array();
+			foreach (self::PT_PAGE_OPTIONS as $name) {
+				if (isset($options[$name]) && (int) $options[$name] > 0) {
+					$pages[$name] = (int) $options[$name];
+				}
+			}
+			$mapped = $this->map_get('p', array_values($pages));
+			$changed = false;
+			foreach ($pages as $name => $old) {
+				if (isset($mapped[$old])) {
+					$changed = $this->pt_set_option($name, $mapped[$old]) || $changed;
+				}
+			}
+			if ('page' !== $options['show_on_front']) {
+				$changed = $this->pt_set_option('show_on_front', 'posts') || $changed;
+			} elseif (isset($pages['page_on_front'], $mapped[$pages['page_on_front']])) {
+				$changed = $this->pt_set_option('show_on_front', 'page') || $changed;
+			}
+			if ($changed) {
+				$applied[] = 'pages';
+			}
+		}
+
+		if (in_array('post', $types, true) && isset($options['sticky_posts']) && is_array($options['sticky_posts'])) {
+			$sticky = array_map('intval', $options['sticky_posts']);
+			$mapped = $this->map_get('p', $sticky);
+			// Replacing posts replaces their sticky flags; adding keeps the ones this site had.
+			$new = $this->mc['replace'] ? array() : array_map('intval', (array) get_option('sticky_posts', array()));
+			foreach ($sticky as $id) {
+				if (isset($mapped[$id])) {
+					$new[] = $mapped[$id];
+				}
+			}
+			if ($this->pt_set_option('sticky_posts', array_values(array_unique(array_filter($new))))) {
+				$applied[] = 'sticky';
+			}
+		}
+
+		$locations = $bundle['theme_mods']['nav_menu_locations'] ?? null;
+		if (in_array('nav_menu_item', $types, true) && is_array($locations) && ! empty($locations)) {
+			$mapped = $this->map_get('t', array_map('intval', $locations));
+			$current = get_theme_mod('nav_menu_locations');
+			$current = is_array($current) ? $current : array();
+			$hit = false;
+			foreach ($locations as $location => $term) {
+				if (preg_match('/^[A-Za-z0-9_\-]{1,100}$/', (string) $location) && isset($mapped[(int) $term]) && (int) ($current[(string) $location] ?? 0) !== $mapped[(int) $term]) {
+					$current[(string) $location] = $mapped[(int) $term];
+					$hit = true;
+				}
+			}
+			if ($hit) {
+				$this->pt_backup_option('theme_mods_' . get_option('stylesheet'));
+				set_theme_mod('nav_menu_locations', $current);
+				$applied[] = 'menus';
+			}
+		}
+
+		foreach (array('cptui_post_types', 'cptui_taxonomies') as $name) {
+			if (empty($options[$name]) || ! is_array($options[$name])) {
+				continue;
+			}
+			$current = get_option($name, array());
+			$current = is_array($current) ? $current : array();
+			foreach ($options[$name] as $slug => $definition) {
+				$slug = (string) $slug;
+				if (is_array($definition) && preg_match('/^[a-z0-9_\-]{1,32}$/', $slug)) {
+					$current[$slug] = self::plain_value($definition);
+				}
+			}
+			if ($this->pt_set_option($name, $current)) {
+				$applied[] = 'registrations';
+			}
+		}
+
+		if (! empty($bundle['wc_attributes']) && is_array($bundle['wc_attributes']) && $this->pt_apply_wc_attributes($bundle['wc_attributes'])) {
+			$applied[] = 'product_attributes';
+		}
+
+		$extra = is_array($bundle['extra'] ?? null) ? $bundle['extra'] : array();
+		foreach ((array) apply_filters('wudt_migration_post_type_options', array(), $types) as $name) {
+			$name = (string) $name;
+			if ('' !== $name && 0 !== strpos($name, 'wudt_') && array_key_exists($name, $extra) && $this->pt_set_option($name, self::plain_value($extra[$name]))) {
+				$applied[] = $name;
+			}
+		}
+
+		$stats['settings'] = array_values(array_unique($applied));
+		wp_cache_flush();
+		return array('done' => true);
+	}
+
+	/**
+	 * Values from another site only: arrays and scalars, never objects.
+	 *
+	 * @param mixed $value
+	 * @return mixed
+	 */
+	private static function plain_value($value) {
+		if (is_array($value)) {
+			return array_map(array(self::class, 'plain_value'), $value);
+		}
+		return is_scalar($value) || null === $value ? $value : '';
+	}
+
+	/**
+	 * @return bool Whether the value changed.
+	 */
+	private function pt_set_option(string $name, $value): bool {
+		$this->pt_backup_option($name);
+		return update_option($name, $value);
+	}
+
+	/**
+	 * Keep an option's value from before this migration for rollback (the first value seen wins).
+	 */
+	private function pt_backup_option(string $name): void {
+		global $wpdb;
+		$meta = $this->read_json($this->rollback_meta_file());
+		if (isset($meta['pt_options']) && array_key_exists($name, (array) $meta['pt_options'])) {
+			return;
+		}
+		$row = $wpdb->get_row($wpdb->prepare("SELECT option_value, autoload FROM {$wpdb->options} WHERE option_name = %s", $name), ARRAY_A);
+		$meta['pt_options'][$name] = $row ? array('v' => base64_encode((string) $row['option_value']), 'a' => (string) $row['autoload']) : null;
+		file_put_contents($this->rollback_meta_file(), wp_json_encode($meta));
+	}
+
+	/**
+	 * Add the source's WooCommerce product attributes that are missing here; replacing also updates
+	 * the ones with the same name. Returns how many were added or changed.
+	 */
+	private function pt_apply_wc_attributes(array $rows): int {
+		global $wpdb;
+		$table = $wpdb->prefix . 'woocommerce_attribute_taxonomies';
+		if ($table !== $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)))) {
+			return 0; // WooCommerce has not been set up on this site.
+		}
+		$meta = $this->read_json($this->rollback_meta_file());
+		$saved = (array) ($meta['pt_wc_attributes'] ?? array()) + array('added' => array(), 'changed' => array());
+		$count = 0;
+		foreach ($rows as $row) {
+			$name = sanitize_title(urldecode((string) ($row['attribute_name'] ?? '')));
+			if ('' === $name || strlen($name) > 28) {
+				continue;
+			}
+			$data = array(
+				'attribute_label'   => sanitize_text_field((string) ($row['attribute_label'] ?? $name)),
+				'attribute_type'    => sanitize_key((string) ($row['attribute_type'] ?? '')) ?: 'select',
+				'attribute_orderby' => sanitize_key((string) ($row['attribute_orderby'] ?? '')) ?: 'menu_order',
+				'attribute_public'  => empty($row['attribute_public']) ? 0 : 1,
+			);
+			$existing = $wpdb->get_row($wpdb->prepare("SELECT * FROM `{$table}` WHERE attribute_name = %s", $name), ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL
+			if ($existing) {
+				$same = true;
+				foreach ($data as $col => $value) {
+					$same = $same && (string) $existing[$col] === (string) $value;
+				}
+				if ($same || ! $this->mc['replace']) {
+					continue;
+				}
+				if (! isset($saved['changed'][(string) $existing['attribute_id']])) {
+					$saved['changed'][(string) $existing['attribute_id']] = $existing;
+				}
+				$wpdb->update($table, $data, array('attribute_id' => (int) $existing['attribute_id']));
+			} else {
+				$wpdb->insert($table, array('attribute_name' => $name) + $data);
+				$saved['added'][] = (int) $wpdb->insert_id;
+			}
+			$count++;
+		}
+		$meta['pt_wc_attributes'] = $saved;
+		file_put_contents($this->rollback_meta_file(), wp_json_encode($meta));
+		self::flush_wc_attributes();
+		return $count;
+	}
+
+	private static function flush_wc_attributes(): void {
+		delete_transient('wc_attribute_taxonomies');
+		if (class_exists('\WC_Cache_Helper') && method_exists('\WC_Cache_Helper', 'invalidate_cache_group')) {
+			\WC_Cache_Helper::invalidate_cache_group('woocommerce-attributes');
+		}
+	}
+
+	/**
+	 * Put back the options and product attributes a post type migration changed (used by rollback).
+	 */
+	private function restore_pt_settings(array $meta): int {
+		global $wpdb;
+		$restored = 0;
+		foreach ((array) ($meta['pt_options'] ?? array()) as $name => $row) {
+			$name = (string) $name;
+			if (null === $row) {
+				$wpdb->delete($wpdb->options, array('option_name' => $name));
+			} else {
+				$wpdb->replace($wpdb->options, array(
+					'option_name'  => $name,
+					'option_value' => (string) base64_decode((string) ($row['v'] ?? ''), true),
+					'autoload'     => (string) ($row['a'] ?? 'yes'),
+				));
+			}
+			wp_cache_delete($name, 'options');
+			$restored++;
+		}
+		$wc = (array) ($meta['pt_wc_attributes'] ?? array());
+		if (! empty($wc['added']) || ! empty($wc['changed'])) {
+			$table = $wpdb->prefix . 'woocommerce_attribute_taxonomies';
+			if ($table === $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)))) {
+				foreach ((array) ($wc['added'] ?? array()) as $id) {
+					$wpdb->delete($table, array('attribute_id' => (int) $id));
+				}
+				foreach ((array) ($wc['changed'] ?? array()) as $row) {
+					if (is_array($row) && isset($row['attribute_id'])) {
+						$wpdb->replace($table, $row);
+					}
+				}
+				self::flush_wc_attributes();
+			}
+			$restored++;
+		}
+		wp_cache_delete('alloptions', 'options');
+		wp_cache_delete('notoptions', 'options');
+		return $restored;
 	}
 
 	/**
@@ -2622,6 +3724,8 @@ class Migration_Engine {
 		$merged = empty($meta['merge_map']) ? 0 : $this->rollback_merge((string) $meta['merge_map']);
 		// Posts a post type replacement removed come back once the posts it added are gone.
 		$posts_restored = empty($meta['pt_deleted']) ? 0 : $this->restore_pt_backup((array) $meta['pt_deleted']);
+		// Then the settings it changed (homepage, menus, registrations…).
+		$settings_restored = $this->restore_pt_settings($meta);
 
 		// Restore preserved plugin options (the restored tables are older).
 		foreach ($preserved as $row) {
@@ -2657,7 +3761,7 @@ class Migration_Engine {
 		self::schedule_rewrite_flush();
 		$this->discard_rollback(false);
 
-		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored, 'merged_removed' => $merged, 'posts_restored' => $posts_restored);
+		return array('tables' => count((array) ($meta['tables'] ?? array())), 'files' => $restored, 'merged_removed' => $merged, 'posts_restored' => $posts_restored, 'settings_restored' => $settings_restored);
 	}
 
 	public function discard_rollback(bool $drop_tables = true): void {

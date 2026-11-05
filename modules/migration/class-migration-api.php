@@ -206,8 +206,11 @@ class Migration_API {
 					max(500, min(10000, (int) ($p['max_entries'] ?? 3000))),
 					! isset($p['hash']) || ! empty($p['hash']),
 					! empty($p['cached_only']),
-					isset($p['only']) && is_array($p['only']) ? array_map('strval', $p['only']) : null
+					isset($p['only']) && is_array($p['only']) ? array_map('strval', $p['only']) : null,
+					isset($p['post_media']) && is_array($p['post_media']) ? $p['post_media'] : null
 				);
+			case 'pt_settings':
+				return $engine->pt_settings_export((array) ($p['post_types'] ?? array()), (array) ($p['groups'] ?? array()));
 			case 'repo_check':
 				return $engine->repo_check((array) ($p['items'] ?? array()), (int) ($p['offset'] ?? 0), array_map('strval', (array) ($p['excludes'] ?? array())), $budget);
 			case 'install_package':
@@ -236,8 +239,10 @@ class Migration_API {
 					(array) ($p['groups'] ?? array()),
 					$budget,
 					array(
-						'post_types' => (array) ($p['post_types'] ?? array()),
-						'replace'    => ! empty($p['replace']),
+						'post_types'      => (array) ($p['post_types'] ?? array()),
+						'replace'         => ! empty($p['replace']),
+						'settings'        => (array) ($p['settings'] ?? array()),
+						'settings_groups' => (array) ($p['settings_groups'] ?? array()),
 					)
 				);
 				if (! empty($result['done'])) {

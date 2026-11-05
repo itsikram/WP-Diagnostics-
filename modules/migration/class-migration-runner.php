@@ -120,6 +120,7 @@ class Migration_Runner {
 		$merge_groups = array_values(array_intersect(Migration_Engine::MERGE_GROUPS, (array) ($options['merge_groups'] ?? array())));
 		$post_types = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($options['post_types'] ?? array())))));
 		$post_type_sync = 'add' === ($options['post_type_sync'] ?? '') ? 'add' : 'replace';
+		$pt_settings = $by_type ? array_values(array_intersect(Migration_Engine::PT_SETTING_GROUPS, array_map('strval', (array) ($options['post_type_settings'] ?? array())))) : array();
 		if ($by_type) {
 			if (! empty($wanted) && empty($post_types)) {
 				throw new \RuntimeException('Select at least one post type to migrate.');
@@ -166,8 +167,13 @@ class Migration_Runner {
 		$repo_items = empty($picked) && ! empty($options['repo'])
 			? self::repo_candidates($src, $dst, $components, $component_excludes, ! empty($options['override']))
 			: array();
+		// Post types: copy only the media files their posts use (all of uploads when that is selected too).
+		$post_media = $by_type && ! empty($tables) && ! empty($options['post_type_media']) && ! in_array('uploads', $components, true);
+		if ($post_media) {
+			$components[] = 'uploads';
+		}
 		$live_media = null;
-		if ($is_pull && ! empty($options['live_media']) && '' !== (string) ($src['uploads_url'] ?? '')) {
+		if ($is_pull && ! $post_media && ! empty($options['live_media']) && '' !== (string) ($src['uploads_url'] ?? '')) {
 			$live_media = array(
 				'url'  => untrailingslashit((string) $src['uploads_url']),
 				'mode' => 'all' === ($options['live_media_mode'] ?? '') ? 'all' : 'missing',
@@ -220,6 +226,9 @@ class Migration_Runner {
 			'merge_groups' => $merge_groups,
 			'post_types' => $by_type ? $post_types : array(),
 			'post_type_sync' => $post_type_sync,
+			// Uploads lists only the files the posts of these post types use.
+			'post_media' => $post_media ? array('types' => $post_types) : null,
+			'post_type_settings' => $pt_settings,
 			'pt_filter'  => $pt_filter,
 			'pt_selected' => 'selected' === $pt_filter ? $pt_selected : array(),
 			'component_excludes' => $component_excludes,
@@ -311,10 +320,10 @@ class Migration_Runner {
 			'Selected — database: %s; files: %s.',
 			empty($tables) ? 'not included' : (
 				$merge ? 'add as new content (' . implode(', ', $merge_groups) . ')'
-					: ($by_type ? $post_type_sync . ' post types ' . implode(', ', $post_types) . ' (with ' . implode(', ', $merge_groups) . ')'
+					: ($by_type ? $post_type_sync . ' post types ' . implode(', ', $post_types) . ' (with ' . implode(', ', array_merge($merge_groups, $pt_settings ? array('related settings: ' . implode(', ', $pt_settings)) : array())) . ')'
 					: ($replace_content ? 'replace selected WordPress content tables' : count($tables) . ' tables'))
 			),
-			empty($components) ? 'not included' : implode(', ', $components) . $pt_note
+			empty($components) ? 'not included' : ($post_media && 1 === count($components) ? 'only the media files the selected posts use' : implode(', ', $components) . $pt_note)
 		));
 		$runner->save();
 		return $runner;
@@ -585,6 +594,8 @@ class Migration_Runner {
 			'merge_groups'     => $s['merge_groups'] ?? array(),
 			'post_types'       => $s['post_types'] ?? array(),
 			'post_type_sync'   => $s['post_type_sync'] ?? 'replace',
+			'post_type_media'  => ! empty($s['post_media']),
+			'post_type_settings' => $s['post_type_settings'] ?? array(),
 			'pt_filter'        => $s['pt_filter'] ?? 'all',
 			'pt_selected'      => $s['pt_selected'] ?? array(),
 			'files'            => array_slice((array) ($s['picked'] ?? array()), 0, 200),
@@ -972,10 +983,12 @@ class Migration_Runner {
 			unlink($this->queue_file());
 		}
 		$override = ! empty($this->state['override']);
+		// Post types: uploads lists only the files their posts use.
+		$post_media = 'uploads' === $component && ! empty($this->state['post_media']) ? (array) $this->state['post_media'] : null;
 		$this->progress($override
 			? sprintf('Listing %s files (override: no comparison)… %s found', $component, number_format_i18n($f['scanned']))
 			: (0 === $f['offset']
-				? sprintf('Listing %s files on the source site…', $component)
+				? (null !== $post_media ? 'Finding the media files the selected posts use…' : sprintf('Listing %s files on the source site…', $component))
 				: sprintf('Comparing %s files… (%s checked, %s changed)', $component, number_format_i18n($f['scanned']), number_format_i18n($f['changed']))));
 		// Lazy comparison: the source only hashes files the destination has with the same size.
 		$lazy = ! $override && $this->remote_has('fast');
@@ -989,9 +1002,18 @@ class Migration_Runner {
 			'hash'        => ! $override,
 			'cached_only' => $lazy,
 			'max_entries' => $lazy ? 6000 : 3000,
-		) + (isset($this->state['only'][$component]) ? array('only' => $this->state['only'][$component]) : array()));
+		) + (isset($this->state['only'][$component]) ? array('only' => $this->state['only'][$component]) : array())
+			+ (null !== $post_media ? array('post_media' => $post_media) : array()));
 		foreach ((array) ($page['skipped'] ?? array()) as $missing) {
 			$this->state['warnings'][] = sprintf('Skipped %s/%s: it does not exist on the source site or cannot be migrated.', $component, (string) $missing);
+		}
+		if (! empty($page['missing'])) {
+			$this->log(sprintf('%s media files the selected posts use are not on the source site (they may be stored elsewhere, for example on a CDN) and were skipped.', number_format_i18n((int) $page['missing'])));
+		}
+		if (! empty($page['listing'])) {
+			// A large site: the source continues finding the media in the next call.
+			$this->state['message'] = 'Finding the media files the selected posts use…';
+			return;
 		}
 		$entries = (array) ($page['entries'] ?? array());
 		if (! empty($entries)) {
@@ -1597,8 +1619,17 @@ class Migration_Runner {
 		$imported = $this->state['db']['imported'];
 		if (! empty($imported) && empty($this->state['db']['finalized']) && 'post_types' === ($this->state['db_mode'] ?? '')) {
 			$replace = 'add' !== ($this->state['post_type_sync'] ?? 'replace');
+			$groups = (array) ($this->state['post_type_settings'] ?? array());
+			if (! empty($groups) && ! isset($this->state['pt_bundle'])) {
+				// Read once; the destination applies them after the posts are in place.
+				$this->progress('Reading the related settings of the selected post types…');
+				$this->state['pt_bundle'] = (array) $this->call('src', 'pt_settings', array(
+					'post_types' => $this->state['post_types'],
+					'groups'     => $groups,
+				));
+			}
 			$this->progress(($replace ? 'Replacing' : 'Adding') . ' posts of the selected post types…');
-			$res = (array) $this->call('dst', 'merge_db', array(
+			$params = array(
 				'job'           => $this->state['id'],
 				'source_prefix' => $this->state['src']['prefix'],
 				'source_key'    => substr(md5((string) $this->state['src']['home']), 0, 12),
@@ -1606,7 +1637,12 @@ class Migration_Runner {
 				'post_types'    => $this->state['post_types'],
 				'replace'       => $replace ? 1 : 0,
 				'budget'        => 15,
-			));
+			);
+			if (! empty($groups)) {
+				$params['settings'] = (array) ($this->state['pt_bundle'] ?? array());
+				$params['settings_groups'] = $groups;
+			}
+			$res = (array) $this->call('dst', 'merge_db', $params);
 			$s = (array) ($res['stats'] ?? array());
 			$this->state['message'] = sprintf(
 				'%s posts of the selected post types… %s posts added%s',
@@ -1618,14 +1654,18 @@ class Migration_Runner {
 				return; // Continue in the next step.
 			}
 			$this->state['db']['finalized'] = true;
+			$settings = array_map('strval', (array) ($s['settings'] ?? array()));
 			$this->log(sprintf(
-				'Post types %s: %d posts added%s, %d terms, %d comments, %d users added. Other content and settings were not changed.',
+				'Post types %s: %d posts added%s, %d terms, %d comments, %d users added.%s%s %s',
 				implode(', ', $this->state['post_types']),
 				(int) ($s['posts'] ?? 0),
 				$replace ? sprintf(' (replacing %d existing)', (int) ($s['deleted'] ?? 0)) : sprintf(' (%d added earlier were skipped)', (int) ($s['skipped'] ?? 0)),
 				(int) ($s['terms'] ?? 0),
 				(int) ($s['comments'] ?? 0),
-				(int) ($s['users'] ?? 0)
+				(int) ($s['users'] ?? 0),
+				empty($s['relinked']) ? '' : sprintf(' Image and post IDs updated in %d places.', (int) $s['relinked']),
+				empty($settings) ? '' : ' Related settings applied: ' . implode(', ', $settings) . '.',
+				empty($settings) ? 'Other content and settings were not changed.' : 'Other content was not changed.'
 			));
 		}
 		if (! empty($imported) && empty($this->state['db']['finalized']) && 'merge' === ($this->state['db_mode'] ?? '')) {

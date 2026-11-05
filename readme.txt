@@ -4,7 +4,7 @@ Tags: diagnostics, debug, error log, malware scanner, migration
 Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,7 @@ It is built for site owners, freelancers and agencies who need complete WP diagn
 * Push a local site to live, or pull live to local, with the connection key of the other site. Only changed files are sent.
 * Choose exactly what to migrate: the database, plugins, themes, uploads, or the entire WordPress folder.
 * **Add as new content**: copy posts, pages, custom post types, terms, comments and users into another site as new items, without replacing what is already there.
+* **Post types & media**: push or pull only the post types you choose (posts, pages, products, any custom post type) with just the media files their posts use and their related settings — homepage and posts page, sticky posts, menu locations, Custom Post Type UI and ACF registrations, ACF field groups and WooCommerce product attributes.
 * Every migration can be rolled back.
 
 = Recovery =
@@ -113,6 +114,10 @@ No. Automatic deactivation of a crashing plugin is off until you switch it on in
 
 Use the link in WordPress's "Your Site is Experiencing a Technical Issue" email to log in. Then open Diagnostics Toolkit → Recovery and enter safe mode, read the fatal error, and deactivate the plugin or switch the theme that causes it.
 
+= Can I push or pull only some post types with their images and settings? =
+
+Yes. In Site Migration choose **Post types & media**, tick the post types and choose whether the destination's posts of those types are replaced or the source's are added as new posts. Only the media files those posts use are copied (featured images, galleries, attached and inserted media and ACF image fields, with all their sizes), and you can bring the related settings: the homepage and posts page, sticky posts, menu locations, Custom Post Type UI and ACF post type and taxonomy registrations, ACF field groups and WooCommerce product attributes. Image and post IDs in the content and fields are updated when they change, and rollback undoes everything, including the settings.
+
 = What does "Add as new content" in site migration do? =
 
 Instead of replacing the destination database, it adds the source site's posts, pages, custom post types, media library entries, menus, terms, comments and users as new items with new IDs. Existing content is never changed, content added by an earlier merge is skipped, and a rollback removes everything that was added.
@@ -126,6 +131,11 @@ Settings, its database tables, logs, migration and quarantine files, and the saf
 The diagnostics tools work on each site. Site migration does not support multisite networks.
 
 == Changelog ==
+
+= 1.13.0 =
+* New: "Post types & media" in Site Migration pushes or pulls the posts of the post types you choose together with only the media files they use (every image size, including media inserted in content, Elementor images and ACF image and gallery fields) and their related settings: homepage, posts page and shop pages, sticky posts, menu locations, Custom Post Type UI and ACF post type and taxonomy registrations, ACF field groups and WooCommerce product attributes.
+* Improved: post type migrations follow nested child posts and update image and post IDs in content, Elementor data, ACF fields and WooCommerce upsells when the IDs change. Rollback also restores the changed settings.
+* Fixed: on a very large folder, listing files could start over and over again when it used up the time of a request.
 
 = 1.12.0 =
 * New: Site Migration can push or pull only specific post types (posts, pages, products, any custom post type). Choose to replace the destination's posts of those types (IDs kept where possible) or add them as new posts; featured images, galleries, child posts, terms, and optionally comments and authors come along. Rollback restores the replaced posts.
