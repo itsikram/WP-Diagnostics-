@@ -347,6 +347,8 @@ class Migration_Module extends Module_Base {
 			'tables'    => $src['tables'],
 			// Missing when the source runs an older version without the post type picker.
 			'post_types' => isset($src['post_types']) ? (array) $src['post_types'] : null,
+			// Related settings the source can send with each post type (missing before 1.13).
+			'pt_settings' => isset($src['pt_settings']) ? (array) $src['pt_settings'] : null,
 			'items'     => $this->plugin_theme_items($src, $dst),
 			'errors'    => $errors,
 			'warnings'  => $warnings,
@@ -398,6 +400,8 @@ class Migration_Module extends Module_Base {
 		if ('post_types' === $db_mode && empty($post_types)) {
 			throw new \RuntimeException(__('Select at least one post type to migrate.', 'diagnostics-toolkit'));
 		}
+		$post_type_settings = json_decode(sanitize_text_field(wp_unslash($_POST['post_type_settings'] ?? '[]')), true);
+		$post_type_settings = is_array($post_type_settings) ? array_values(array_intersect(Migration_Engine::PT_SETTING_GROUPS, array_map('strval', $post_type_settings))) : array();
 		$pt_filter = sanitize_key(wp_unslash($_POST['pt_filter'] ?? 'all'));
 		$pt_plugins = json_decode(sanitize_text_field(wp_unslash($_POST['pt_plugins'] ?? '[]')), true);
 		$pt_themes = json_decode(sanitize_text_field(wp_unslash($_POST['pt_themes'] ?? '[]')), true);
@@ -427,6 +431,10 @@ class Migration_Module extends Module_Base {
 			'post_types'      => $post_types,
 			// Post types: 'replace' this site's posts of those types, or 'add' the source's as new posts.
 			'post_type_sync'  => 'add' === sanitize_key(wp_unslash($_POST['post_type_sync'] ?? 'replace')) ? 'add' : 'replace',
+			// Post types: copy only the media files the posts use (null: not chosen, as before 1.13).
+			'post_type_media' => isset($_POST['post_type_media']) ? ! empty($_POST['post_type_media']) : null,
+			// Post types: related settings groups to bring (Migration_Engine::PT_SETTING_GROUPS).
+			'post_type_settings' => $post_type_settings,
 			'pt_filter'       => $pt_filter,
 			'pt_plugins'      => is_array($pt_plugins) ? array_values(array_map('strval', $pt_plugins)) : array(),
 			'pt_themes'       => is_array($pt_themes) ? array_values(array_map('strval', $pt_themes)) : array(),
@@ -469,6 +477,9 @@ class Migration_Module extends Module_Base {
 		$needs = 'merge' === $db_mode && ! empty($tables) ? array('merge') : array();
 		if ('post_types' === $db_mode && ! empty($tables)) {
 			$needs[] = 'post_types';
+			if (! empty($options['post_type_media']) || ! empty($options['post_type_settings'])) {
+				$needs[] = 'pt_related';
+			}
 		}
 		foreach (array('content', 'core') as $c) {
 			if (in_array($c, $components, true)) {
@@ -511,6 +522,8 @@ class Migration_Module extends Module_Base {
 				'merge_groups'    => (array) ($options['merge_groups'] ?? array()),
 				'post_types'      => (array) ($options['post_types'] ?? array()),
 				'post_type_sync'  => (string) ($options['post_type_sync'] ?? 'replace'),
+				'post_type_media' => $options['post_type_media'] ?? null,
+				'post_type_settings' => (array) ($options['post_type_settings'] ?? array()),
 				'pt_filter'       => (string) ($options['pt_filter'] ?? 'all'),
 				'pt_plugins'      => (array) ($options['pt_plugins'] ?? array()),
 				'pt_themes'       => (array) ($options['pt_themes'] ?? array()),
@@ -586,6 +599,10 @@ class Migration_Module extends Module_Base {
 				/* translators: %d: number of posts */
 				__('%d replaced posts put back.', 'diagnostics-toolkit'),
 				(int) $result['posts_restored']
+			)) . (empty($result['settings_restored']) ? '' : ' ' . sprintf(
+				/* translators: %d: number of settings */
+				__('%d changed settings put back.', 'diagnostics-toolkit'),
+				(int) $result['settings_restored']
 			)),
 		));
 	}

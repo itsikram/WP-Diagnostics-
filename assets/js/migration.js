@@ -26,6 +26,15 @@
 		core: 'wp-admin, wp-includes and root files; wp-config.php and .htaccess are kept'
 	};
 	var DEFAULT_COMPONENTS = ['plugins', 'themes', 'uploads'];
+	// Related settings that can come along with post types (Migration_Engine::PT_SETTING_GROUPS).
+	var PT_SETTINGS = {
+		pages: ['Homepage, posts page & shop pages', 'Settings → Reading, the privacy policy page and WooCommerce pages point to the copied pages'],
+		sticky: ['Sticky posts', 'the same posts are sticky'],
+		menus: ['Menu locations', 'the copied menus are assigned to the same theme locations'],
+		registrations: ['Post type & taxonomy registrations', 'Custom Post Type UI and ACF definitions, so these post types and their taxonomies exist'],
+		fields: ['Custom field groups (ACF)', 'the field groups and fields shown on these post types'],
+		product_attributes: ['Product attributes (WooCommerce)', 'attribute definitions such as Color or Size']
+	};
 	var PHASES = [
 		{ key: 'database', label: 'Database' },
 		{ key: 'scan', label: 'Prepare files' },
@@ -423,6 +432,7 @@
 			parts.push(o.db_mode === 'merge'
 				? 'Database: add as new content'
 				: (o.db_mode === 'post_types' ? 'Post types: ' + (o.post_types || []).join(', ')
+					+ (o.post_type_media ? ' with their media' : '') + ((o.post_type_settings || []).length ? ' and related settings' : '')
 				: (o.db_mode === 'replace_content' ? 'Database: replace content' : (o.tables_all ? 'Database: all tables' : 'Database: ' + o.selected_tables.length + ' tables'))));
 		}
 		if (o.live_media) { parts.push('Media: live URLs'); }
@@ -512,11 +522,15 @@
 			parts.push(j.db_mode === 'merge'
 				? 'DB: added as new content'
 				: (j.db_mode === 'post_types' ? 'Post types (' + (j.post_type_sync === 'add' ? 'added' : 'replaced') + '): ' + esc((j.post_types || []).join(', '))
+					+ ((j.post_type_settings || []).length ? ' + related settings' : '')
 				: (j.db_mode === 'replace_content' ? 'DB: replaced WordPress content' : 'DB: ' + esc(j.stats.tables_done) + ' tables')));
 		}
 		if (j.live_media) { parts.push('Media: live URLs'); }
 		if (j.repo && j.repo.enabled && j.repo.installed) { parts.push(esc(j.repo.installed) + ' from WordPress.org'); }
-		if ((j.components || []).length) {
+		if (j.db_mode === 'post_types' && j.post_type_media) {
+			// Uploads held only the media these posts use.
+			parts.push('Media of these posts (' + esc(num(j.stats.files_done)) + ' files)');
+		} else if ((j.components || []).length) {
 			var sel = j.pt_filter === 'selected' ? (j.pt_selected || {}) : null;
 			parts.push('Files: ' + j.components.map(function (c) {
 				var n = sel && sel[c] ? ' (' + sel[c].length + ' selected)' : '';
@@ -596,17 +610,25 @@
 			w.files = (saved.files || []).map(function (f) { return { c: f.c, p: f.p, type: '', s: 0 }; });
 			return true;
 		}
-		w.dbMode = ['merge', 'replace_content', 'post_types'].indexOf(saved.db_mode) !== -1 ? saved.db_mode : 'replace';
-		if (w.dbMode === 'post_types') {
+		if (saved.db_mode === 'post_types' && Array.isArray(w.preflight.post_types)) {
+			w.mode = 'types';
 			w.postTypes = (saved.post_types || []).slice();
 			w.postTypeSync = saved.post_type_sync === 'add' ? 'add' : 'replace';
 			w.ptComments = (saved.merge_groups || []).indexOf('comments') !== -1;
 			w.ptAuthors = (saved.merge_groups || []).indexOf('users') !== -1;
-		} else {
-			w.mergeGroups = (saved.merge_groups || []).filter(function (group) {
-				return ['posts', 'terms', 'comments', 'users'].indexOf(group) !== -1;
-			});
+			// Saved before 1.13 (no choice made): media on.
+			w.ptMedia = saved.post_type_media !== false;
+			// Settings offered for these post types that were left out last time stay off.
+			w.ptSettingsOff = Array.isArray(saved.post_type_settings)
+				? ptSettingsFor(w).map(function (g) { return g.key; }).filter(function (k) { return saved.post_type_settings.indexOf(k) === -1; })
+				: [];
+			w.components = [];
+			return true;
 		}
+		w.dbMode = ['merge', 'replace_content'].indexOf(saved.db_mode) !== -1 ? saved.db_mode : 'replace';
+		w.mergeGroups = (saved.merge_groups || []).filter(function (group) {
+			return ['posts', 'terms', 'comments', 'users'].indexOf(group) !== -1;
+		});
 		w.excludes = Array.isArray(saved.excludes) ? saved.excludes.join('\n') : '';
 		w.excludeDev = !!saved.exclude_dev;
 		w.ptFilter = ['all', 'active', 'inactive', 'selected'].indexOf(saved.pt_filter) !== -1 ? saved.pt_filter : 'all';
@@ -628,7 +650,9 @@
 		h += '<div class="wudt-mig-flow">'
 			+ '<div class="wudt-mig-flow-box"><span>From</span><strong>' + esc(isPull ? s.label : 'This site') + '</strong><small>' + esc(isPull ? s.url : S.data.local_site_url) + '</small></div>'
 			+ '<div class="wudt-mig-flow-arrow">→</div>'
-			+ '<div class="wudt-mig-flow-box is-dest"><span>' + (w.dbMode === 'replace_content' || w.dbMode === 'post_types' ? 'To (selected content replaced)' : 'To (will be overwritten)') + '</span><strong>' + esc(isPull ? 'This site' : s.label) + '</strong><small>' + esc(isPull ? S.data.local_site_url : s.url) + '</small></div>'
+			+ '<div class="wudt-mig-flow-box is-dest"><span>' + (w.mode === 'types'
+				? (w.postTypeSync === 'add' ? 'To (posts added)' : 'To (posts of these types replaced)')
+				: (w.dbMode === 'replace_content' ? 'To (selected content replaced)' : 'To (will be overwritten)')) + '</span><strong>' + esc(isPull ? 'This site' : s.label) + '</strong><small>' + esc(isPull ? S.data.local_site_url : s.url) + '</small></div>'
 			+ '</div>';
 
 		if (w.loading) {
@@ -653,11 +677,13 @@
 		var supports = function (f) { return remoteFeatures.indexOf(f) !== -1; };
 		var allComps = availableComponents(w);
 		var isAll = w.db && allComps.length && allComps.every(function (c) { return w.components.indexOf(c) !== -1; });
-		var scope = w.mode === 'pick' ? 'pick' : (isAll ? 'all' : (w.db && w.components.length ? 'both' : (w.db ? 'db' : (w.components.length ? 'files' : ''))));
+		var canTypes = supports('post_types') && Array.isArray(pf.post_types);
+		if (!canTypes && w.mode === 'types') { w.mode = ''; }
+		var scope = w.mode === 'pick' || w.mode === 'types' ? w.mode : (isAll ? 'all' : (w.db && w.components.length ? 'both' : (w.db ? 'db' : (w.components.length ? 'files' : ''))));
 		var canPick = pickerSupported(w);
 		h += '<h3>What to migrate</h3><div class="wudt-mig-scope">';
-		[['all', 'Entire site'], ['both', 'Database + files'], ['db', 'Database only'], ['files', 'Files only'], ['pick', 'Specific files & folders']].forEach(function (o) {
-			var off = o[0] === 'pick' && !canPick;
+		[['all', 'Entire site'], ['both', 'Database + files'], ['db', 'Database only'], ['files', 'Files only'], ['types', 'Post types & media'], ['pick', 'Specific files & folders']].forEach(function (o) {
+			var off = (o[0] === 'pick' && !canPick) || (o[0] === 'types' && !canTypes);
 			h += '<label class="' + (scope === o[0] ? 'is-on' : '') + (off ? ' is-disabled' : '') + '"' + (off ? ' title="Update Diagnostics Toolkit on the remote site to use this"' : '') + '><input type="radio" name="wudt-mig-scope" value="' + o[0] + '"' + (scope === o[0] ? ' checked' : '') + (off ? ' disabled' : '') + '> ' + esc(o[1]) + '</label>';
 		});
 		h += '</div>';
@@ -665,6 +691,11 @@
 			h += renderFilePicker(w);
 			h += renderOverride(w);
 			return h + renderSchedulePanel(w) + renderWizardFooter(w, w.files.length > 0 && !(pf.errors && pf.errors.length)) + '</div>';
+		}
+		if (w.mode === 'types') {
+			h += renderPostTypes(w, supports('pt_related') && Array.isArray(pf.pt_settings));
+			h += renderOverride(w);
+			return h + renderSchedulePanel(w) + renderWizardFooter(w, !(pf.errors && pf.errors.length) && w.postTypes.length > 0 && (pf.tables || []).length > 0) + '</div>';
 		}
 		h += '<p class="wudt-mig-muted">Only the items ticked below are copied; everything else on the destination is left untouched.</p><div class="wudt-mig-grid">';
 		h += '<label class="wudt-mig-check"><input type="checkbox" data-mig-field="db"' + (w.db ? ' checked' : '') + '> <strong>Database</strong><small>' + esc((pf.tables || []).length) + ' tables · ' + esc(bytes(w.dbSize)) + '</small></label>';
@@ -695,18 +726,13 @@
 		if (w.db) {
 			var canMerge = supports('merge');
 			if (!canMerge && w.dbMode === 'merge') { w.dbMode = 'replace'; }
-			var canTypes = supports('post_types') && Array.isArray(pf.post_types);
-			if (!canTypes && w.dbMode === 'post_types') { w.dbMode = 'replace'; }
 			h += '<div class="wudt-mig-sub"><strong class="wudt-mig-sub-title">Database</strong>'
 				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace"' + (w.dbMode === 'replace' ? ' checked' : '') + '> <strong>Replace</strong> — the destination’s tables are overwritten with the source’s (an exact copy).</label>'
 				+ '<label class="wudt-mig-mode"><input type="radio" name="wudt-mig-dbmode" value="replace_content"' + (w.dbMode === 'replace_content' ? ' checked' : '') + '> <strong>Replace content only</strong> — replace the destination’s users, posts, pages, custom post types, taxonomies and comments with the source’s. Site settings and plugin-specific tables are preserved. User accounts and passwords will become the source site’s.</label>'
 				+ '<label class="wudt-mig-mode' + (canMerge ? '' : ' is-disabled') + '"><input type="radio" name="wudt-mig-dbmode" value="merge"' + (w.dbMode === 'merge' ? ' checked' : '') + (canMerge ? '' : ' disabled') + '> <strong>Add as new content</strong> — keep every existing post, page, user and term on the destination and add the source’s content as new items.'
 				+ (canMerge ? '' : ' <em>(update Diagnostics Toolkit on the remote site to use this)</em>') + '</label>'
-				+ '<label class="wudt-mig-mode' + (canTypes ? '' : ' is-disabled') + '"><input type="radio" name="wudt-mig-dbmode" value="post_types"' + (w.dbMode === 'post_types' ? ' checked' : '') + (canTypes ? '' : ' disabled') + '> <strong>Specific post types only</strong> — copy only the posts, pages, products or other post types you choose. Everything else in the database is left untouched.'
-				+ (canTypes ? '' : ' <em>(update Diagnostics Toolkit on the remote site to use this)</em>') + '</label>';
-			if (w.dbMode === 'post_types') {
-				h += renderPostTypes(w);
-			} else if (w.dbMode === 'merge') {
+				+ (canTypes ? '<p class="wudt-mig-muted">Only some post types? Choose <strong>Post types &amp; media</strong> above.</p>' : '');
+			if (w.dbMode === 'merge') {
 				h += '<div class="wudt-mig-merge">';
 				[['posts', 'Posts, pages & all custom post types', 'includes media library entries, menus and products, with their custom fields'],
 					['terms', 'Categories, tags & other terms', 'existing terms with the same slug are reused'],
@@ -766,9 +792,7 @@
 
 		var dbOk = w.db && (w.dbMode === 'merge'
 			? w.mergeGroups.length > 0 && (pf.tables || []).length > 0
-			: (w.dbMode === 'post_types'
-				? w.postTypes.length > 0 && (pf.tables || []).length > 0
-				: ((w.dbMode === 'replace_content' || w.tableMode === 'all') ? (pf.tables || []).length > 0 : w.tables.length > 0)));
+			: ((w.dbMode === 'replace_content' || w.tableMode === 'all') ? (pf.tables || []).length > 0 : w.tables.length > 0));
 		var canStart = !(pf.errors && pf.errors.length) && (dbOk || w.components.length > 0) && !ptMissing(w).length;
 		h += renderSchedulePanel(w);
 		h += renderWizardFooter(w, canStart);
@@ -776,8 +800,24 @@
 		return h;
 	}
 
-	// "Specific post types": the source's post types with their counts.
-	function renderPostTypes(w) {
+	// Related settings the source offers for the selected post types.
+	function ptSettingsFor(w) {
+		return ((w.preflight && w.preflight.pt_settings) || []).filter(function (g) {
+			return PT_SETTINGS[g.key] && (g.types || []).some(function (t) { return w.postTypes.indexOf(t) !== -1; });
+		});
+	}
+
+	function ptSettingsSelected(w) {
+		return ptSettingsFor(w).map(function (g) { return g.key; }).filter(function (k) { return w.ptSettingsOff.indexOf(k) === -1; });
+	}
+
+	function ptLabel(w, name) {
+		var found = ((w.preflight && w.preflight.post_types) || []).filter(function (t) { return t.name === name; })[0];
+		return found ? found.label : name;
+	}
+
+	// "Post types & media": the source's post types with their counts, and what comes along.
+	function renderPostTypes(w, rich) {
 		var isPull = w.direction === 'pull';
 		var types = w.preflight.post_types || [];
 		var item = function (t) {
@@ -786,24 +826,49 @@
 		};
 		var main = types.filter(function (t) { return t.content; });
 		var other = types.filter(function (t) { return !t.content; });
-		var h = '<div class="wudt-mig-merge wudt-mig-posttypes">';
+		var h = '<p class="wudt-mig-muted">Push or pull the posts of the post types you choose, with the media files they use and their related settings. Everything else on the destination is left untouched.</p>'
+			+ '<div class="wudt-mig-sub wudt-mig-posttypes"><strong class="wudt-mig-sub-title">Post types on ' + esc(isPull ? 'the remote site' : 'this site') + '</strong>';
 		if (!types.length) {
 			return h + '<p class="wudt-mig-muted">The source site has no posts.</p></div>';
 		}
 		h += '<div class="wudt-mig-table-tools"><button class="button button-small" data-mig="posttypes-all">All content types</button> '
-			+ '<button class="button button-small" data-mig="posttypes-none">None</button></div>';
+			+ '<button class="button button-small" data-mig="posttypes-none">None</button></div><div class="wudt-mig-merge">';
 		h += main.map(item).join('');
 		if (other.length) {
 			var open = other.some(function (t) { return w.postTypes.indexOf(t.name) !== -1; });
 			h += '<details' + (open ? ' open' : '') + '><summary class="wudt-mig-muted">Internal post types (' + other.length + ') — menus, templates, plugin data…</summary>' + other.map(item).join('') + '</details>';
 		}
-		h += '<p class="wudt-mig-sub-title"><strong>On ' + esc(isPull ? 'this site' : 'the destination') + '</strong></p>'
-			+ '<label><input type="radio" name="wudt-mig-ptsync" value="replace"' + (w.postTypeSync !== 'add' ? ' checked' : '') + '> <strong>Replace</strong> — remove its posts of these types, then copy the source’s (IDs are kept where possible). <small>Media library files are kept.</small></label>'
-			+ '<label><input type="radio" name="wudt-mig-ptsync" value="add"' + (w.postTypeSync === 'add' ? ' checked' : '') + '> <strong>Add as new</strong> — keep its posts and add the source’s as new ones. <small>Posts added by an earlier run from the same site are skipped.</small></label>'
-			+ '<p class="wudt-mig-sub-title"><strong>Also bring</strong></p>'
-			+ '<label><input type="checkbox" data-mig-ptopt="comments"' + (w.ptComments ? ' checked' : '') + '> Comments <small>on the copied posts</small></label>'
-			+ '<label><input type="checkbox" data-mig-ptopt="authors"' + (w.ptAuthors ? ' checked' : '') + '> Missing authors as new users <small>otherwise their posts go to an administrator</small></label>'
-			+ '<p class="wudt-mig-muted">Featured images, galleries, attached media and child posts (such as product variations) come along, and categories, tags and other terms the posts use are created when missing. Tick <strong>Media uploads</strong> too so the image files are copied. Rollback undoes it.</p></div>';
+		h += '</div>';
+		if (!w.postTypes.length) {
+			h += '<p class="wudt-mig-error-inline">Tick at least one post type.</p>';
+		}
+		h += '<p class="wudt-mig-sub-title"><strong>On ' + esc(isPull ? 'this site' : 'the destination') + '</strong></p><div class="wudt-mig-merge">'
+			+ '<label><input type="radio" name="wudt-mig-ptsync" value="replace"' + (w.postTypeSync !== 'add' ? ' checked' : '') + '> <strong>Replace</strong> — remove its posts of these types, then copy the source’s (IDs are kept where possible). <small>Other media library items are kept.</small></label>'
+			+ '<label><input type="radio" name="wudt-mig-ptsync" value="add"' + (w.postTypeSync === 'add' ? ' checked' : '') + '> <strong>Add as new</strong> — keep its posts and add the source’s as new ones. <small>Posts added by an earlier run from the same site are skipped.</small></label></div>';
+
+		h += '<p class="wudt-mig-sub-title"><strong>Also bring</strong></p><div class="wudt-mig-merge">';
+		h += '<label' + (rich ? '' : ' class="is-disabled"') + '><input type="checkbox" data-mig-ptopt="media"' + (rich && w.ptMedia ? ' checked' : '') + (rich ? '' : ' disabled') + '> <strong>Media files</strong> '
+			+ '<small>' + (rich
+				? 'the images and files these posts use — featured images, galleries, attached and inserted media and field images, with all their sizes. Only those files are sent, not the whole uploads folder.'
+				: 'update Diagnostics Toolkit on the remote site to copy the media these posts use') + '</small></label>';
+		var groups = rich ? ptSettingsFor(w) : [];
+		groups.forEach(function (g) {
+			var on = w.ptSettingsOff.indexOf(g.key) === -1;
+			// Items that belong to other post types are not sent, so they are not listed.
+			var names = (g.items || []).filter(function (it) {
+				return typeof it === 'string' || !(it.t || []).length || it.t.some(function (t) { return w.postTypes.indexOf(t) !== -1; });
+			}).map(function (it) { return typeof it === 'string' ? it : String(it.n); }).filter(function (n, i, all) { return all.indexOf(n) === i; });
+			var items = names.slice(0, 6).join(', ') + (names.length > 6 ? ', …' : '');
+			h += '<label><input type="checkbox" data-mig-ptset="' + esc(g.key) + '"' + (on ? ' checked' : '') + '> <strong>' + esc(PT_SETTINGS[g.key][0]) + '</strong> '
+				+ '<small>' + esc(PT_SETTINGS[g.key][1]) + (items ? ' (' + esc(items) + ')' : '') + '</small></label>';
+		});
+		h += '<label><input type="checkbox" data-mig-ptopt="comments"' + (w.ptComments ? ' checked' : '') + '> Comments <small>on the copied posts</small></label>'
+			+ '<label><input type="checkbox" data-mig-ptopt="authors"' + (w.ptAuthors ? ' checked' : '') + '> Missing authors as new users <small>otherwise their posts go to an administrator</small></label></div>';
+		if (!rich) {
+			h += '<p class="wudt-mig-muted">Related settings are offered once Diagnostics Toolkit is updated on the remote site.</p>';
+		}
+		h += '<p class="wudt-mig-muted">Child posts (such as product variations) and the categories, tags and other terms the posts use come along; missing terms are created. '
+			+ 'Image and post IDs in the content and custom fields are updated when they change. Rollback undoes everything, including the settings.</p></div>';
 		return h;
 	}
 
@@ -816,8 +881,8 @@
 
 	function renderOverride(w) {
 		return renderBackup(w) + '<label class="wudt-mig-override' + (w.override ? ' is-on' : '') + '"><input type="checkbox" data-mig-field="override"' + (w.override ? ' checked' : '') + '> '
-			+ (w.mode === 'pick'
-				? '<strong>Always overwrite</strong> — send every selected file even if the destination already has an identical copy. '
+			+ (w.mode === 'pick' || w.mode === 'types'
+				? '<strong>Always overwrite</strong> — send every selected ' + (w.mode === 'types' ? 'media ' : '') + 'file even if the destination already has an identical copy. '
 					+ '<span>Normally only files that differ are sent.</span>'
 				: '<strong>Override everything</strong> — don’t compare; send every selected file and table and replace them on the destination. '
 					+ '<span>Slower, but guarantees an exact copy (use it if a previous migration missed something).</span>')
@@ -828,7 +893,9 @@
 		var isPull = w.direction === 'pull';
 		var label = w.mode === 'pick'
 			? (isPull ? '⬇ Pull ' : '⬆ Push ') + w.files.length + ' selected item' + (w.files.length === 1 ? '' : 's')
-			: (isPull ? '⬇ Start pull' : '⬆ Start push');
+			: (w.mode === 'types'
+				? (isPull ? '⬇ Pull ' : '⬆ Push ') + w.postTypes.length + ' post type' + (w.postTypes.length === 1 ? '' : 's')
+				: (isPull ? '⬇ Start pull' : '⬆ Start push'));
 		var off = canStart && !S.busy ? '' : ' disabled';
 		var h = '<div class="wudt-mig-footer"><button class="button" data-mig="back">Cancel</button>';
 		if (w.sched.open) {
@@ -879,8 +946,8 @@
 		if (sc.frequency === 'monthly' && Number(sc.monthday) > 28) {
 			h += '<p class="wudt-mig-muted">In shorter months it runs on the last day.</p>';
 		}
-		if (w.direction === 'pull' && w.db && w.dbMode !== 'merge' && !(w.dbMode === 'post_types' && w.postTypeSync === 'add')) {
-			h += '<p class="wudt-mig-muted">Every run replaces this site’s ' + (w.dbMode === 'post_types' ? 'posts of the selected types' : (w.dbMode === 'replace_content' ? 'content' : 'database')) + ' with the remote site’s — changes made here in between are lost.</p>';
+		if (w.direction === 'pull' && (w.mode === 'types' ? w.postTypeSync !== 'add' : (w.mode !== 'pick' && w.db && w.dbMode !== 'merge'))) {
+			h += '<p class="wudt-mig-muted">Every run replaces this site’s ' + (w.mode === 'types' ? 'posts of the selected types' : (w.dbMode === 'replace_content' ? 'content' : 'database')) + ' with the remote site’s — changes made here in between are lost.</p>';
 		}
 		if (!w.keepBackup) {
 			h += '<p class="wudt-mig-error-inline">No backup is kept, so scheduled runs cannot be rolled back.</p>';
@@ -1446,7 +1513,7 @@
 			db: true, components: DEFAULT_COMPONENTS.slice(), tableMode: 'all', tables: [],
 			skipUnchanged: true, override: false, excludes: '', excludeDev: true, dbSize: 0,
 			dbMode: 'replace', mergeGroups: ['posts', 'terms', 'comments', 'users'], ptFilter: 'all',
-			postTypes: [], postTypeSync: 'replace', ptComments: true, ptAuthors: true,
+			postTypes: [], postTypeSync: 'replace', ptComments: true, ptAuthors: true, ptMedia: true, ptSettingsOff: [],
 			ptSelected: { plugins: [], themes: [] }, ptSearch: '',
 			mode: '', files: [], keepBackup: true,
 			repo: direction === 'push', liveMedia: false, liveMediaMode: 'missing',
@@ -1557,13 +1624,49 @@
 					+ '\n\nThe database and all other files are not touched. ' + (w.keepBackup ? 'Replaced files are backed up so you can roll back.' : 'NO BACKUP: replaced files cannot be restored.') + ' Continue?'
 			};
 		}
+		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
+		if (w.mode === 'types') {
+			if (!w.postTypes.length || !allTables.length) { return null; }
+			var rich = remoteSupports(w, 'pt_related') && Array.isArray(w.preflight.pt_settings);
+			var media = rich && w.ptMedia;
+			var settings = rich ? ptSettingsSelected(w) : [];
+			var adding = w.postTypeSync === 'add';
+			var lines = ['Posts: ' + w.postTypes.map(function (t) { return ptLabel(w, t); }).join(', ')
+				+ (adding ? ' — ADDED as new posts; existing posts are kept' : ' — the destination’s posts of these types are REPLACED')];
+			lines.push(media ? 'Media files these posts use (only those files)' : 'Media files: not copied');
+			if (settings.length) {
+				lines.push('Related settings: ' + settings.map(function (k) { return PT_SETTINGS[k][0]; }).join(', '));
+			}
+			if (w.ptComments) { lines.push('Comments on these posts'); }
+			if (w.ptAuthors) { lines.push('Missing authors as new users'); }
+			return {
+				params: {
+					site_id: w.siteId,
+					direction: w.direction,
+					components: '[]',
+					tables: JSON.stringify(allTables),
+					// Every table: a schedule then takes whatever tables the source has when it runs.
+					tables_all: 1,
+					override: w.override ? 1 : '',
+					keep_backup: w.keepBackup ? 1 : 0,
+					db_mode: 'post_types',
+					merge_groups: JSON.stringify(['posts', 'terms'].concat(w.ptComments ? ['comments'] : [], w.ptAuthors ? ['users'] : [])),
+					post_types: JSON.stringify(w.postTypes),
+					post_type_sync: w.postTypeSync,
+					post_type_media: media ? 1 : 0,
+					post_type_settings: JSON.stringify(settings)
+				},
+				confirm: (adding ? 'Add to ' : 'Replace on ') + (isPull ? 'THIS site (' + S.data.local_site_url + ')' : s.url) + ':\n\n• ' + lines.join('\n• ')
+					+ '\n\nOther post types, files and settings are not touched.'
+					+ (w.override ? '\n\nOVERRIDE: every media file is sent without comparing.' : '')
+					+ (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?'
+			};
+		}
 		w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
 		var merge = w.dbMode === 'merge';
 		var replaceContent = w.dbMode === 'replace_content';
-		var byType = w.dbMode === 'post_types';
-		var allTables = (w.preflight.tables || []).map(function (t) { return t.name; });
 		// Every table: a schedule then takes whatever tables the source has when it runs.
-		var tablesAll = w.db && (merge ? w.mergeGroups.length > 0 : (byType ? w.postTypes.length > 0 : (replaceContent || w.tableMode === 'all')));
+		var tablesAll = w.db && (merge ? w.mergeGroups.length > 0 : (replaceContent || w.tableMode === 'all'));
 		var tables = w.db ? (tablesAll ? allTables : (merge ? [] : w.tables)) : [];
 		if (!tables.length && !w.components.length) { return null; }
 		if (ptMissing(w).length) { return null; }
@@ -1571,11 +1674,6 @@
 		if (tables.length) {
 			parts.push(merge
 				? 'Database: ADD as new content (' + w.mergeGroups.join(', ') + ') — existing content is kept'
-				: byType
-				? 'Post types: ' + w.postTypes.join(', ') + (w.postTypeSync === 'add'
-					? ' — ADDED as new posts; existing posts are kept'
-					: ' — the destination’s posts of these types are REPLACED')
-					+ (w.ptComments ? ', with comments' : '') + '. Other content and settings are not touched'
 				: (replaceContent
 					? 'Database: replace target users, posts/pages/custom post types, taxonomies and comments; preserve site settings and plugin-specific tables'
 					: tables.length + ' database tables (replaced)'));
@@ -1609,12 +1707,8 @@
 				override: w.override ? 1 : '',
 				excludes: w.excludes,
 				exclude_dev: w.excludeDev && w.components.length ? 1 : '',
-				db_mode: merge ? 'merge' : (byType ? 'post_types' : (replaceContent ? 'replace_content' : 'replace')),
-				merge_groups: JSON.stringify(byType
-					? ['posts', 'terms'].concat(w.ptComments ? ['comments'] : [], w.ptAuthors ? ['users'] : [])
-					: w.mergeGroups),
-				post_types: JSON.stringify(byType ? w.postTypes : []),
-				post_type_sync: w.postTypeSync,
+				db_mode: merge ? 'merge' : (replaceContent ? 'replace_content' : 'replace'),
+				merge_groups: JSON.stringify(w.mergeGroups),
 				pt_filter: w.ptFilter,
 				pt_plugins: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.plugins : []),
 				pt_themes: JSON.stringify(w.ptFilter === 'selected' ? w.ptSelected.themes : []),
@@ -1623,7 +1717,7 @@
 				live_media: liveMedia ? 1 : '',
 				live_media_mode: w.liveMediaMode
 			},
-			confirm: (replaceContent || byType ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?'
+			confirm: (replaceContent ? 'Replace selected content on ' : 'Overwrite ') + target + ' with:\n\n• ' + parts.join('\n• ') + (skipped.length ? '\n\nNot touched: ' + skipped.join(', ') : '') + (w.excludeDev && w.components.length ? '\n\nDevelopment files (.git, .vscode, .claude…) are skipped.' : '') + (w.override ? '\n\nOVERRIDE: every file and table is sent and replaced without comparing.' : '') + (w.keepBackup ? '\n\nThe previous version is kept so you can roll back.' : '\n\nNO BACKUP: the previous version is not kept and this cannot be undone.') + ' Continue?'
 		};
 	}
 
@@ -2051,7 +2145,7 @@
 			}
 		});
 
-		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root input[name="wudt-mig-media"], #wudt-migration-root input[name="wudt-mig-lmmode"], #wudt-migration-root [data-mig-group], #wudt-migration-root [data-mig-pt], #wudt-migration-root [data-mig-posttype], #wudt-migration-root [data-mig-ptopt], #wudt-migration-root input[name="wudt-mig-ptsync"], #wudt-mig-ptfilter', function () {
+		$(document).on('change.wudtmig', '#wudt-migration-root [data-mig-field], #wudt-migration-root [data-mig-comp], #wudt-migration-root [data-mig-table], #wudt-migration-root input[name="wudt-mig-tmode"], #wudt-migration-root input[name="wudt-mig-scope"], #wudt-migration-root input[name="wudt-mig-dbmode"], #wudt-migration-root input[name="wudt-mig-media"], #wudt-migration-root input[name="wudt-mig-lmmode"], #wudt-migration-root [data-mig-group], #wudt-migration-root [data-mig-pt], #wudt-migration-root [data-mig-posttype], #wudt-migration-root [data-mig-ptopt], #wudt-migration-root [data-mig-ptset], #wudt-migration-root input[name="wudt-mig-ptsync"], #wudt-mig-ptfilter', function () {
 			var w = S.wizard;
 			if (!w) { return; }
 			w.excludes = $('#wudt-mig-excludes').val() || w.excludes;
@@ -2079,7 +2173,12 @@
 					if (!w.pick.entries) { loadPicker('core', ''); }
 					return;
 				}
-				if (w.mode === 'pick') {
+				if (sc === 'types') {
+					w.mode = 'types';
+					render();
+					return;
+				}
+				if (w.mode === 'pick' || w.mode === 'types') {
 					w.mode = '';
 					w.components = [];
 				}
@@ -2096,6 +2195,13 @@
 			if ($i.is('[name="wudt-mig-ptsync"]')) { w.postTypeSync = $i.val() === 'add' ? 'add' : 'replace'; }
 			if ($i.is('[data-mig-ptopt="comments"]')) { w.ptComments = $i.is(':checked'); }
 			if ($i.is('[data-mig-ptopt="authors"]')) { w.ptAuthors = $i.is(':checked'); }
+			if ($i.is('[data-mig-ptopt="media"]')) { w.ptMedia = $i.is(':checked'); }
+			var ptSet = $i.data('mig-ptset');
+			if (ptSet) {
+				ptSet = String(ptSet);
+				w.ptSettingsOff = w.ptSettingsOff.filter(function (k) { return k !== ptSet; });
+				if (!$i.is(':checked')) { w.ptSettingsOff.push(ptSet); }
+			}
 			var postType = $i.data('mig-posttype');
 			if (postType) {
 				postType = String(postType);
